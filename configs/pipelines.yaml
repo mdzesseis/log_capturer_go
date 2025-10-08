@@ -1,0 +1,222 @@
+pipelines:
+  # Pipeline padrão para logs não categorizados
+  - name: default
+    description: "Pipeline padrão para processamento básico de logs"
+    steps:
+      - name: extract_log_level
+        type: log_level_extract
+        config:
+          pattern: '(?i)(debug|info|warn|warning|error|fatal|trace)'
+          field: level
+
+      - name: add_default_labels
+        type: field_add
+        config:
+          fields:
+            job: "ssw-logs-capture"
+            environment: "production"
+
+  # Pipeline para containers MySQL
+  - name: mysql
+    description: "Pipeline específico para logs do MySQL"
+    steps:
+      - name: extract_log_level
+        type: log_level_extract
+        config:
+          pattern: '(?i)(note|warning|error)'
+          field: level
+
+      - name: extract_mysql_fields
+        type: regex_extract
+        config:
+          pattern: '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\d+\s+(\w+)\s+(.+)$'
+          fields: ["mysql_timestamp", "mysql_command", "mysql_query"]
+        condition: '^\d{4}-\d{2}-\d{2}T'
+
+      - name: add_mysql_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "database"
+
+  # Pipeline para containers de aplicação
+  - name: application
+    description: "Pipeline para logs de aplicações"
+    steps:
+      - name: parse_json
+        type: json_parse
+        config:
+          field: message
+        condition: '^\s*\{'
+
+      - name: extract_log_level
+        type: log_level_extract
+        config:
+          pattern: '(?i)"level":\s*"(debug|info|warn|warning|error|fatal|trace)"'
+          field: level
+
+      - name: extract_json_timestamp
+        type: timestamp_parse
+        config:
+          format: "2006-01-02T15:04:05Z07:00"
+          field: "timestamp"
+          target_field: "parsed_timestamp"
+          use_as_log_timestamp: true
+        condition: '"timestamp":'
+
+      - name: extract_timestamp_alt
+        type: timestamp_parse
+        config:
+          format: "2006-01-02T15:04:05.000Z"
+          field: timestamp_field
+          target_field: parsed_timestamp
+        condition: '"timestamp":'
+
+      - name: add_app_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "application"
+
+  # Pipeline para logs do FreeSWITCH
+  - name: freeswitch
+    description: "Pipeline específico para logs do FreeSWITCH"
+    steps:
+      - name: extract_freeswitch_level
+        type: regex_extract
+        config:
+          pattern: '^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+\[(\w+)\]'
+          fields: ["fs_timestamp", "fs_level"]
+
+      - name: extract_call_info
+        type: regex_extract
+        config:
+          pattern: 'uuid_bridge\s+(\S+)\s+(\S+)'
+          fields: ["call_uuid_a", "call_uuid_b"]
+        condition: 'uuid_bridge'
+
+      - name: add_freeswitch_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "telephony"
+
+  # Pipeline para logs do Prometheus
+  - name: prometheus
+    description: "Pipeline para logs do Prometheus"
+    steps:
+      - name: extract_prometheus_level
+        type: regex_extract
+        config:
+          pattern: 'level=(\w+)'
+          fields: ["prom_level"]
+
+      - name: extract_prometheus_component
+        type: regex_extract
+        config:
+          pattern: 'component=(\w+)'
+          fields: ["prom_component"]
+
+      - name: add_prometheus_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "monitoring"
+
+  # Pipeline para logs do Grafana
+  - name: grafana
+    description: "Pipeline para logs do Grafana"
+    steps:
+      - name: extract_grafana_info
+        type: regex_extract
+        config:
+          pattern: 't=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{4})\s+lvl=(\w+)'
+          fields: ["graf_timestamp", "graf_level"]
+
+      - name: add_grafana_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "visualization"
+
+  # Pipeline para logs do syslog
+  - name: syslog
+    description: "Pipeline para logs do syslog"
+    steps:
+      - name: parse_syslog_timestamp
+        type: timestamp_parse
+        config:
+          auto_detect: true
+          use_as_log_timestamp: true
+          timezone: "Local"
+          formats:
+            - "2006-01-02T15:04:05.000000-07:00"
+            - "Jan 2 15:04:05"
+            - "Jan _2 15:04:05"
+
+      - name: extract_syslog_info
+        type: regex_extract
+        config:
+          pattern: '(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:]+):\s+(.+)'
+          fields: ["syslog_timestamp", "hostname", "service_name", "log_message"]
+
+      - name: add_syslog_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "syslog"
+
+  # Pipeline para logs do kernel
+  - name: kernel
+    description: "Pipeline para logs do kernel (dmesg, kern.log)"
+    steps:
+      - name: parse_kernel_timestamp
+        type: timestamp_parse
+        config:
+          auto_detect: true
+          use_as_log_timestamp: true
+          timezone: "Local"
+
+      - name: extract_kernel_info
+        type: regex_extract
+        config:
+          pattern: '^\[(\s*\d+\.\d+)\]\s+(.+)'
+          fields: ["kernel_time", "kernel_message"]
+
+      - name: add_kernel_labels
+        type: field_add
+        config:
+          fields:
+            log_type: "kernel"
+
+# Mapeamento de sources para pipelines
+source_mapping:
+  mysql:
+    - "mysql"
+    - "container_name:mysql"
+
+  freeswitch:
+    - "freeswitch"
+    - "container_name:freeswitch"
+
+  prometheus:
+    - "prometheus"
+    - "container_name:prometheus"
+
+  grafana:
+    - "grafana"
+    - "container_name:grafana"
+
+  application:
+    - "container_name:log_generator"
+    - "container_name:ssw-logs-capture"
+
+  syslog:
+    - "file_path:/var/log/syslog"
+    - "file_name:syslog"
+
+  kernel:
+    - "file_path:/var/log/dmesg"
+    - "file_path:/var/log/kern.log"
+    - "file_name:dmesg"
+    - "file_name:kern.log"

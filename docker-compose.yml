@@ -1,0 +1,223 @@
+services:
+  # SSW Logs Capture Go - Main Application
+  log_capturer_go:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - DOCKER_GID=${DOCKER_GID:-1001}
+    container_name: log_capturer_go
+    restart: unless-stopped
+    privileged: true
+    user: "0:0"  # Run as root for file access, or remove when using setup script
+    # Override container command to use config file
+    command: ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
+    # Carrega variáveis de ambiente do arquivo .env
+    # env_file:
+    #   - .env
+    environment:
+      # Sobrescrever configurações específicas para Docker Compose
+      - SSW_CONFIG_FILE=/app/configs/config.yaml
+      - SSW_PIPELINES_FILE=/app/configs/pipelines.yaml
+      - SSW_FILE_CONFIG=/app/configs/file_pipeline.yml
+      - SERVER_HOST=0.0.0.0
+      - METRICS_HOST=0.0.0.0
+      - LOKI_URL=http://loki:3100
+      - DOCKER_SOCKET_PATH=unix:///var/run/docker.sock
+      - DOCKER_GID=${DOCKER_GID:-1001}
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=json
+      - DEBUG_MODE=true
+    ports:
+      - "8401:8401"  # API
+      - "8001:8001"  # Metrics
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./configs:/app/configs:ro
+      - /var/log/monitoring_data/logs:/logs
+      - /var/lib/docker/containers:/var/lib/docker/containers
+      - /var/log/monitoring_data/data:/app/data
+      - /var/log/monitoring_data/dlq:/app/dlq
+      - /var/log/monitoring_data/batch_persistence:/app/batch_persistence
+      - /var/log/monitoring_data/debug:/app/debug
+      - /var/log:/var/log:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    # networks:
+    #   - logs-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8401/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # SSW Logs Capture Test Runner - Container sidecar para testes
+  test_runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: ssw-logs-capture-test
+    restart: "no"  # Não reiniciar automaticamente
+    environment:
+      - COVERAGE_THRESHOLD=94
+      - TEST_TIMEOUT=10m
+      - DAEMON_MODE=false
+      - GO_ENV=test
+    ports:
+      - "9090:9090"  # Health check port
+    volumes:
+      - ./test-results:/app/test-results
+      - ./coverage:/app/coverage
+      - ./test-data:/app/test-data
+    # networks:
+    #   - logs-network
+    profiles:
+      - testing  # Só inicia quando profile 'testing' é especificado
+    command: ["test-runner.sh", "all"]
+
+  # Grafana Loki - Log aggregation system
+  loki:
+    image: grafana/loki:3.5.3
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    environment:
+      - TZ=UTC
+      - LOKI_MAX_DATA_SIZE=5GB
+      - LOKI_CLEANUP_ENABLED=true
+      - LOKI_RETENTION_POLICY=size_and_time
+    # networks:
+    #   - logs-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Grafana - Visualization and dashboards
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    # networks:
+    #   - logs-network
+
+  # Prometheus - Metrics collection
+  prometheus:
+    image: prom/prometheus:v2.46.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    # networks:
+    #   - logs-network
+
+  # MySQL - Database for testing container logs
+  # mysql:
+  #   image: mysql:8.0
+  #   container_name: mysql
+  #   restart: unless-stopped
+  #   environment:
+  #     - MYSQL_ROOT_PASSWORD=rootpass
+  #     - MYSQL_DATABASE=testdb
+  #     - MYSQL_USER=testuser
+  #     - MYSQL_PASSWORD=testpass
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   networks:
+  #     - logs-network
+  #   command: >
+  #     --general-log=1
+  #     --general-log-file=/var/lib/mysql/general.log
+  #     --slow-query-log=1
+  #     --slow-query-log-file=/var/lib/mysql/slow.log
+  #     --long-query-time=2
+
+  # Test Log Generator - Generates test logs
+  log_generator:
+    image: alpine:3.19
+    container_name: log_generator
+    restart: unless-stopped
+    command: >
+      sh -c "
+        while true; do
+          echo \"{\\\"timestamp\\\":\\\"\$$(date -Iseconds)\\\",\\\"level\\\":\\\"info\\\",\\\"message\\\":\\\"Test log entry \$$RANDOM\\\",\\\"component\\\":\\\"test_generator\\\"}\"
+          sleep 5
+          echo \"{\\\"timestamp\\\":\\\"\$$(date -Iseconds)\\\",\\\"level\\\":\\\"warn\\\",\\\"message\\\":\\\"Warning test message \$$RANDOM\\\",\\\"component\\\":\\\"test_generator\\\"}\"
+          sleep 10
+          echo \"{\\\"timestamp\\\":\\\"\$$(date -Iseconds)\\\",\\\"level\\\":\\\"error\\\",\\\"message\\\":\\\"Error test message \$$RANDOM\\\",\\\"component\\\":\\\"test_generator\\\"}\"
+          sleep 15
+        done
+      "
+    # networks:
+    #   - logs-network
+
+  loki-monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile.loki-monitor
+    container_name: loki-monitor
+    restart: unless-stopped
+    volumes:
+      - loki_data:/loki:ro
+      - ./scripts:/scripts:ro
+      - loki_monitoring:/tmp/monitoring
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=America/Sao_Paulo
+      - LOKI_DATA_DIR=/loki
+      - MAX_SIZE_GB=1
+      - CLEANUP_THRESHOLD_PERCENT=80
+      - CHECK_INTERVAL=300  # 5 minutos
+      - LOKI_API_URL=http://loki:3100
+      - METRICS_OUTPUT_DIR=/tmp/monitoring
+      - METRICS_PORT=9091  
+    ports:
+      - "9091:9091"
+    depends_on:
+      loki:
+        condition: service_healthy
+    labels:
+      - 'monitoring=true'
+
+volumes:
+  log_capturer_data:
+  loki_data:
+  loki_monitoring:
+  grafana_data:
+  prometheus_data:
+  # mysql_data:
+
+# networks:
+#   logs-network:
+#     driver: bridge

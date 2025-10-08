@@ -1,0 +1,38 @@
+# Dockerfile para desenvolvimento - uso rápido
+FROM alpine:3.19
+
+# Accept DOCKER_GID as build argument
+ARG DOCKER_GID=1001
+
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -g ${DOCKER_GID} docker && \
+    adduser -D -u 1000 appuser && \
+    adduser appuser docker && \
+    mkdir -p /app /logs /app/data/positions /app/configs /var/log/monitoring_data && \
+    chown -R appuser:appuser /app /logs /var/log/monitoring_data && \
+    chmod 755 /var/log/monitoring_data
+
+# Copy pre-built binary (must be built locally first)
+COPY ssw-logs-capture /app/
+
+# Copy configuration files
+COPY --chown=appuser:appuser config.yml /app/configs/
+COPY --chown=appuser:appuser configs/pipelines.yaml /app/configs/
+
+# Set permissions
+RUN chmod +x /app/ssw-logs-capture
+
+# Set working directory and user
+WORKDIR /app
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=60s --timeout=5s --start-period=10s --retries=2 \
+    CMD nc -z localhost 8401 || exit 1
+
+# Expose ports
+EXPOSE 8401 8001
+
+# Start command
+CMD ["./ssw-logs-capture", "--config", "/app/configs/config.yml"]

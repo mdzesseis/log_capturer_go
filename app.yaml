@@ -1,0 +1,66 @@
+# Configuração de exemplo para SSW Logs Capture Go
+# Este arquivo pode ser usado com a flag -config
+
+api:
+  enabled: true
+  port: 8401
+  host: "0.0.0.0"
+
+docker:
+  enabled: true
+  socket_path: "/var/run/docker.sock"
+  max_concurrent: 50
+  reconnect_interval: "30s"
+  health_check_delay: "10s"
+
+file:
+  enabled: true
+  poll_interval: "1s"
+  max_open_files: 100
+  buffer_size: 65536
+  positions_path: "/app/data/positions"
+
+sinks:
+  loki:
+    enabled: true
+    url: "http://localhost:3100"
+    batch_size: 100
+    batch_wait: "5s"
+    timeout: "30s"
+    compression: true
+    username: ""
+    password: ""
+
+  local_file:
+    enabled: true
+    directory: "/logs"
+    max_size_mb: 100
+    max_files: 10
+    compress: true
+
+  elasticsearch:
+    enabled: false
+    urls: ["http://elasticsearch:9200"]
+    index: "logs"
+    batch_size: 100
+    username: ""
+    password: ""
+
+  splunk:
+    enabled: false
+    url: "https://splunk:8088"
+    token: ""
+    index: "main"
+
+metrics:
+  enabled: true
+  port: 8001
+  path: "/metrics"
+
+logging:
+  level: "info"  # debug, info, warn, error
+  format: "json"  # json, text
+
+pipeline:
+  enabled: true
+  file: "configs/pipelines.yaml"

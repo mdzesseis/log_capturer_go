@@ -1,0 +1,278 @@
+# =============================================================================
+# CONFIGURAÇÃO SIMPLIFICADA - SSW LOGS CAPTURE GO
+# =============================================================================
+# Configuração baseada na estrutura esperada pelo código Go
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES GERAIS DA APLICAÇÃO
+# -----------------------------------------------------------------------------
+app:
+  name: "ssw-logs-capture"
+  version: "v0.0.2"
+  environment: "production"
+  log_level: "info"
+  log_format: "json"
+  log_file: ""
+  operation_timeout: "1h"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO SERVIDOR HTTP
+# -----------------------------------------------------------------------------
+server:
+  port: 8401
+  host: "0.0.0.0"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+  max_header_bytes: 1048576
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE MÉTRICAS
+# -----------------------------------------------------------------------------
+metrics:
+  enabled: true
+  port: 8001
+  path: "/metrics"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE PADRÕES DE ARQUIVOS (DEFAULTS)
+# -----------------------------------------------------------------------------
+# Estas configurações são DEFAULTS e só serão aplicadas se:
+# 1. file_monitor_service está enabled
+# 2. Não existe file_pipeline.yml OU o recurso não está configurado no pipeline
+files_config:
+  watch_directories:
+    - "/var/log"
+  include_patterns:
+    - "*.log"
+    - "*.txt"
+    - "syslog"
+    - "dmesg"
+    - "kern.log"
+    - "messages"
+  exclude_patterns:
+    - "*.gz"
+    - "*.zip"
+    - "*.old"
+    - "*.bak"
+    - "*~"
+  exclude_directories:
+    - "/var/log/monitoring_data"
+    - "/app/logs"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO SERVIÇO DE MONITORAMENTO DE ARQUIVOS
+# -----------------------------------------------------------------------------
+file_monitor_service:
+  enabled: true
+  pipeline_file: "/app/configs/file_pipeline.yml"
+  poll_interval: "1s"
+  read_buffer_size: 65536
+  read_interval: "100ms"
+  recursive: true
+  follow_symlinks: false
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES LEGADAS DE MONITORAMENTO DE ARQUIVOS (COMPATIBILIDADE)
+# -----------------------------------------------------------------------------
+# DEPRECATED: Use files_config e file_monitor_service ao invés de file_monitor
+# Esta seção é mantida apenas para compatibilidade com versões antigas
+# file_monitor:
+#   enabled: true
+#   watch_directories:
+#     - "/var/log"
+#   include_patterns:
+#     - "*.log"
+#     - "*.txt"
+#   exclude_patterns:
+#     - "*.gz"
+#     - "*.zip"
+#   exclude_directories:
+#     - "/var/log/monitoring_data"
+#     - "/app/logs"
+#   poll_interval: "1s"
+#   read_buffer_size: 65536
+#   read_interval: "100ms"
+#   recursive: true
+#   follow_symlinks: false
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE MONITORAMENTO DE CONTAINERS
+# -----------------------------------------------------------------------------
+container_monitor:
+  enabled: true
+  socket_path: "unix:///var/run/docker.sock"
+  health_check_delay: "30s"
+  reconnect_interval: "30s"
+  max_concurrent: 50
+  include_labels: {}
+  exclude_labels: {}
+  include_names: []
+  exclude_names:
+    - "log_capturer_go"
+  include_stdout: true
+  include_stderr: true
+  tail_lines: 100
+  follow: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO DISPATCHER
+# -----------------------------------------------------------------------------
+dispatcher:
+  queue_size: 50000
+  worker_count: 6
+  send_timeout: "15s"
+  batch_size: 200
+  batch_timeout: "3s"
+  max_retries: 3
+  retry_base_delay: "1s"
+  retry_multiplier: 2
+  retry_max_delay: "30s"
+  deduplication_enabled: true
+  deduplication_config:
+    max_cache_size: 100000
+    ttl: "1h"
+    cleanup_interval: "10m"
+    cleanup_threshold: 0.8
+    hash_algorithm: "sha256"
+    include_timestamp: false
+    include_source_id: true
+  dlq_enabled: false
+  dlq_config:
+    directory: "/app/dlq"
+    max_size_mb: 100
+    max_files: 10
+    retention_days: 7
+    write_timeout: "5s"
+    retry_delay: "30s"
+    max_retries: 3
+    alert_config:
+      enabled: true
+      entries_per_minute_threshold: 50
+      total_entries_threshold: 1000
+      queue_size_threshold: 8000
+      check_interval: "1m"
+      cooldown_period: "5m"
+      webhook_url: ""
+      email_to: ""
+      include_stats: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DOS SINKS
+# -----------------------------------------------------------------------------
+sinks:
+  loki:
+    enabled: true
+    url: "http://loki:3100"
+    push_endpoint: "/loki/api/v1/push"
+    tenant_id: ""
+    timeout: "30s"
+    batch_size: 1000
+    batch_timeout: "10s"
+    max_request_size: 1048576
+    queue_size: 30000
+    default_labels:
+      environment: "production"
+      version: "v0.0.2"
+    headers:
+      "User-Agent": "ssw-logs-capture/v0.0.2"
+      "Content-Type": "application/json"
+    auth:
+      type: "none"
+      username: ""
+      password: ""
+      token: ""
+    tls:
+      enabled: false
+      verify_certificate: true
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+
+  local_file:
+    enabled: true
+    directory: "/app/logs/output"
+    filename_pattern: "logs-{date}-{hour}.log"
+    output_format: "text"
+    text_format:
+      include_timestamp: true
+      timestamp_format: "2006-01-02 15:04:05.000"
+      include_labels: true
+      field_separator: " | "
+    rotation:
+      enabled: true
+      max_size_mb: 100
+      max_files: 10
+      retention_days: 7
+      compress: true
+    auto_sync: true
+    sync_interval: "30s"
+    file_permissions: "0644"
+    dir_permissions: "0755"
+    queue_size: 30000
+
+  elasticsearch:
+    enabled: false
+    urls: []
+    index: ""
+    batch_size: 0
+    username: ""
+    password: ""
+
+  splunk:
+    enabled: false
+    url: ""
+    token: ""
+    index: ""
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE PROCESSAMENTO
+# -----------------------------------------------------------------------------
+processing:
+  enabled: true
+  pipelines_file: "pipelines.yaml"
+  worker_count: 2
+  queue_size: 5000
+  processing_timeout: "5s"
+  skip_failed_logs: true
+  enrich_logs: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE POSIÇÕES
+# -----------------------------------------------------------------------------
+positions:
+  enabled: true
+  directory: "/app/data/positions"
+  flush_interval: "15s"
+  max_memory_buffer: 5000
+  max_memory_positions: 20000
+  force_flush_on_exit: true
+  cleanup_interval: "2m"
+  max_position_age: "24h"
+
+# =============================================================================
+# CONFIGURAÇÕES LEGACY (COMPATIBILIDADE)
+# =============================================================================
+# Estas são criadas automaticamente pelo sistema de configuração
+
+api:
+  enabled: true
+  port: 8401
+  host: "0.0.0.0"
+
+docker:
+  enabled: true
+  socket_path: "unix:///var/run/docker.sock"
+  max_concurrent: 50
+
+file:
+  enabled: true
+
+logging:
+  level: "info"
+  format: "json"
+
+pipeline:
+  enabled: true
+  file: "/app/configs/pipelines.yaml"
