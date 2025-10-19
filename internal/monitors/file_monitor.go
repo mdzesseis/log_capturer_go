@@ -16,7 +16,9 @@ import (
 
 	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/positions"
+	"ssw-logs-capture/pkg/selfguard"
 	"ssw-logs-capture/pkg/types"
+	"ssw-logs-capture/pkg/validation"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/sirupsen/logrus"
@@ -26,13 +28,16 @@ import (
 // FileMonitor monitora arquivos de log
 type FileMonitor struct {
 	config         types.FileConfig
-	dispatcher     types.Dispatcher
-	logger         *logrus.Logger
-	taskManager    types.TaskManager
-	positionManager *positions.PositionBufferManager
+	dispatcher       types.Dispatcher
+	logger           *logrus.Logger
+	taskManager      types.TaskManager
+	positionManager    *positions.PositionBufferManager
+	timestampValidator *validation.TimestampValidator
+	feedbackGuard      *selfguard.FeedbackGuard
 
 	watcher         *fsnotify.Watcher
 	files           map[string]*monitoredFile
+	lastQuietLogTime map[string]time.Time  // Rate limiting for quiet file logs
 	specificFiles   map[string]bool // Arquivos específicos do pipeline (precedência)
 	mutex           sync.RWMutex
 
@@ -53,7 +58,7 @@ type monitoredFile struct {
 }
 
 // NewFileMonitor cria um novo monitor de arquivos
-func NewFileMonitor(config types.FileConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*FileMonitor, error) {
+func NewFileMonitor(config types.FileConfig, timestampConfig types.TimestampValidationConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*FileMonitor, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file watcher: %w", err)
@@ -61,17 +66,46 @@ func NewFileMonitor(config types.FileConfig, dispatcher types.Dispatcher, taskMa
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Converter config para o formato do validation package
+	validationConfig := validation.Config{
+		Enabled:             timestampConfig.Enabled,
+		MaxPastAgeSeconds:   timestampConfig.MaxPastAgeSeconds,
+		MaxFutureAgeSeconds: timestampConfig.MaxFutureAgeSeconds,
+		ClampEnabled:        timestampConfig.ClampEnabled,
+		ClampDLQ:            timestampConfig.ClampDLQ,
+		InvalidAction:       timestampConfig.InvalidAction,
+		DefaultTimezone:     timestampConfig.DefaultTimezone,
+		AcceptedFormats:     timestampConfig.AcceptedFormats,
+	}
+	timestampValidator := validation.NewTimestampValidator(validationConfig, logger, nil)
+
+	// Criar feedback guard com configuração padrão
+	feedbackConfig := selfguard.Config{
+		Enabled:                false,
+		SelfIDShort:            "log_capturer_go",
+		SelfContainerName:      "log_capturer_go",
+		SelfNamespace:          "ssw",
+		AutoDetectSelf:         true,
+		SelfLogAction:          "drop",
+		ExcludePathPatterns:    []string{".*/app/logs/.*"},
+		ExcludeMessagePatterns: []string{".*ssw-logs-capture.*"},
+	}
+	feedbackGuard := selfguard.NewFeedbackGuard(feedbackConfig, logger)
+
 	fm := &FileMonitor{
-		config:          config,
-		dispatcher:      dispatcher,
-		logger:          logger,
-		taskManager:     taskManager,
-		positionManager: positionManager,
-		watcher:         watcher,
-		files:           make(map[string]*monitoredFile),
-		specificFiles:   make(map[string]bool),
-		ctx:             ctx,
-		cancel:          cancel,
+		config:             config,
+		dispatcher:         dispatcher,
+		logger:             logger,
+		taskManager:        taskManager,
+		positionManager:    positionManager,
+		timestampValidator: timestampValidator,
+		feedbackGuard:      feedbackGuard,
+		watcher:            watcher,
+		files:              make(map[string]*monitoredFile),
+		lastQuietLogTime:   make(map[string]time.Time),
+		specificFiles:      make(map[string]bool),
+		ctx:                ctx,
+		cancel:             cancel,
 	}
 
 	return fm, nil
@@ -102,13 +136,24 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	// Iniciar descoberta automática de arquivos em background após 2 segundos
 	go func() {
 		fm.logger.Info("Starting file discovery goroutine")
-		time.Sleep(2 * time.Second)
+
+		// Aguardar 2 segundos ou até o contexto ser cancelado
+		select {
+		case <-time.After(2 * time.Second):
+			// Continuar com a descoberta
+		case <-ctx.Done():
+			fm.logger.Info("File discovery goroutine cancelled during startup delay")
+			return
+		}
+
 		fm.logger.Info("Beginning automatic file discovery")
 		if err := fm.discoverFiles(); err != nil {
 			fm.logger.WithError(err).Warn("Failed to discover files during startup")
 		} else {
 			fm.logger.Info("Automatic file discovery completed successfully")
 		}
+
+		fm.logger.Info("File discovery goroutine completed")
 	}()
 
 	// Iniciar task de monitoramento principal
@@ -310,6 +355,23 @@ func (fm *FileMonitor) handleFileEvent(event fsnotify.Event) {
 	}
 }
 
+// shouldLogQuietFile checks if enough time has passed to log quiet file message again
+func (fm *FileMonitor) shouldLogQuietFile(filePath string) bool {
+	fm.mutex.Lock()
+	defer fm.mutex.Unlock()
+
+	lastLogTime, exists := fm.lastQuietLogTime[filePath]
+	now := time.Now()
+
+	// Log only once per hour for each file
+	if !exists || now.Sub(lastLogTime) >= time.Hour {
+		fm.lastQuietLogTime[filePath] = now
+		return true
+	}
+
+	return false
+}
+
 // pollFiles verifica arquivos periodicamente
 func (fm *FileMonitor) pollFiles() {
 	fm.mutex.RLock()
@@ -377,13 +439,25 @@ func (fm *FileMonitor) pollFiles() {
 				}
 			}
 
-			fm.logger.WithFields(logrus.Fields{
-				"path":               mf.path,
-				"minutes_since_read": int(timeSinceLastRead.Minutes()),
-				"last_read":          mf.lastRead,
-				"last_mod_time":      info.ModTime(),
-				"has_recent_changes": hasRecentChanges,
-			}).Log(logLevel, message)
+			// Only log quiet file messages once per hour to reduce log spam
+			if logLevel == logrus.DebugLevel && fm.shouldLogQuietFile(mf.path) {
+				fm.logger.WithFields(logrus.Fields{
+					"path":               mf.path,
+					"minutes_since_read": int(timeSinceLastRead.Minutes()),
+					"last_read":          mf.lastRead,
+					"last_mod_time":      info.ModTime(),
+					"has_recent_changes": hasRecentChanges,
+				}).Log(logLevel, message)
+			} else if logLevel != logrus.DebugLevel {
+				// Always log warning/error level messages (like reconnection attempts)
+				fm.logger.WithFields(logrus.Fields{
+					"path":               mf.path,
+					"minutes_since_read": int(timeSinceLastRead.Minutes()),
+					"last_read":          mf.lastRead,
+					"last_mod_time":      info.ModTime(),
+					"has_recent_changes": hasRecentChanges,
+				}).Log(logLevel, message)
+			}
 		}
 	}
 }
@@ -449,6 +523,45 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 		// Processar linha com labels padrão
 		sourceID := fm.getSourceID(mf.path)
 		standardLabels := addStandardLabelsFile(mf.labels)
+
+		// Criar entry para validações
+		entry := &types.LogEntry{
+			Timestamp:   time.Now(),
+			Message:     line,
+			SourceType:  "file",
+			SourceID:    sourceID,
+			Labels:      standardLabels,
+			ProcessedAt: time.Now(),
+		}
+
+		// Verificar se é self-log usando feedback guard (temporariamente desabilitado)
+		/*
+		if fm.feedbackGuard != nil {
+			guardResult := fm.feedbackGuard.CheckEntry(entry)
+			if guardResult.IsSelfLog && guardResult.Action == "drop" {
+				fm.logger.WithFields(logrus.Fields{
+					"path":          mf.path,
+					"reason":        guardResult.Reason,
+					"match_pattern": guardResult.MatchPattern,
+				}).Debug("Self-log dropped by feedback guard")
+				continue
+			}
+		}
+		*/
+
+		// Validar timestamp se o timestamp validator estiver disponível
+		if fm.timestampValidator != nil {
+			result := fm.timestampValidator.ValidateTimestamp(entry)
+			if !result.Valid && result.Action == "rejected" {
+				fm.logger.WithFields(logrus.Fields{
+					"path":   mf.path,
+					"reason": result.Reason,
+					"line":   line,
+				}).Warn("Log line rejected due to invalid timestamp")
+				continue
+			}
+		}
+
 		if err := fm.dispatcher.Handle(fm.ctx, "file", sourceID, line, standardLabels); err != nil {
 			fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to dispatch log line")
 			metrics.RecordError("file_monitor", "dispatch_error")
@@ -850,27 +963,8 @@ func (fm *FileMonitor) generateLabelsForFile(filePath string) map[string]string 
 	labels["file_path"] = filePath
 	labels["file_name"] = fileName
 
-	// Labels específicos baseado no nome do arquivo
-	switch {
-	case strings.Contains(fileName, "syslog"):
-		labels["log_type"] = "syslog"
-		labels["service"] = "system"
-	case strings.Contains(fileName, "kern") || strings.Contains(fileName, "dmesg"):
-		labels["log_type"] = "kernel"
-		labels["service"] = "kernel"
-	case strings.Contains(fileName, "auth"):
-		labels["log_type"] = "auth"
-		labels["service"] = "security"
-	case strings.Contains(fileName, "nginx") || strings.Contains(fileName, "apache"):
-		labels["log_type"] = "access"
-		labels["service"] = "web"
-	case strings.Contains(fileName, "mysql") || strings.Contains(fileName, "postgres"):
-		labels["log_type"] = "database"
-		labels["service"] = "database"
-	default:
-		labels["log_type"] = "application"
-		labels["service"] = "application"
-	}
+	// Label padrão de serviço
+	labels["service"] = "ssw-log-capturer"
 
 	return labels
 }
@@ -919,13 +1013,34 @@ func addStandardLabelsFile(labels map[string]string) map[string]string {
 	// Criar um novo mapa copiando as labels existentes
 	result := make(map[string]string)
 
-	// Copiar labels existentes primeiro
+	// Copiar apenas labels permitidas (filtrar labels indesejadas)
+	forbiddenLabels := map[string]bool{
+		"test_label":                               true,
+		"service_name":                             true,
+		"project":                                  true,
+		"log_type":                                 true,
+		"maintainer":                               true,
+		"job":                                      true,
+		"environment":                              true,
+		"com.docker.compose.project":               true,
+		"com.docker.compose.project.config_files": true,
+		"com.docker.compose.project.working_dir":   true,
+		"com.docker.compose.config-hash":           true,
+		"com.docker.compose.version":               true,
+		"com.docker.compose.oneoff":                true,
+		"com.docker.compose.depends_on":            true,
+		"com.docker.compose.image":                 true,
+		"org.opencontainers.image.source":          true,
+	}
+
 	for k, v := range labels {
-		result[k] = v
+		if !forbiddenLabels[k] {
+			result[k] = v
+		}
 	}
 
 	// Labels padrão obrigatórias (sobrescrevem as existentes)
-	result["service"] = "log_capturer"
+	result["service"] = "ssw-log-capturer"
 	result["source"] = "file"
 	result["instance"] = getHostIPFile()
 	result["instance_name"] = getHostnameFile()

@@ -444,7 +444,6 @@ func (tpp *TimestampParseProcessor) Process(ctx context.Context, entry *types.Lo
 	// Definir timestamp principal se solicitado
 	if tpp.UseAsLogTime || tpp.TargetField == "timestamp" {
 		newEntry.Timestamp = parsedTime
-		newEntry.Labels["parsed_timestamp"] = parsedTime.Format(time.RFC3339)
 	} else {
 		newEntry.Labels[tpp.TargetField] = parsedTime.Format(time.RFC3339)
 	}

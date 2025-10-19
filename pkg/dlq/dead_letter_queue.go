@@ -1,11 +1,14 @@
 package dlq
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
+
+// ReprocessCallback função callback para reprocessamento
+type ReprocessCallback func(entry types.LogEntry, originalSink string) error
 
 // DeadLetterQueue gerencia logs que falharam no processamento
 type DeadLetterQueue struct {
@@ -30,6 +36,9 @@ type DeadLetterQueue struct {
 
 	// Monitoramento de alertas
 	alertManager *AlertManager
+
+	// Callback para reprocessamento
+	reprocessCallback ReprocessCallback
 }
 
 // Config configuração da DLQ
@@ -63,6 +72,39 @@ type Config struct {
 
 	// Configurações de alerta
 	AlertConfig AlertConfig `yaml:"alert_config"`
+
+	// Configurações de reprocessamento
+	ReprocessingConfig ReprocessingConfig `yaml:"reprocessing_config"`
+}
+
+// ReprocessingConfig configuração de reprocessamento da DLQ
+type ReprocessingConfig struct {
+	// Habilitar reprocessamento automático
+	Enabled bool `yaml:"enabled"`
+
+	// Intervalo entre tentativas de reprocessamento
+	Interval time.Duration `yaml:"interval"`
+
+	// Número máximo de tentativas de reprocessamento por entrada
+	MaxRetries int `yaml:"max_retries"`
+
+	// Delay inicial entre tentativas
+	InitialDelay time.Duration `yaml:"initial_delay"`
+
+	// Multiplicador para delay exponencial
+	DelayMultiplier float64 `yaml:"delay_multiplier"`
+
+	// Delay máximo entre tentativas
+	MaxDelay time.Duration `yaml:"max_delay"`
+
+	// Número máximo de entradas para processar por batch
+	BatchSize int `yaml:"batch_size"`
+
+	// Timeout para cada tentativa de reenvio
+	Timeout time.Duration `yaml:"timeout"`
+
+	// Idade mínima das entradas para serem reprocessadas
+	MinEntryAge time.Duration `yaml:"min_entry_age"`
 }
 
 // AlertConfig configuração de alertas da DLQ
@@ -105,6 +147,13 @@ type DLQEntry struct {
 	RetryCount    int               `json:"retry_count"`
 	Context       map[string]string `json:"context,omitempty"`
 	StackTrace    string            `json:"stack_trace,omitempty"`
+
+	// Campos para reprocessamento
+	ReprocessAttempts    int       `json:"reprocess_attempts"`
+	LastReprocessAttempt time.Time `json:"last_reprocess_attempt,omitempty"`
+	NextReprocessTime    time.Time `json:"next_reprocess_time,omitempty"`
+	ReprocessingEnabled  bool      `json:"reprocessing_enabled"`
+	EntryID              string    `json:"entry_id"` // ID único para tracking
 }
 
 // Stats estatísticas da DLQ
@@ -115,6 +164,13 @@ type Stats struct {
 	CurrentQueueSize int  `json:"current_queue_size"`
 	FilesCreated    int64 `json:"files_created"`
 	LastFlush       time.Time `json:"last_flush"`
+
+	// Estatísticas de reprocessamento
+	ReprocessingAttempts int64     `json:"reprocessing_attempts"`
+	ReprocessingSuccesses int64    `json:"reprocessing_successes"`
+	ReprocessingFailures  int64    `json:"reprocessing_failures"`
+	LastReprocessing      time.Time `json:"last_reprocessing"`
+	EntriesReprocessed    int64     `json:"entries_reprocessed"`
 }
 
 // NewDeadLetterQueue cria nova DLQ
@@ -139,6 +195,32 @@ func NewDeadLetterQueue(config Config, logger *logrus.Logger) *DeadLetterQueue {
 	}
 	if config.Directory == "" {
 		config.Directory = "./dlq"
+	}
+
+	// Valores padrão para reprocessamento
+	if config.ReprocessingConfig.Interval == 0 {
+		config.ReprocessingConfig.Interval = 5 * time.Minute
+	}
+	if config.ReprocessingConfig.MaxRetries == 0 {
+		config.ReprocessingConfig.MaxRetries = 3
+	}
+	if config.ReprocessingConfig.InitialDelay == 0 {
+		config.ReprocessingConfig.InitialDelay = 1 * time.Minute
+	}
+	if config.ReprocessingConfig.DelayMultiplier == 0 {
+		config.ReprocessingConfig.DelayMultiplier = 2.0
+	}
+	if config.ReprocessingConfig.MaxDelay == 0 {
+		config.ReprocessingConfig.MaxDelay = 30 * time.Minute
+	}
+	if config.ReprocessingConfig.BatchSize == 0 {
+		config.ReprocessingConfig.BatchSize = 50
+	}
+	if config.ReprocessingConfig.Timeout == 0 {
+		config.ReprocessingConfig.Timeout = 30 * time.Second
+	}
+	if config.ReprocessingConfig.MinEntryAge == 0 {
+		config.ReprocessingConfig.MinEntryAge = 2 * time.Minute
 	}
 
 	dlq := &DeadLetterQueue{
@@ -197,6 +279,13 @@ func (dlq *DeadLetterQueue) Start() error {
 	// Iniciar limpeza periódica
 	go dlq.cleanupLoop()
 
+	// Iniciar reprocessamento se habilitado
+	if dlq.config.ReprocessingConfig.Enabled {
+		go dlq.reprocessingLoop()
+		dlq.logger.WithField("interval", dlq.config.ReprocessingConfig.Interval).
+			Info("DLQ reprocessing enabled")
+	}
+
 	// Iniciar alert manager se configurado
 	if dlq.alertManager != nil {
 		if err := dlq.alertManager.Start(); err != nil {
@@ -247,14 +336,23 @@ func (dlq *DeadLetterQueue) AddEntry(originalEntry types.LogEntry, errorMsg, err
 		return
 	}
 
+	now := time.Now()
+	entryID := fmt.Sprintf("%s_%d_%s", failedSink, now.UnixNano(), originalEntry.SourceID)
+
 	entry := DLQEntry{
-		Timestamp:     time.Now(),
+		Timestamp:     now,
 		OriginalEntry: originalEntry,
 		ErrorMessage:  errorMsg,
 		ErrorType:     errorType,
 		FailedSink:    failedSink,
 		RetryCount:    retryCount,
 		Context:       context,
+
+		// Campos de reprocessamento
+		ReprocessAttempts:   0,
+		ReprocessingEnabled: dlq.config.ReprocessingConfig.Enabled,
+		EntryID:            entryID,
+		NextReprocessTime:   now.Add(dlq.config.ReprocessingConfig.MinEntryAge),
 	}
 
 	// Tentar adicionar à fila
@@ -775,4 +873,322 @@ func (am *AlertManager) sendEmailAlert(alert Alert) error {
 	}).Info("Would send email alert (implementation needed)")
 
 	return nil
+}
+
+// reprocessingLoop loop principal de reprocessamento
+func (dlq *DeadLetterQueue) reprocessingLoop() {
+	ticker := time.NewTicker(dlq.config.ReprocessingConfig.Interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-dlq.ctx.Done():
+			return
+		case <-ticker.C:
+			dlq.processReprocessingBatch()
+		}
+	}
+}
+
+// processReprocessingBatch processa um batch de entradas para reprocessamento
+func (dlq *DeadLetterQueue) processReprocessingBatch() {
+	if dlq.reprocessCallback == nil {
+		return
+	}
+
+	// Ler entradas dos arquivos DLQ
+	entries, err := dlq.readEntriesForReprocessing()
+	if err != nil {
+		dlq.logger.WithError(err).Error("Failed to read DLQ entries for reprocessing")
+		return
+	}
+
+	if len(entries) == 0 {
+		return
+	}
+
+	dlq.logger.WithField("entries_count", len(entries)).Debug("Starting reprocessing batch")
+
+	var processedEntries []DLQEntry
+	successCount := 0
+	failureCount := 0
+
+	for _, entry := range entries {
+		// Verificar se é hora de reprocessar esta entrada
+		if time.Now().Before(entry.NextReprocessTime) {
+			continue
+		}
+
+		// Verificar se ainda tem tentativas disponíveis
+		if entry.ReprocessAttempts >= dlq.config.ReprocessingConfig.MaxRetries {
+			dlq.logger.WithFields(logrus.Fields{
+				"entry_id":    entry.EntryID,
+				"attempts":    entry.ReprocessAttempts,
+				"max_retries": dlq.config.ReprocessingConfig.MaxRetries,
+			}).Debug("DLQ entry exceeded max reprocessing attempts")
+			continue
+		}
+
+		// Tentar reprocessar
+		dlq.mutex.Lock()
+		dlq.stats.ReprocessingAttempts++
+		dlq.mutex.Unlock()
+
+		entry.ReprocessAttempts++
+		entry.LastReprocessAttempt = time.Now()
+
+		// Tentar reprocessar (o callback gerencia seu próprio contexto)
+		err := dlq.reprocessCallback(entry.OriginalEntry, entry.FailedSink)
+
+		if err != nil {
+			// Falha no reprocessamento
+			failureCount++
+
+			// Calcular próximo tempo de tentativa (exponential backoff)
+			nextDelay := time.Duration(float64(dlq.config.ReprocessingConfig.InitialDelay) *
+				math.Pow(dlq.config.ReprocessingConfig.DelayMultiplier, float64(entry.ReprocessAttempts-1)))
+
+			if nextDelay > dlq.config.ReprocessingConfig.MaxDelay {
+				nextDelay = dlq.config.ReprocessingConfig.MaxDelay
+			}
+
+			entry.NextReprocessTime = time.Now().Add(nextDelay)
+
+			dlq.logger.WithFields(logrus.Fields{
+				"entry_id":     entry.EntryID,
+				"failed_sink":  entry.FailedSink,
+				"attempt":      entry.ReprocessAttempts,
+				"next_attempt": entry.NextReprocessTime,
+				"error":        err.Error(),
+			}).Warn("DLQ reprocessing failed")
+
+			dlq.mutex.Lock()
+			dlq.stats.ReprocessingFailures++
+			dlq.mutex.Unlock()
+
+			// Atualizar entrada no arquivo
+			processedEntries = append(processedEntries, entry)
+		} else {
+			// Sucesso no reprocessamento - remover da DLQ
+			successCount++
+
+			dlq.logger.WithFields(logrus.Fields{
+				"entry_id":    entry.EntryID,
+				"failed_sink": entry.FailedSink,
+				"attempt":     entry.ReprocessAttempts,
+			}).Info("DLQ entry reprocessed successfully")
+
+			dlq.mutex.Lock()
+			dlq.stats.ReprocessingSuccesses++
+			dlq.stats.EntriesReprocessed++
+			dlq.mutex.Unlock()
+
+			// Remover entrada da DLQ
+			if err := dlq.removeDLQEntry(entry.EntryID); err != nil {
+				dlq.logger.WithError(err).WithField("entry_id", entry.EntryID).
+					Warn("Failed to remove successfully reprocessed entry from DLQ")
+			}
+		}
+	}
+
+	// Atualizar arquivos DLQ com entradas que falharam
+	if len(processedEntries) > 0 {
+		if err := dlq.updateDLQFiles(processedEntries); err != nil {
+			dlq.logger.WithError(err).Error("Failed to update DLQ files after reprocessing")
+		}
+	}
+
+	// Atualizar estatísticas
+	dlq.mutex.Lock()
+	dlq.stats.LastReprocessing = time.Now()
+	dlq.mutex.Unlock()
+
+	if successCount > 0 || failureCount > 0 {
+		dlq.logger.WithFields(logrus.Fields{
+			"successful": successCount,
+			"failed":     failureCount,
+			"total":      len(entries),
+		}).Info("DLQ reprocessing batch completed")
+	}
+}
+
+// readEntriesForReprocessing lê entradas dos arquivos DLQ para reprocessamento
+func (dlq *DeadLetterQueue) readEntriesForReprocessing() ([]DLQEntry, error) {
+	pattern := filepath.Join(dlq.config.Directory, "dlq_*.log")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list DLQ files: %w", err)
+	}
+
+	var allEntries []DLQEntry
+	processedCount := 0
+
+	for _, filePath := range files {
+		entries, err := dlq.readEntriesFromFile(filePath)
+		if err != nil {
+			dlq.logger.WithError(err).WithField("file", filePath).Warn("Failed to read DLQ file")
+			continue
+		}
+
+		// Filtrar entradas elegíveis para reprocessamento
+		for _, entry := range entries {
+			if entry.ReprocessingEnabled &&
+				entry.ReprocessAttempts < dlq.config.ReprocessingConfig.MaxRetries &&
+				time.Since(entry.Timestamp) >= dlq.config.ReprocessingConfig.MinEntryAge {
+				allEntries = append(allEntries, entry)
+				processedCount++
+
+				// Limitar batch size
+				if processedCount >= dlq.config.ReprocessingConfig.BatchSize {
+					return allEntries, nil
+				}
+			}
+		}
+	}
+
+	return allEntries, nil
+}
+
+// readEntriesFromFile lê entradas de um arquivo DLQ específico
+func (dlq *DeadLetterQueue) readEntriesFromFile(filePath string) ([]DLQEntry, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var entries []DLQEntry
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var entry DLQEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			dlq.logger.WithError(err).WithField("line", line).Warn("Failed to parse DLQ entry")
+			continue
+		}
+
+		entries = append(entries, entry)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("error reading file: %w", err)
+	}
+
+	return entries, nil
+}
+
+// updateDLQFiles atualiza arquivos DLQ com entradas processadas
+func (dlq *DeadLetterQueue) updateDLQFiles(updatedEntries []DLQEntry) error {
+	// Ler todos os arquivos e reconstruir com atualizações
+	pattern := filepath.Join(dlq.config.Directory, "dlq_*.log")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to list DLQ files: %w", err)
+	}
+
+	// Criar mapa de entradas atualizadas para busca rápida
+	updatedMap := make(map[string]DLQEntry)
+	for _, entry := range updatedEntries {
+		updatedMap[entry.EntryID] = entry
+	}
+
+	for _, filePath := range files {
+		originalEntries, err := dlq.readEntriesFromFile(filePath)
+		if err != nil {
+			dlq.logger.WithError(err).WithField("file", filePath).Warn("Failed to read DLQ file for update")
+			continue
+		}
+
+		var finalEntries []DLQEntry
+		for _, entry := range originalEntries {
+			if updated, exists := updatedMap[entry.EntryID]; exists {
+				// Usar entrada atualizada
+				finalEntries = append(finalEntries, updated)
+			} else {
+				// Manter entrada original
+				finalEntries = append(finalEntries, entry)
+			}
+		}
+
+		// Reescrever arquivo
+		if err := dlq.rewriteDLQFile(filePath, finalEntries); err != nil {
+			return fmt.Errorf("failed to rewrite DLQ file %s: %w", filePath, err)
+		}
+	}
+
+	return nil
+}
+
+// rewriteDLQFile reescreve um arquivo DLQ com novas entradas
+func (dlq *DeadLetterQueue) rewriteDLQFile(filePath string, entries []DLQEntry) error {
+	// Criar arquivo temporário
+	tmpFile := filePath + ".tmp"
+
+	file, err := os.Create(tmpFile)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		data, err := json.Marshal(entry)
+		if err != nil {
+			file.Close()
+			os.Remove(tmpFile)
+			return err
+		}
+
+		if _, err := file.Write(append(data, '\n')); err != nil {
+			file.Close()
+			os.Remove(tmpFile)
+			return err
+		}
+	}
+
+	file.Close()
+
+	// Substituir arquivo original
+	return os.Rename(tmpFile, filePath)
+}
+
+// SetReprocessCallback define callback para reprocessamento
+func (dlq *DeadLetterQueue) SetReprocessCallback(callback ReprocessCallback) {
+	dlq.reprocessCallback = callback
+}
+
+// removeDLQEntry remove uma entrada específica dos arquivos DLQ
+func (dlq *DeadLetterQueue) removeDLQEntry(entryID string) error {
+	pattern := filepath.Join(dlq.config.Directory, "dlq_*.log")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("failed to list DLQ files: %w", err)
+	}
+
+	for _, filePath := range files {
+		entries, err := dlq.readEntriesFromFile(filePath)
+		if err != nil {
+			continue
+		}
+
+		var filteredEntries []DLQEntry
+		found := false
+
+		for _, entry := range entries {
+			if entry.EntryID != entryID {
+				filteredEntries = append(filteredEntries, entry)
+			} else {
+				found = true
+			}
+		}
+
+		if found {
+			return dlq.rewriteDLQFile(filePath, filteredEntries)
+		}
+	}
+
+	return fmt.Errorf("DLQ entry %s not found", entryID)
 }

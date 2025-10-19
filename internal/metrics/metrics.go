@@ -1,10 +1,14 @@
 package metrics
 
 import (
+	"fmt"
 	"net/http"
+	"runtime"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
@@ -120,23 +124,7 @@ var (
 		[]string{"task_type", "state"},
 	)
 
-	// Gauge para circuit breaker status
-	CircuitBreakerState = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "circuit_breaker_state",
-			Help: "Circuit breaker state (0 = closed, 1 = half-open, 2 = open)",
-		},
-		[]string{"component"},
-	)
-
-	// Counter para circuit breaker events
-	CircuitBreakerEvents = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "circuit_breaker_events_total",
-			Help: "Total number of circuit breaker events",
-		},
-		[]string{"component", "event_type"},
-	)
+	// NOTE: Circuit breaker metrics removed as the package was deleted
 
 	// Gauge para uso de memória
 	MemoryUsage = prometheus.NewGaugeVec(
@@ -194,8 +182,7 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		QueueSize,
 		TaskHeartbeats,
 		ActiveTasks,
-		CircuitBreakerState,
-		CircuitBreakerEvents,
+		// CircuitBreakerState and CircuitBreakerEvents removed (package deleted)
 		MemoryUsage,
 		CPUUsage,
 		GCRuns,
@@ -311,21 +298,174 @@ func SetActiveTasks(taskType, state string, count int) {
 	ActiveTasks.WithLabelValues(taskType, state).Set(float64(count))
 }
 
-// SetCircuitBreakerState define o estado de um circuit breaker
-func SetCircuitBreakerState(component, state string) {
-	var value float64
-	switch state {
-	case "closed":
-		value = 0
-	case "half_open":
-		value = 1
-	case "open":
-		value = 2
-	}
-	CircuitBreakerState.WithLabelValues(component).Set(value)
+// Circuit breaker functions removed (package deleted)
+
+// EnhancedMetrics provides comprehensive monitoring and metrics collection
+type EnhancedMetrics struct {
+	logger *logrus.Logger
+
+	// Advanced metrics
+	diskUsage            *prometheus.GaugeVec
+	responseTime         *prometheus.HistogramVec
+	connectionPoolStats  *prometheus.GaugeVec
+	compressionRatio     *prometheus.GaugeVec
+	batchingStats        *prometheus.GaugeVec
+	leakDetection        *prometheus.GaugeVec
+
+	// Custom metrics registry
+	customMetrics map[string]prometheus.Metric
+	customMutex   sync.RWMutex
+
+	// Internal state
+	isRunning bool
+	startTime time.Time
 }
 
-// RecordCircuitBreakerEvent registra um evento de circuit breaker
-func RecordCircuitBreakerEvent(component, eventType string) {
-	CircuitBreakerEvents.WithLabelValues(component, eventType).Inc()
+// NewEnhancedMetrics creates a new enhanced metrics instance
+func NewEnhancedMetrics(logger *logrus.Logger) *EnhancedMetrics {
+	em := &EnhancedMetrics{
+		logger:        logger,
+		customMetrics: make(map[string]prometheus.Metric),
+		startTime:     time.Now(),
+	}
+
+	// Initialize advanced metrics
+	em.diskUsage = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "disk_usage_bytes",
+			Help: "Disk usage in bytes by mount point",
+		},
+		[]string{"mount_point", "device"},
+	)
+
+	em.responseTime = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "response_time_seconds",
+			Help:    "Response time in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"endpoint", "method"},
+	)
+
+	em.connectionPoolStats = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "connection_pool_stats",
+			Help: "Connection pool statistics",
+		},
+		[]string{"pool_name", "stat_type"},
+	)
+
+	em.compressionRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "compression_ratio",
+			Help: "Compression ratio for different components",
+		},
+		[]string{"component", "algorithm"},
+	)
+
+	em.batchingStats = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "batching_stats",
+			Help: "Batching statistics",
+		},
+		[]string{"component", "stat_type"},
+	)
+
+	em.leakDetection = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "leak_detection",
+			Help: "Resource leak detection metrics",
+		},
+		[]string{"resource_type", "component"},
+	)
+
+	return em
+}
+
+// UpdateSystemMetrics updates system-level metrics
+func (em *EnhancedMetrics) UpdateSystemMetrics() {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	// Update memory metrics
+	MemoryUsage.WithLabelValues("heap_alloc").Set(float64(m.HeapAlloc))
+	MemoryUsage.WithLabelValues("heap_sys").Set(float64(m.HeapSys))
+	MemoryUsage.WithLabelValues("heap_idle").Set(float64(m.HeapIdle))
+	MemoryUsage.WithLabelValues("heap_inuse").Set(float64(m.HeapInuse))
+
+	// Update goroutine count
+	Goroutines.Set(float64(runtime.NumGoroutine()))
+
+	// Update GC metrics
+	GCRuns.Add(float64(m.NumGC))
+}
+
+// RecordDiskUsage records disk usage metrics
+func (em *EnhancedMetrics) RecordDiskUsage(mountPoint, device string, usage int64) {
+	em.diskUsage.WithLabelValues(mountPoint, device).Set(float64(usage))
+}
+
+// RecordResponseTime records HTTP response time
+func (em *EnhancedMetrics) RecordResponseTime(endpoint, method string, duration time.Duration) {
+	em.responseTime.WithLabelValues(endpoint, method).Observe(duration.Seconds())
+}
+
+// RecordConnectionPoolStats records connection pool statistics
+func (em *EnhancedMetrics) RecordConnectionPoolStats(poolName, statType string, value float64) {
+	em.connectionPoolStats.WithLabelValues(poolName, statType).Set(value)
+}
+
+// RecordCompressionRatio records compression ratio
+func (em *EnhancedMetrics) RecordCompressionRatio(component, algorithm string, ratio float64) {
+	em.compressionRatio.WithLabelValues(component, algorithm).Set(ratio)
+}
+
+// RecordBatchingStats records batching statistics
+func (em *EnhancedMetrics) RecordBatchingStats(component, statType string, value float64) {
+	em.batchingStats.WithLabelValues(component, statType).Set(value)
+}
+
+// RecordLeakDetection records resource leak detection metrics
+func (em *EnhancedMetrics) RecordLeakDetection(resourceType, component string, count float64) {
+	em.leakDetection.WithLabelValues(resourceType, component).Set(count)
+}
+
+// Start begins the enhanced metrics collection
+func (em *EnhancedMetrics) Start() error {
+	if em.isRunning {
+		return fmt.Errorf("enhanced metrics already running")
+	}
+
+	em.isRunning = true
+	em.logger.Info("Enhanced metrics collection started")
+
+	// Start periodic system metrics update
+	go em.systemMetricsLoop()
+
+	return nil
+}
+
+// Stop stops the enhanced metrics collection
+func (em *EnhancedMetrics) Stop() error {
+	if !em.isRunning {
+		return nil
+	}
+
+	em.isRunning = false
+	em.logger.Info("Enhanced metrics collection stopped")
+
+	return nil
+}
+
+// systemMetricsLoop periodically updates system metrics
+func (em *EnhancedMetrics) systemMetricsLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for em.isRunning {
+		select {
+		case <-ticker.C:
+			em.UpdateSystemMetrics()
+		}
+	}
 }

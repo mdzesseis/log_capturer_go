@@ -1,222 +1,384 @@
+# =============================================================================
+# SSW LOGS CAPTURE - PIPELINE CONFIGURATION OPTIMIZED FOR LOKI
+# =============================================================================
+# Pipelines otimizados para Loki com baixa cardinalidade de labels
+# Garantem sempre: level, msg, timestamp em todos os logs
+# =============================================================================
+
 pipelines:
-  # Pipeline padrão para logs não categorizados
+  # Pipeline padrão - fallback para logs não categorizados
   - name: default
-    description: "Pipeline padrão para processamento básico de logs"
+    description: "Pipeline padrão com campos essenciais"
     steps:
-      - name: extract_log_level
+      - name: extract_level
         type: log_level_extract
         config:
-          pattern: '(?i)(debug|info|warn|warning|error|fatal|trace)'
+          pattern: '(?i)\b(trace|debug|info|warn|warning|error|fatal|crit|critical)\b'
           field: level
 
-      - name: add_default_labels
+      - name: ensure_msg_field
         type: field_add
         config:
           fields:
-            job: "ssw-logs-capture"
-            environment: "production"
+            msg: "{{message}}"
 
-  # Pipeline para containers MySQL
-  - name: mysql
-    description: "Pipeline específico para logs do MySQL"
-    steps:
-      - name: extract_log_level
-        type: log_level_extract
+      - name: add_standard_labels
+        type: field_add
         config:
-          pattern: '(?i)(note|warning|error)'
-          field: level
+          fields:
+            service: "log-capturer"
+            pipeline: "default"
 
-      - name: extract_mysql_fields
+  # Pipeline para MySQL Database
+  - name: mysql
+    description: "Pipeline para logs do MySQL"
+    steps:
+      - name: extract_mysql_timestamp
+        type: timestamp_parse
+        config:
+          format: "2006-01-02T15:04:05.000000Z"
+          field: message
+          use_as_log_timestamp: true
+          timezone: "UTC"
+
+      - name: extract_mysql_level
         type: regex_extract
         config:
-          pattern: '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\d+\s+(\w+)\s+(.+)$'
-          fields: ["mysql_timestamp", "mysql_command", "mysql_query"]
-        condition: '^\d{4}-\d{2}-\d{2}T'
+          pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s+\d+\s+\[(Note|Warning|Error)\]'
+          fields: ["level"]
+
+      - name: extract_mysql_msg
+        type: regex_extract
+        config:
+          pattern: '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+\d+\s+\[(?:Note|Warning|Error)\]\s+(.+)'
+          fields: ["_temp_time", "msg"]
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
+
+      - name: normalize_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
 
       - name: add_mysql_labels
         type: field_add
         config:
           fields:
-            log_type: "database"
+            service: "mysql"
+            component: "database"
 
-  # Pipeline para containers de aplicação
-  - name: application
-    description: "Pipeline para logs de aplicações"
+  # Pipeline para FreeSWITCH
+  - name: freeswitch
+    description: "Pipeline para logs do FreeSWITCH"
     steps:
-      - name: parse_json
-        type: json_parse
+      - name: clean_ansi_codes
+        type: regex_extract
         config:
-          field: message
-        condition: '^\s*\{'
+          pattern: '\x1b\[[0-9;]*m'
+          fields: []
 
-      - name: extract_log_level
-        type: log_level_extract
+      - name: extract_freeswitch_data
+        type: regex_extract
         config:
-          pattern: '(?i)"level":\s*"(debug|info|warn|warning|error|fatal|trace)"'
-          field: level
+          pattern: '^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+[\d.%]+\s+\[(\w+)\]\s+(.+)'
+          fields: ["_temp_time", "level", "msg"]
 
-      - name: extract_json_timestamp
+      - name: parse_freeswitch_timestamp
         type: timestamp_parse
         config:
-          format: "2006-01-02T15:04:05Z07:00"
-          field: "timestamp"
-          target_field: "parsed_timestamp"
+          field: "_temp_time"
+          format: "2006-01-02 15:04:05.000000"
           use_as_log_timestamp: true
-        condition: '"timestamp":'
+          timezone: "UTC"
 
-      - name: extract_timestamp_alt
-        type: timestamp_parse
-        config:
-          format: "2006-01-02T15:04:05.000Z"
-          field: timestamp_field
-          target_field: parsed_timestamp
-        condition: '"timestamp":'
-
-      - name: add_app_labels
+      - name: fallback_msg
         type: field_add
         config:
           fields:
-            log_type: "application"
+            msg: "{{message}}"
 
-  # Pipeline para logs do FreeSWITCH
-  - name: freeswitch
-    description: "Pipeline específico para logs do FreeSWITCH"
-    steps:
-      - name: extract_freeswitch_level
-        type: regex_extract
+      - name: normalize_level
+        type: field_add
         config:
-          pattern: '^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+\[(\w+)\]'
-          fields: ["fs_timestamp", "fs_level"]
-
-      - name: extract_call_info
-        type: regex_extract
-        config:
-          pattern: 'uuid_bridge\s+(\S+)\s+(\S+)'
-          fields: ["call_uuid_a", "call_uuid_b"]
-        condition: 'uuid_bridge'
+          fields:
+            level: "info"
 
       - name: add_freeswitch_labels
         type: field_add
         config:
           fields:
-            log_type: "telephony"
+            service: "freeswitch"
+            component: "voip"
 
-  # Pipeline para logs do Prometheus
-  - name: prometheus
-    description: "Pipeline para logs do Prometheus"
-    steps:
-      - name: extract_prometheus_level
-        type: regex_extract
-        config:
-          pattern: 'level=(\w+)'
-          fields: ["prom_level"]
-
-      - name: extract_prometheus_component
-        type: regex_extract
-        config:
-          pattern: 'component=(\w+)'
-          fields: ["prom_component"]
-
-      - name: add_prometheus_labels
-        type: field_add
-        config:
-          fields:
-            log_type: "monitoring"
-
-  # Pipeline para logs do Grafana
+  # Pipeline para Grafana
   - name: grafana
     description: "Pipeline para logs do Grafana"
     steps:
-      - name: extract_grafana_info
+      - name: extract_grafana_structured
         type: regex_extract
         config:
-          pattern: 't=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+\d{4})\s+lvl=(\w+)'
-          fields: ["graf_timestamp", "graf_level"]
+          pattern: 'logger=([^\s]+).*t=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]+).*level=(\w+).*msg="([^"]+)"'
+          fields: ["_temp_logger", "_temp_time", "level", "msg"]
+
+      - name: parse_grafana_timestamp
+        type: timestamp_parse
+        config:
+          field: "_temp_time"
+          format: "2006-01-02T15:04:05.000000000Z"
+          use_as_log_timestamp: true
+          timezone: "UTC"
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
+
+      - name: normalize_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
 
       - name: add_grafana_labels
         type: field_add
         config:
           fields:
-            log_type: "visualization"
+            service: "grafana"
+            component: "monitoring"
 
-  # Pipeline para logs do syslog
+  # Pipeline para Prometheus
+  - name: prometheus
+    description: "Pipeline para logs do Prometheus"
+    steps:
+      - name: extract_prometheus_structured
+        type: regex_extract
+        config:
+          pattern: 'level=(\w+).*ts=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[^\s]+).*msg="([^"]+)"'
+          fields: ["level", "_temp_time", "msg"]
+
+      - name: parse_prometheus_timestamp
+        type: timestamp_parse
+        config:
+          field: "_temp_time"
+          format: "2006-01-02T15:04:05.000Z"
+          use_as_log_timestamp: true
+          timezone: "UTC"
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
+
+      - name: normalize_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
+
+      - name: add_prometheus_labels
+        type: field_add
+        config:
+          fields:
+            service: "prometheus"
+            component: "monitoring"
+
+  # Pipeline para JSON logs (log_generator, loki-monitor)
+  - name: json_logs
+    description: "Pipeline para logs em formato JSON"
+    steps:
+      - name: extract_json_fields
+        type: regex_extract
+        config:
+          pattern: '"timestamp":"([^"]+)".*"level":"([^"]+)".*"message":"([^"]+)"'
+          fields: ["_temp_time", "level", "msg"]
+
+      - name: parse_json_timestamp
+        type: timestamp_parse
+        config:
+          field: "_temp_time"
+          formats:
+            - "2006-01-02T15:04:05+00:00"
+            - "2006-01-02T15:04:05Z"
+            - "2006-01-02T15:04:05.000Z"
+          use_as_log_timestamp: true
+          timezone: "UTC"
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
+
+      - name: normalize_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
+
+      - name: add_json_labels
+        type: field_add
+        config:
+          fields:
+            service: "application"
+            component: "app"
+
+  # Pipeline para syslog - CORRIGIDO
   - name: syslog
     description: "Pipeline para logs do syslog"
     steps:
+      - name: extract_syslog_fields
+        type: regex_extract
+        config:
+          pattern: '^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+[+-]\d{2}:\d{2})\s+(\S+)\s+([^:]+):\s*(.+)$'
+          fields: ["_temp_time", "_temp_hostname", "_temp_process", "msg"]
+
       - name: parse_syslog_timestamp
         type: timestamp_parse
         config:
-          auto_detect: true
+          field: "_temp_time"
+          format: "2006-01-02T15:04:05.000000-07:00"
           use_as_log_timestamp: true
           timezone: "Local"
-          formats:
-            - "2006-01-02T15:04:05.000000-07:00"
-            - "Jan 2 15:04:05"
-            - "Jan _2 15:04:05"
 
-      - name: extract_syslog_info
-        type: regex_extract
+      - name: extract_syslog_level
+        type: log_level_extract
         config:
-          pattern: '(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(\S+)\s+([^:]+):\s+(.+)'
-          fields: ["syslog_timestamp", "hostname", "service_name", "log_message"]
+          pattern: '(?i)\b(debug|info|warn|warning|error|fatal|crit|critical)\b'
+          field: level
+
+      - name: fallback_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
 
       - name: add_syslog_labels
         type: field_add
         config:
           fields:
-            log_type: "syslog"
+            service: "system"
+            component: "syslog"
 
-  # Pipeline para logs do kernel
+  # Pipeline para kernel logs
   - name: kernel
-    description: "Pipeline para logs do kernel (dmesg, kern.log)"
+    description: "Pipeline para logs do kernel"
     steps:
-      - name: parse_kernel_timestamp
-        type: timestamp_parse
-        config:
-          auto_detect: true
-          use_as_log_timestamp: true
-          timezone: "Local"
-
-      - name: extract_kernel_info
+      - name: extract_kernel_data
         type: regex_extract
         config:
           pattern: '^\[(\s*\d+\.\d+)\]\s+(.+)'
-          fields: ["kernel_time", "kernel_message"]
+          fields: ["_temp_uptime", "msg"]
+
+      - name: extract_kernel_level
+        type: log_level_extract
+        config:
+          pattern: '(?i)\b(debug|info|warn|warning|error|fatal|crit|critical|emerg)\b'
+          field: level
+
+      - name: fallback_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
+
+      - name: fallback_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
 
       - name: add_kernel_labels
         type: field_add
         config:
           fields:
-            log_type: "kernel"
+            service: "kernel"
+            component: "system"
 
-# Mapeamento de sources para pipelines
+  # Pipeline para monitoramento de arquivos - NOVO
+  - name: file_monitoring
+    description: "Pipeline para logs capturados de arquivos"
+    steps:
+      - name: add_file_metadata
+        type: field_add
+        config:
+          fields:
+            file_path: "{{source_path}}"
+            file_name: "{{source_filename}}"
+
+      - name: extract_general_level
+        type: log_level_extract
+        config:
+          pattern: '(?i)\b(trace|debug|info|warn|warning|error|fatal|crit|critical|emerg)\b'
+          field: level
+
+      - name: fallback_level
+        type: field_add
+        config:
+          fields:
+            level: "info"
+
+      - name: ensure_msg
+        type: field_add
+        config:
+          fields:
+            msg: "{{message}}"
+
+      - name: add_file_labels
+        type: field_add
+        config:
+          fields:
+            service: "file-monitor"
+            component: "files"
+
+# =============================================================================
+# MAPEAMENTO DE SOURCES PARA PIPELINES - OTIMIZADO
+# =============================================================================
 source_mapping:
+  # Container mappings - baixa cardinalidade
   mysql:
-    - "mysql"
     - "container_name:mysql"
+    - "mysql"
 
   freeswitch:
-    - "freeswitch"
     - "container_name:freeswitch"
-
-  prometheus:
-    - "prometheus"
-    - "container_name:prometheus"
+    - "freeswitch"
 
   grafana:
-    - "grafana"
     - "container_name:grafana"
+    - "grafana"
 
-  application:
+  prometheus:
+    - "container_name:prometheus"
+    - "prometheus"
+
+  json_logs:
     - "container_name:log_generator"
-    - "container_name:ssw-logs-capture"
+    - "container_name:loki-monitor"
+    - "log_generator"
+    - "loki-monitor"
 
+  # File mappings
   syslog:
     - "file_path:/var/log/syslog"
-    - "file_name:syslog"
+    - "source_type:file"
 
   kernel:
-    - "file_path:/var/log/dmesg"
     - "file_path:/var/log/kern.log"
-    - "file_name:dmesg"
-    - "file_name:kern.log"
+    - "file_path:/var/log/dmesg"
+
+  file_monitoring:
+    - "file_path:/var/log/auth.log"
+    - "source_type:file"

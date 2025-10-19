@@ -52,6 +52,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # SSW Logs Capture Test Runner - Container sidecar para testes
   test_runner:
@@ -76,6 +81,7 @@ services:
     profiles:
       - testing  # Só inicia quando profile 'testing' é especificado
     command: ["test-runner.sh", "all"]
+  
 
   # Grafana Loki - Log aggregation system
   loki:
@@ -101,6 +107,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # Grafana - Visualization and dashboards
   grafana:
@@ -118,6 +129,11 @@ services:
     depends_on:
       loki:
         condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     # networks:
     #   - logs-network
 
@@ -138,6 +154,11 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     # networks:
     #   - logs-network
 
@@ -180,6 +201,11 @@ services:
       "
     # networks:
     #   - logs-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   loki-monitor:
     build:
@@ -207,8 +233,11 @@ services:
     depends_on:
       loki:
         condition: service_healthy
-    labels:
-      - 'monitoring=true'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   log_capturer_data:

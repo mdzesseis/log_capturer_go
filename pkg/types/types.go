@@ -148,7 +148,15 @@ type Config struct {
 	Dispatcher           DispatcherConfig         `yaml:"dispatcher"`
 	Sinks                SinksConfig              `yaml:"sinks"`
 	Processing           ProcessingConfig         `yaml:"processing"`
+	TimestampValidation  TimestampValidationConfig `yaml:"timestamp_validation"`
+	ServiceDiscovery     ServiceDiscoveryConfig   `yaml:"service_discovery"`
+	HotReload            HotReloadConfig          `yaml:"hot_reload"`
+	AnomalyDetection     AnomalyDetectionConfig   `yaml:"anomaly_detection"`
+	MultiTenant          MultiTenantConfig        `yaml:"multi_tenant"`
 	Positions            PositionConfig           `yaml:"positions"`
+	Cleanup              CleanupConfig            `yaml:"cleanup"`
+	LeakDetection        LeakDetectionConfig      `yaml:"leak_detection"`
+	DiskBuffer           DiskBufferConfig         `yaml:"disk_buffer"`
 
 	// Legacy fields for backward compatibility
 	API      APIConfig      `yaml:"api,omitempty"`
@@ -256,6 +264,10 @@ type DispatcherConfig struct {
 	// Configuração de Degradation
 	DegradationEnabled bool                 `yaml:"degradation_enabled"`
 	DegradationConfig  map[string]interface{} `yaml:"degradation_config"`
+
+	// Configuração de Rate Limiting
+	RateLimitEnabled bool                 `yaml:"rate_limit_enabled"`
+	RateLimitConfig  map[string]interface{} `yaml:"rate_limit_config"`
 }
 
 // ProcessingConfig configuração do processamento
@@ -267,6 +279,70 @@ type ProcessingConfig struct {
 	ProcessingTimeout string `yaml:"processing_timeout"`
 	SkipFailedLogs    bool   `yaml:"skip_failed_logs"`
 	EnrichLogs        bool   `yaml:"enrich_logs"`
+}
+
+// TimestampValidationConfig configuração da validação de timestamp
+type TimestampValidationConfig struct {
+	Enabled             bool     `yaml:"enabled"`
+	MaxPastAgeSeconds   int      `yaml:"max_past_age_seconds"`
+	MaxFutureAgeSeconds int      `yaml:"max_future_age_seconds"`
+	ClampEnabled        bool     `yaml:"clamp_enabled"`
+	ClampDLQ            bool     `yaml:"clamp_dlq"`
+	InvalidAction       string   `yaml:"invalid_action"`
+	DefaultTimezone     string   `yaml:"default_timezone"`
+	AcceptedFormats     []string `yaml:"accepted_formats"`
+}
+
+// ServiceDiscoveryConfig configuração do service discovery
+type ServiceDiscoveryConfig struct {
+	Enabled           bool                          `yaml:"enabled"`
+	UpdateInterval    string                        `yaml:"update_interval"`
+	DockerEnabled     bool                          `yaml:"docker_enabled"`
+	FileEnabled       bool                          `yaml:"file_enabled"`
+	KubernetesEnabled bool                          `yaml:"kubernetes_enabled"`
+	Docker            DockerDiscoveryConfig         `yaml:"docker"`
+	File              FileDiscoveryConfig           `yaml:"file"`
+	Kubernetes        KubernetesDiscoveryConfig     `yaml:"kubernetes"`
+}
+
+// DockerDiscoveryConfig configuração para descoberta Docker
+type DockerDiscoveryConfig struct {
+	SocketPath      string            `yaml:"socket_path"`
+	RequiredLabels  map[string]string `yaml:"required_labels"`
+	ExcludeLabels   map[string]string `yaml:"exclude_labels"`
+	RequireLabel    string            `yaml:"require_label"`
+	PipelineLabel   string            `yaml:"pipeline_label"`
+	ComponentLabel  string            `yaml:"component_label"`
+	TenantLabel     string            `yaml:"tenant_label"`
+}
+
+// FileDiscoveryConfig configuração para descoberta de arquivos
+type FileDiscoveryConfig struct {
+	WatchPaths      []string          `yaml:"watch_paths"`
+	ConfigFiles     []string          `yaml:"config_files"`
+	RequiredLabels  map[string]string `yaml:"required_labels"`
+	AutoDetectLogs  bool              `yaml:"auto_detect_logs"`
+}
+
+// KubernetesDiscoveryConfig configuração para descoberta Kubernetes
+type KubernetesDiscoveryConfig struct {
+	Namespace           string            `yaml:"namespace"`
+	RequiredAnnotations map[string]string `yaml:"required_annotations"`
+	RequiredLabels      map[string]string `yaml:"required_labels"`
+	ServiceAccount      string            `yaml:"service_account"`
+}
+
+// HotReloadConfig configuração do hot reload
+type HotReloadConfig struct {
+	Enabled          bool     `yaml:"enabled"`
+	WatchInterval    string   `yaml:"watch_interval"`
+	DebounceInterval string   `yaml:"debounce_interval"`
+	ValidateOnReload bool     `yaml:"validate_on_reload"`
+	BackupOnReload   bool     `yaml:"backup_on_reload"`
+	BackupDirectory  string   `yaml:"backup_directory"`
+	MaxBackups       int      `yaml:"max_backups"`
+	FailsafeMode     bool     `yaml:"failsafe_mode"`
+	WatchFiles       []string `yaml:"watch_files"`
 }
 
 // APIConfig configuração da API HTTP
@@ -329,6 +405,22 @@ type LokiConfig struct {
 	Headers       map[string]string `yaml:"headers,omitempty"`
 	Auth          LokiAuthConfig    `yaml:"auth,omitempty"`
 	TLS           LokiTLSConfig     `yaml:"tls,omitempty"`
+	AdaptiveBatching AdaptiveBatchingConfig `yaml:"adaptive_batching,omitempty"`
+}
+
+// AdaptiveBatchingConfig configuração para batching adaptativo
+type AdaptiveBatchingConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	MinBatchSize       int    `yaml:"min_batch_size"`
+	MaxBatchSize       int    `yaml:"max_batch_size"`
+	InitialBatchSize   int    `yaml:"initial_batch_size"`
+	MinFlushDelay      string `yaml:"min_flush_delay"`
+	MaxFlushDelay      string `yaml:"max_flush_delay"`
+	InitialFlushDelay  string `yaml:"initial_flush_delay"`
+	AdaptationInterval string `yaml:"adaptation_interval"`
+	LatencyThreshold   string `yaml:"latency_threshold"`
+	ThroughputTarget   int    `yaml:"throughput_target"`
+	BufferSize         int    `yaml:"buffer_size"`
 }
 
 // LokiAuthConfig configuração de autenticação do Loki
@@ -361,6 +453,12 @@ type LocalFileConfig struct {
 	FilePermissions string                  `yaml:"file_permissions"`
 	DirPermissions  string                  `yaml:"dir_permissions"`
 	QueueSize       int                     `yaml:"queue_size"`
+
+	// Proteções contra disco cheio
+	MaxTotalDiskGB         float64 `yaml:"max_total_disk_gb"`
+	DiskCheckInterval      string  `yaml:"disk_check_interval"`
+	EmergencyCleanupEnabled bool    `yaml:"emergency_cleanup_enabled"`
+	CleanupThresholdPercent float64 `yaml:"cleanup_threshold_percent"`
 }
 
 // LocalFileTextFormat configuração do formato de texto
@@ -454,4 +552,250 @@ type PositionConfig struct {
 	ForceFlushOnExit   bool   `yaml:"force_flush_on_exit"`
 	CleanupInterval    string `yaml:"cleanup_interval"`
 	MaxPositionAge     string `yaml:"max_position_age"`
+}
+
+// CleanupConfig configuração do gerenciamento de espaço em disco
+type CleanupConfig struct {
+	Enabled                 bool                     `yaml:"enabled"`
+	CheckInterval           string                   `yaml:"check_interval"`
+	CriticalSpaceThreshold  float64                  `yaml:"critical_space_threshold"`
+	WarningSpaceThreshold   float64                  `yaml:"warning_space_threshold"`
+	Directories             []CleanupDirectoryConfig `yaml:"directories"`
+}
+
+// CleanupDirectoryConfig configuração de diretório para cleanup
+type CleanupDirectoryConfig struct {
+	Path               string   `yaml:"path"`
+	MaxSizeMB          int64    `yaml:"max_size_mb"`
+	RetentionDays      int      `yaml:"retention_days"`
+	FilePatterns       []string `yaml:"file_patterns"`
+	MaxFiles           int      `yaml:"max_files"`
+	CleanupAgeSeconds  int      `yaml:"cleanup_age_seconds"`
+}
+
+// LeakDetectionConfig configuração do monitoramento de vazamentos de recursos
+type LeakDetectionConfig struct {
+	Enabled                 bool   `yaml:"enabled"`
+	MonitoringInterval      string `yaml:"monitoring_interval"`
+	FDLeakThreshold         int64  `yaml:"fd_leak_threshold"`
+	GoroutineLeakThreshold  int64  `yaml:"goroutine_leak_threshold"`
+	MemoryLeakThreshold     int64  `yaml:"memory_leak_threshold"`
+	AlertCooldown           string `yaml:"alert_cooldown"`
+	EnableMemoryProfiling   bool   `yaml:"enable_memory_profiling"`
+	EnableGCOptimization    bool   `yaml:"enable_gc_optimization"`
+	MaxAlertHistory         int    `yaml:"max_alert_history"`
+}
+
+// DiskBufferConfig configuração do buffer de disco
+type DiskBufferConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	BaseDir            string `yaml:"base_dir"`
+	MaxFileSize        int64  `yaml:"max_file_size"`        // bytes
+	MaxTotalSize       int64  `yaml:"max_total_size"`       // bytes
+	MaxFiles           int    `yaml:"max_files"`
+	CompressionEnabled bool   `yaml:"compression_enabled"`
+	SyncInterval       string `yaml:"sync_interval"`
+	CleanupInterval    string `yaml:"cleanup_interval"`
+	RetentionPeriod    string `yaml:"retention_period"`
+	FilePermissions    string `yaml:"file_permissions"`
+	DirPermissions     string `yaml:"dir_permissions"`
+}
+
+// AnomalyDetectionConfig configuração da detecção de anomalias baseada em ML
+type AnomalyDetectionConfig struct {
+	Enabled            bool                        `yaml:"enabled"`
+	ModelType          string                      `yaml:"model_type"`          // "isolation_forest", "statistical", "neural_network", "ensemble"
+	TrainingInterval   string                      `yaml:"training_interval"`   // Intervalo para re-treinar o modelo
+	PredictionInterval string                      `yaml:"prediction_interval"` // Intervalo para executar predições
+	BufferSize         int                         `yaml:"buffer_size"`         // Tamanho do buffer de dados de treinamento
+	ThresholdConfig    AnomalyThresholdConfig      `yaml:"threshold_config"`
+	ModelConfig        AnomalyModelConfig          `yaml:"model_config"`
+	FeatureExtraction  AnomalyFeatureConfig        `yaml:"feature_extraction"`
+	AlertConfig        AnomalyAlertConfig          `yaml:"alert_config"`
+	PatternConfig      AnomalyPatternConfig        `yaml:"pattern_config"`
+	OutputConfig       AnomalyOutputConfig         `yaml:"output_config"`
+}
+
+// AnomalyThresholdConfig configuração dos limiares de anomalia
+type AnomalyThresholdConfig struct {
+	LowThreshold    float64 `yaml:"low_threshold"`    // 0.3 - anomalias leves
+	MediumThreshold float64 `yaml:"medium_threshold"` // 0.6 - anomalias médias
+	HighThreshold   float64 `yaml:"high_threshold"`   // 0.8 - anomalias altas
+	CriticalThreshold float64 `yaml:"critical_threshold"` // 0.9 - anomalias críticas
+}
+
+// AnomalyModelConfig configuração específica do modelo
+type AnomalyModelConfig struct {
+	IsolationForest AnomalyIsolationForestConfig `yaml:"isolation_forest"`
+	Statistical     AnomalyStatisticalConfig     `yaml:"statistical"`
+	NeuralNetwork   AnomalyNeuralNetworkConfig   `yaml:"neural_network"`
+	Ensemble        AnomalyEnsembleConfig        `yaml:"ensemble"`
+}
+
+// AnomalyIsolationForestConfig configuração do Isolation Forest
+type AnomalyIsolationForestConfig struct {
+	NumTrees   int `yaml:"num_trees"`    // Número de árvores na floresta
+	MaxSamples int `yaml:"max_samples"`  // Amostras máximas por árvore
+	MaxDepth   int `yaml:"max_depth"`    // Profundidade máxima das árvores
+}
+
+// AnomalyStatisticalConfig configuração do modelo estatístico
+type AnomalyStatisticalConfig struct {
+	ZScoreThreshold    float64  `yaml:"zscore_threshold"`    // Limite z-score
+	PercentileMode     bool     `yaml:"percentile_mode"`     // Usar percentis em vez de z-score
+	PercentileLimits   []float64 `yaml:"percentile_limits"`   // [1, 5, 95, 99] percentis para detecção
+	WindowSize         int      `yaml:"window_size"`         // Tamanho da janela móvel
+}
+
+// AnomalyNeuralNetworkConfig configuração da rede neural
+type AnomalyNeuralNetworkConfig struct {
+	HiddenSize     int     `yaml:"hidden_size"`     // Neurônios na camada oculta
+	LearningRate   float64 `yaml:"learning_rate"`   // Taxa de aprendizado
+	Epochs         int     `yaml:"epochs"`          // Épocas de treinamento
+	BatchSize      int     `yaml:"batch_size"`      // Tamanho do lote
+}
+
+// AnomalyEnsembleConfig configuração do modelo ensemble
+type AnomalyEnsembleConfig struct {
+	Models        []string             `yaml:"models"`         // Lista dos modelos a combinar
+	VotingMethod  string               `yaml:"voting_method"`  // "average", "weighted", "majority"
+	ModelWeights  map[string]float64   `yaml:"model_weights"`  // Pesos dos modelos
+}
+
+// AnomalyFeatureConfig configuração da extração de features
+type AnomalyFeatureConfig struct {
+	TextFeatures       bool `yaml:"text_features"`       // Extrair features de texto
+	StatisticalFeatures bool `yaml:"statistical_features"` // Extrair features estatísticas
+	TemporalFeatures   bool `yaml:"temporal_features"`   // Extrair features temporais
+	PatternFeatures    bool `yaml:"pattern_features"`    // Extrair features de padrões
+	CustomFeatures     bool `yaml:"custom_features"`     // Features customizadas
+}
+
+// AnomalyAlertConfig configuração de alertas de anomalia
+type AnomalyAlertConfig struct {
+	Enabled         bool   `yaml:"enabled"`
+	WebhookURL      string `yaml:"webhook_url"`      // URL para enviar alertas
+	EmailTo         string `yaml:"email_to"`         // Email para alertas
+	SlackChannel    string `yaml:"slack_channel"`    // Canal Slack para alertas
+	CooldownPeriod  string `yaml:"cooldown_period"`  // Período de cooldown entre alertas
+	IncludeContext  bool   `yaml:"include_context"`  // Incluir contexto nos alertas
+	MaxAlertsPerHour int   `yaml:"max_alerts_per_hour"` // Limite de alertas por hora
+}
+
+// AnomalyPatternConfig configuração de padrões conhecidos
+type AnomalyPatternConfig struct {
+	Enabled        bool     `yaml:"enabled"`
+	WhitelistEnabled bool   `yaml:"whitelist_enabled"` // Habilitar whitelist de padrões normais
+	BlacklistEnabled bool   `yaml:"blacklist_enabled"` // Habilitar blacklist de padrões anômalos
+	WhitelistPatterns []string `yaml:"whitelist_patterns"` // Padrões regex normais
+	BlacklistPatterns []string `yaml:"blacklist_patterns"` // Padrões regex anômalos
+	UpdateInterval   string   `yaml:"update_interval"`    // Intervalo para atualizar padrões
+}
+
+// AnomalyOutputConfig configuração de saída dos resultados
+type AnomalyOutputConfig struct {
+	Enabled       bool   `yaml:"enabled"`
+	LogResults    bool   `yaml:"log_results"`    // Log dos resultados de anomalia
+	MetricsEnabled bool  `yaml:"metrics_enabled"` // Habilitar métricas Prometheus
+	DLQEnabled    bool   `yaml:"dlq_enabled"`    // Enviar anomalias para DLQ
+	FileOutput    string `yaml:"file_output"`    // Arquivo para salvar anomalias
+	IncludeFeatures bool `yaml:"include_features"` // Incluir features nos resultados
+}
+
+// MultiTenantConfig configuração da arquitetura multi-tenant
+type MultiTenantConfig struct {
+	Enabled           bool                          `yaml:"enabled"`
+	DefaultTenant     string                        `yaml:"default_tenant"`
+	IsolationMode     string                        `yaml:"isolation_mode"`     // "soft", "hard"
+	TenantDiscovery   MultiTenantDiscoveryConfig    `yaml:"tenant_discovery"`
+	ResourceIsolation MultiTenantResourceConfig     `yaml:"resource_isolation"`
+	SecurityIsolation MultiTenantSecurityConfig     `yaml:"security_isolation"`
+	MetricsIsolation  MultiTenantMetricsConfig      `yaml:"metrics_isolation"`
+	TenantRouting     MultiTenantRoutingConfig      `yaml:"tenant_routing"`
+}
+
+// MultiTenantDiscoveryConfig configuração da descoberta automática de tenants
+type MultiTenantDiscoveryConfig struct {
+	Enabled               bool     `yaml:"enabled"`
+	UpdateInterval        string   `yaml:"update_interval"`
+	ConfigPaths           []string `yaml:"config_paths"`
+	AutoCreateTenants     bool     `yaml:"auto_create_tenants"`
+	AutoUpdateTenants     bool     `yaml:"auto_update_tenants"`
+	AutoDeleteTenants     bool     `yaml:"auto_delete_tenants"`
+	DefaultTenantTemplate string   `yaml:"default_tenant_template"`
+	FileFormats           []string `yaml:"file_formats"`
+	ValidationEnabled     bool     `yaml:"validation_enabled"`
+}
+
+// MultiTenantResourceConfig configuração de isolamento de recursos
+type MultiTenantResourceConfig struct {
+	Enabled             bool                              `yaml:"enabled"`
+	CPUIsolation        bool                              `yaml:"cpu_isolation"`
+	MemoryIsolation     bool                              `yaml:"memory_isolation"`
+	DiskIsolation       bool                              `yaml:"disk_isolation"`
+	NetworkIsolation    bool                              `yaml:"network_isolation"`
+	DefaultLimits       MultiTenantResourceLimitsConfig   `yaml:"default_limits"`
+	MonitoringInterval  string                            `yaml:"monitoring_interval"`
+	EnforcementMode     string                            `yaml:"enforcement_mode"` // "warn", "throttle", "block"
+}
+
+// MultiTenantResourceLimitsConfig limites padrão de recursos para tenants
+type MultiTenantResourceLimitsConfig struct {
+	MaxMemoryMB        int64   `yaml:"max_memory_mb"`
+	MaxCPUPercent      float64 `yaml:"max_cpu_percent"`
+	MaxDiskMB          int64   `yaml:"max_disk_mb"`
+	MaxConnections     int     `yaml:"max_connections"`
+	MaxEventsPerSec    int     `yaml:"max_events_per_sec"`
+	MaxFileDescriptors int     `yaml:"max_file_descriptors"`
+	MaxGoroutines      int     `yaml:"max_goroutines"`
+}
+
+// MultiTenantSecurityConfig configuração de isolamento de segurança
+type MultiTenantSecurityConfig struct {
+	Enabled                bool     `yaml:"enabled"`
+	TenantAuthentication   bool     `yaml:"tenant_authentication"`
+	APIKeyRequired         bool     `yaml:"api_key_required"`
+	EncryptionPerTenant    bool     `yaml:"encryption_per_tenant"`
+	AuditLoggingEnabled    bool     `yaml:"audit_logging_enabled"`
+	CrossTenantAccessDenied bool    `yaml:"cross_tenant_access_denied"`
+	AllowedTenantSources   []string `yaml:"allowed_tenant_sources"`
+	SecurityHeaders        map[string]string `yaml:"security_headers"`
+}
+
+// MultiTenantMetricsConfig configuração de isolamento de métricas
+type MultiTenantMetricsConfig struct {
+	Enabled           bool              `yaml:"enabled"`
+	PerTenantMetrics  bool              `yaml:"per_tenant_metrics"`
+	MetricsPrefix     string            `yaml:"metrics_prefix"`
+	TenantLabels      []string          `yaml:"tenant_labels"`
+	CustomLabels      map[string]string `yaml:"custom_labels"`
+	AggregationLevel  string            `yaml:"aggregation_level"` // "tenant", "global", "both"
+}
+
+// MultiTenantRoutingConfig configuração de roteamento por tenant
+type MultiTenantRoutingConfig struct {
+	Enabled          bool                           `yaml:"enabled"`
+	RoutingStrategy  string                         `yaml:"routing_strategy"`  // "label", "header", "source", "pattern"
+	TenantHeader     string                         `yaml:"tenant_header"`     // Nome do header HTTP para tenant
+	TenantLabel      string                         `yaml:"tenant_label"`      // Nome do label para tenant
+	RoutingRules     []MultiTenantRoutingRule       `yaml:"routing_rules"`
+	FallbackTenant   string                         `yaml:"fallback_tenant"`
+	LoadBalancing    MultiTenantLoadBalancingConfig `yaml:"load_balancing"`
+}
+
+// MultiTenantRoutingRule regra de roteamento para tenants
+type MultiTenantRoutingRule struct {
+	Name        string            `yaml:"name"`
+	Priority    int               `yaml:"priority"`
+	Conditions  map[string]string `yaml:"conditions"`  // field -> pattern
+	TenantID    string            `yaml:"tenant_id"`
+	Enabled     bool              `yaml:"enabled"`
+}
+
+// MultiTenantLoadBalancingConfig configuração de balanceamento de carga entre tenants
+type MultiTenantLoadBalancingConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Strategy   string `yaml:"strategy"`   // "round_robin", "weighted", "least_connections"
+	HealthCheck bool  `yaml:"health_check"`
+	WeightDistribution map[string]int `yaml:"weight_distribution"` // tenant_id -> weight
 }

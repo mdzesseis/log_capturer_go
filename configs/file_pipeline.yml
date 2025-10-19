@@ -13,85 +13,22 @@ version: "1.0"
 # Arquivos com caminho completo têm precedência sobre descoberta automática
 # Se o arquivo não existir, gera WARNING no log mas não trava o serviço
 files:
-  # System logs
+  # System logs - APENAS OS QUE EXISTEM
   - path: "/var/log/syslog"
     labels:
-      log_type: "system"
-      source: "syslog"
-      severity: "info"
-      team: "infrastructure"
+      source: "file"
+      file_path: "/var/log/syslog"
+      file_name: "syslog"
     enabled: true
 
   - path: "/var/log/auth.log"
     labels:
-      log_type: "security"
-      source: "auth"
-      severity: "warn"
-      team: "security"
+      source: "file"
+      file_path: "/var/log/auth.log"
+      file_name: "auth.log"
     enabled: true
 
-  - path: "/var/log/kern.log"
-    labels:
-      log_type: "kernel"
-      source: "kernel"
-      severity: "info"
-      team: "infrastructure"
-    enabled: true
-
-  # Web server logs (desabilitados por padrão)
-  - path: "/var/log/nginx/access.log"
-    labels:
-      log_type: "web"
-      source: "nginx"
-      service: "web-server"
-      log_format: "combined"
-      team: "application"
-    enabled: false
-
-  - path: "/var/log/nginx/error.log"
-    labels:
-      log_type: "web"
-      source: "nginx"
-      service: "web-server"
-      severity: "error"
-      team: "application"
-    enabled: false
-
-  - path: "/var/log/apache2/access.log"
-    labels:
-      log_type: "web"
-      source: "apache"
-      service: "web-server"
-      log_format: "combined"
-      team: "application"
-    enabled: false
-
-  - path: "/var/log/apache2/error.log"
-    labels:
-      log_type: "web"
-      source: "apache"
-      service: "web-server"
-      severity: "error"
-      team: "application"
-    enabled: false
-
-  # Database logs (desabilitados por padrão)
-  - path: "/var/log/mysql/error.log"
-    labels:
-      log_type: "database"
-      source: "mysql"
-      service: "database"
-      severity: "error"
-      team: "database"
-    enabled: false
-
-  - path: "/var/log/postgresql/postgresql.log"
-    labels:
-      log_type: "database"
-      source: "postgresql"
-      service: "database"
-      team: "database"
-    enabled: false
+  # REMOVIDOS - arquivos que não existem no sistema
 
 # -----------------------------------------------------------------------------
 # DIRETÓRIOS PARA DESCOBERTA AUTOMÁTICA
@@ -99,47 +36,21 @@ files:
 # Monitora diretórios inteiros com padrões de inclusão/exclusão
 # Arquivos descobertos recebem labels default configuradas aqui
 directories:
-  # Logs do sistema em /var/log (exclui próprios logs do capturer)
+  # DESABILITADO - descoberta automática pode capturar arquivos indesejados
   - path: "/var/log"
-    patterns:
-      - "*.log"
-      - "*_log"
-      - "*.out"
-      - "syslog*"
-      - "messages*"
-    exclude_patterns:
-      - "*.gz"
-      - "*.zip"
-      - "*.old"
-      - "*.bak"
-      - "*~"
-      - "*.1"
-      - "*.2"
-      - "*.3"
-    exclude_directories:
-      - "monitoring_data"      # Evita feedback loop
-      - "journal"              # Logs binários do systemd
-      - "private"              # Logs privados
-    recursive: true
-    default_labels:
-      discovered: "true"
-      log_type: "system"
-      environment: "production"
-    enabled: true
+    patterns: []
+    exclude_patterns: []
+    exclude_directories: []
+    recursive: false
+    default_labels: {}
+    enabled: false
 
   # DESABILITADO - Logs da aplicação log_capturer (evita feedback loop)
   - path: "/app/logs"
-    patterns:
-      - "*.log"
-      - "*.txt"
-    exclude_patterns:
-      - "*.gz"
-      - "*.bak"
+    patterns: []
+    exclude_patterns: []
     recursive: false
-    default_labels:
-      discovered: "true"
-      log_type: "application"
-      service: "log-capturer"
+    default_labels: {}
     enabled: false
 
   # Logs customizados (adicione seus próprios diretórios aqui)

@@ -62,4 +62,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8401 8001
 
 # Default command
-CMD ["./ssw-logs-capture", "--config", "/app/configs/app.yaml"]
+CMD ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]

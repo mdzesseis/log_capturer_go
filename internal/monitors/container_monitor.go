@@ -13,7 +13,9 @@ import (
 	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/docker"
 	"ssw-logs-capture/pkg/positions"
+	"ssw-logs-capture/pkg/selfguard"
 	"ssw-logs-capture/pkg/types"
+	"ssw-logs-capture/pkg/validation"
 
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
@@ -24,10 +26,12 @@ import (
 // ContainerMonitor monitora containers Docker
 type ContainerMonitor struct {
 	config          types.DockerConfig
-	dispatcher      types.Dispatcher
-	logger          *logrus.Logger
-	taskManager     types.TaskManager
-	positionManager *positions.PositionBufferManager
+	dispatcher         types.Dispatcher
+	logger             *logrus.Logger
+	taskManager        types.TaskManager
+	positionManager    *positions.PositionBufferManager
+	timestampValidator *validation.TimestampValidator
+	feedbackGuard      *selfguard.FeedbackGuard
 
 	dockerPool    *docker.PoolManager
 	containers    map[string]*monitoredContainer
@@ -51,15 +55,43 @@ type monitoredContainer struct {
 }
 
 // NewContainerMonitor cria um novo monitor de containers
-func NewContainerMonitor(config types.DockerConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*ContainerMonitor, error) {
+func NewContainerMonitor(config types.DockerConfig, timestampConfig types.TimestampValidationConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*ContainerMonitor, error) {
+	// Converter config para o formato do validation package
+	validationConfig := validation.Config{
+		Enabled:             timestampConfig.Enabled,
+		MaxPastAgeSeconds:   timestampConfig.MaxPastAgeSeconds,
+		MaxFutureAgeSeconds: timestampConfig.MaxFutureAgeSeconds,
+		ClampEnabled:        timestampConfig.ClampEnabled,
+		ClampDLQ:            timestampConfig.ClampDLQ,
+		InvalidAction:       timestampConfig.InvalidAction,
+		DefaultTimezone:     timestampConfig.DefaultTimezone,
+		AcceptedFormats:     timestampConfig.AcceptedFormats,
+	}
+	timestampValidator := validation.NewTimestampValidator(validationConfig, logger, nil)
+
+	// Criar feedback guard com configuração padrão
+	feedbackConfig := selfguard.Config{
+		Enabled:                  false,
+		SelfIDShort:              "log_capturer_go",
+		SelfContainerName:        "log_capturer_go",
+		SelfNamespace:            "ssw",
+		AutoDetectSelf:           true,
+		SelfLogAction:            "drop",
+		ExcludeContainerPatterns: []string{"log_capturer_go"},
+		ExcludeMessagePatterns:   []string{".*ssw-logs-capture.*"},
+	}
+	feedbackGuard := selfguard.NewFeedbackGuard(feedbackConfig, logger)
+
 	if !config.Enabled {
 		return &ContainerMonitor{
-			config:          config,
-			dispatcher:      dispatcher,
-			logger:          logger,
-			taskManager:     taskManager,
-			positionManager: positionManager,
-			isRunning:       false,
+			config:             config,
+			dispatcher:         dispatcher,
+			logger:             logger,
+			taskManager:        taskManager,
+			positionManager:    positionManager,
+			timestampValidator: timestampValidator,
+			feedbackGuard:      feedbackGuard,
+			isRunning:          false,
 		}, nil
 	}
 
@@ -82,15 +114,17 @@ func NewContainerMonitor(config types.DockerConfig, dispatcher types.Dispatcher,
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ContainerMonitor{
-		config:          config,
-		dispatcher:      dispatcher,
-		logger:          logger,
-		taskManager:     taskManager,
-		positionManager: positionManager,
-		dockerPool:      dockerPool,
-		containers:      make(map[string]*monitoredContainer),
-		ctx:             ctx,
-		cancel:          cancel,
+		config:             config,
+		dispatcher:         dispatcher,
+		logger:             logger,
+		taskManager:        taskManager,
+		positionManager:    positionManager,
+		timestampValidator: timestampValidator,
+		feedbackGuard:      feedbackGuard,
+		dockerPool:         dockerPool,
+		containers:         make(map[string]*monitoredContainer),
+		ctx:                ctx,
+		cancel:             cancel,
 	}, nil
 }
 
@@ -424,10 +458,7 @@ func (cm *ContainerMonitor) startContainerMonitoring(dockerContainer dockerTypes
 	// Filtrar apenas labels essenciais do Docker para evitar excesso (Loki limite: 15)
 	essentialDockerLabels := []string{
 		"com.docker.compose.service",
-		"com.docker.compose.project",
 		"com.docker.compose.container-number",
-		"version",
-		"maintainer",
 	}
 
 	for _, essential := range essentialDockerLabels {
@@ -435,15 +466,9 @@ func (cm *ContainerMonitor) startContainerMonitoring(dockerContainer dockerTypes
 			// Usar nome simplificado para economizar espaço
 			switch essential {
 			case "com.docker.compose.service":
-				labels["service_name"] = value
-			case "com.docker.compose.project":
-				labels["project"] = value
+				labels["compose_service"] = value
 			case "com.docker.compose.container-number":
 				labels["instance"] = value
-			case "version":
-				labels["version"] = value
-			case "maintainer":
-				labels["maintainer"] = value
 			}
 
 			// Parar se já temos muitos labels (deixar espaço para labels do pipeline)
@@ -678,6 +703,47 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 				// Enviar para dispatcher com labels padrão
 				sourceID := mc.id
 				standardLabels := addStandardLabels(mc.labels)
+
+				// Criar entry para validações
+				entry := &types.LogEntry{
+					Timestamp:   time.Now(),
+					Message:     line,
+					SourceType:  "docker",
+					SourceID:    sourceID,
+					Labels:      standardLabels,
+					ProcessedAt: time.Now(),
+				}
+
+				// Verificar se é self-log usando feedback guard (temporariamente desabilitado)
+				/*
+				if cm.feedbackGuard != nil {
+					guardResult := cm.feedbackGuard.CheckEntry(entry)
+					if guardResult.IsSelfLog && guardResult.Action == "drop" {
+						cm.logger.WithFields(logrus.Fields{
+							"container_id":   mc.id,
+							"container_name": mc.name,
+							"reason":         guardResult.Reason,
+							"match_pattern":  guardResult.MatchPattern,
+						}).Debug("Self-log dropped by feedback guard")
+						continue
+					}
+				}
+				*/
+
+				// Validar timestamp se o timestamp validator estiver disponível
+				if cm.timestampValidator != nil {
+					result := cm.timestampValidator.ValidateTimestamp(entry)
+					if !result.Valid && result.Action == "rejected" {
+						cm.logger.WithFields(logrus.Fields{
+							"container_id":   mc.id,
+							"container_name": mc.name,
+							"reason":         result.Reason,
+							"line":           line,
+						}).Warn("Container log line rejected due to invalid timestamp")
+						continue
+					}
+				}
+
 				if err := cm.dispatcher.Handle(ctx, "docker", sourceID, line, standardLabels); err != nil {
 					cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to dispatch container log")
 					metrics.RecordError("container_monitor", "dispatch_error")
@@ -871,17 +937,37 @@ func addStandardLabels(labels map[string]string) map[string]string {
 	// Criar um novo mapa copiando as labels existentes
 	result := make(map[string]string)
 
-	// Copiar labels existentes primeiro
+	// Copiar apenas labels permitidas (filtrar labels indesejadas do Docker Compose)
+	forbiddenLabels := map[string]bool{
+		"test_label":                               true,
+		"service_name":                             true,
+		"project":                                  true,
+		"log_type":                                 true,
+		"maintainer":                               true,
+		"job":                                      true,
+		"environment":                              true,
+		"com.docker.compose.project":               true,
+		"com.docker.compose.project.config_files": true,
+		"com.docker.compose.project.working_dir":   true,
+		"com.docker.compose.config-hash":           true,
+		"com.docker.compose.version":               true,
+		"com.docker.compose.oneoff":                true,
+		"com.docker.compose.depends_on":            true,
+		"com.docker.compose.image":                 true,
+		"org.opencontainers.image.source":          true,
+	}
+
 	for k, v := range labels {
-		result[k] = v
+		if !forbiddenLabels[k] {
+			result[k] = v
+		}
 	}
 
 	// Labels padrão obrigatórias (sobrescrevem as existentes)
-	result["service"] = "log_capturer"
+	result["service"] = "ssw-log-capturer"
 	result["source"] = "docker"
 	result["instance"] = getHostIP()
 	result["instance_name"] = getHostname()
-	result["test_label"] = "container_test_123"
 
 	return result
 }

@@ -13,6 +13,7 @@ import (
 	"ssw-logs-capture/pkg/deduplication"
 	"ssw-logs-capture/pkg/degradation"
 	"ssw-logs-capture/pkg/dlq"
+	"ssw-logs-capture/pkg/ratelimit"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ type Dispatcher struct {
 	deadLetterQueue      *dlq.DeadLetterQueue
 	backpressureManager  *backpressure.Manager
 	degradationManager   *degradation.Manager
+	rateLimiter          *ratelimit.AdaptiveRateLimiter
 
 	sinks       []types.Sink
 	queue       chan dispatchItem
@@ -64,6 +66,10 @@ type DispatcherConfig struct {
 	// Configuração de Degradation
 	DegradationEnabled bool               `yaml:"degradation_enabled"`
 	DegradationConfig  degradation.Config `yaml:"degradation_config"`
+
+	// Configuração de Rate Limiting
+	RateLimitEnabled bool              `yaml:"rate_limit_enabled"`
+	RateLimitConfig  ratelimit.Config  `yaml:"rate_limit_config"`
 }
 
 // dispatchItem item na fila de dispatch
@@ -124,6 +130,12 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		degradationManager = degradation.NewManager(config.DegradationConfig, logger)
 	}
 
+	// Configurar Rate Limiter se habilitado
+	var rateLimiter *ratelimit.AdaptiveRateLimiter
+	if config.RateLimitEnabled {
+		rateLimiter = ratelimit.NewAdaptiveRateLimiter(config.RateLimitConfig, logger)
+	}
+
 	return &Dispatcher{
 		config:               config,
 		logger:               logger,
@@ -132,6 +144,7 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		deadLetterQueue:      deadLetterQueue,
 		backpressureManager:  backpressureManager,
 		degradationManager:   degradationManager,
+		rateLimiter:          rateLimiter,
 		sinks:                make([]types.Sink, 0),
 		queue:                make(chan dispatchItem, config.QueueSize),
 		stats: types.DispatcherStats{
@@ -181,6 +194,8 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		if err := d.deadLetterQueue.Start(); err != nil {
 			return fmt.Errorf("failed to start dead letter queue: %w", err)
 		}
+		// Configurar reprocessamento da DLQ
+		d.setupDLQReprocessing()
 	}
 
 	// Iniciar Backpressure Manager se habilitado
@@ -197,6 +212,11 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 				d.logger.WithError(err).Error("Backpressure manager stopped with error")
 			}
 		}()
+	}
+
+	// Iniciar Rate Limiter se habilitado
+	if d.config.RateLimitEnabled && d.rateLimiter != nil {
+		d.logger.Info("Rate limiter enabled")
 	}
 
 
@@ -246,6 +266,16 @@ func (d *Dispatcher) Stop() error {
 func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
 	if !d.isRunning {
 		return fmt.Errorf("dispatcher not running")
+	}
+
+	// Aplicar rate limiting se habilitado
+	if d.config.RateLimitEnabled && d.rateLimiter != nil {
+		if !d.rateLimiter.Allow() {
+			d.statsMutex.Lock()
+			d.stats.Throttled++
+			d.statsMutex.Unlock()
+			return fmt.Errorf("rate limit exceeded")
+		}
 	}
 
 	// Verificar backpressure e aplicar controle de fluxo
@@ -727,4 +757,132 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 	// Ainda assim tenta processar, mas com delay
 	time.Sleep(10 * time.Millisecond)
 	return d.Handle(ctx, sourceType, sourceID, message, labels)
+}
+
+// GetDLQ retorna a instância da Dead Letter Queue
+func (d *Dispatcher) GetDLQ() *dlq.DeadLetterQueue {
+	return d.deadLetterQueue
+}
+
+// setupDLQReprocessing configura o callback de reprocessamento da DLQ
+func (d *Dispatcher) setupDLQReprocessing() {
+	if d.config.DLQEnabled && d.deadLetterQueue != nil {
+		// Definir callback para reprocessamento
+		d.deadLetterQueue.SetReprocessCallback(d.reprocessLogEntry)
+		d.logger.Info("DLQ reprocessing callback configured")
+	}
+}
+
+// reprocessLogEntry tenta reprocessar uma entrada da DLQ
+func (d *Dispatcher) reprocessLogEntry(entry types.LogEntry, originalSink string) error {
+	d.logger.WithFields(logrus.Fields{
+		"source_type":    entry.SourceType,
+		"source_id":      entry.SourceID,
+		"original_sink":  originalSink,
+		"timestamp":      entry.Timestamp,
+	}).Debug("Attempting to reprocess DLQ entry")
+
+	// Criar contexto com timeout para reprocessamento
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Tentar encontrar o sink específico que falhou
+	targetSink := d.findSinkByName(originalSink)
+	if targetSink == nil {
+		// Se sink específico não encontrado, tentar todos os sinks disponíveis
+		return d.reprocessToAnySink(ctx, entry)
+	}
+
+	// Verificar se o sink está healthy
+	if !targetSink.IsHealthy() {
+		return fmt.Errorf("target sink %s is not healthy", originalSink)
+	}
+
+	// Tentar enviar para o sink original
+	if err := targetSink.Send(ctx, []types.LogEntry{entry}); err != nil {
+		d.logger.WithError(err).WithFields(logrus.Fields{
+			"source_type":   entry.SourceType,
+			"source_id":     entry.SourceID,
+			"original_sink": originalSink,
+		}).Warn("Failed to reprocess entry to original sink")
+
+		// Se falhou no sink original, tentar outros sinks
+		return d.reprocessToAnySink(ctx, entry)
+	}
+
+	d.logger.WithFields(logrus.Fields{
+		"source_type":   entry.SourceType,
+		"source_id":     entry.SourceID,
+		"original_sink": originalSink,
+	}).Info("Successfully reprocessed DLQ entry to original sink")
+
+	return nil
+}
+
+// findSinkByName encontra um sink pelo nome
+func (d *Dispatcher) findSinkByName(sinkName string) types.Sink {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
+
+	// Mapear nomes de sink conhecidos
+	sinkNameMap := map[string]string{
+		"loki":           "loki",
+		"local_file":     "local_file",
+		"elasticsearch":  "elasticsearch",
+		"splunk":         "splunk",
+	}
+
+	// Se o nome não estiver no mapa, usar como está
+	normalizedName := sinkNameMap[sinkName]
+	if normalizedName == "" {
+		normalizedName = sinkName
+	}
+
+	// Para simplificar, retornamos o primeiro sink healthy que encontramos
+	// Em uma implementação mais sofisticada, poderíamos tag os sinks com nomes
+	for _, sink := range d.sinks {
+		if sink.IsHealthy() {
+			return sink
+		}
+	}
+
+	return nil
+}
+
+// reprocessToAnySink tenta reprocessar para qualquer sink healthy disponível
+func (d *Dispatcher) reprocessToAnySink(ctx context.Context, entry types.LogEntry) error {
+	d.mutex.RLock()
+	healthySinks := make([]types.Sink, 0)
+	for _, sink := range d.sinks {
+		if sink.IsHealthy() {
+			healthySinks = append(healthySinks, sink)
+		}
+	}
+	d.mutex.RUnlock()
+
+	if len(healthySinks) == 0 {
+		return fmt.Errorf("no healthy sinks available for reprocessing")
+	}
+
+	// Tentar enviar para cada sink healthy
+	var lastError error
+	for _, sink := range healthySinks {
+		if err := sink.Send(ctx, []types.LogEntry{entry}); err != nil {
+			lastError = err
+			d.logger.WithError(err).WithFields(logrus.Fields{
+				"source_type": entry.SourceType,
+				"source_id":   entry.SourceID,
+			}).Debug("Failed to reprocess entry to alternative sink")
+			continue
+		}
+
+		d.logger.WithFields(logrus.Fields{
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+		}).Info("Successfully reprocessed DLQ entry to alternative sink")
+
+		return nil
+	}
+
+	return fmt.Errorf("failed to reprocess to any sink, last error: %w", lastError)
 }

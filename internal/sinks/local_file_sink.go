@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"ssw-logs-capture/internal/metrics"
@@ -32,6 +33,10 @@ type LocalFileSink struct {
 	cancel    context.CancelFunc
 	isRunning bool
 	mutex     sync.RWMutex
+
+	// Proteções contra disco cheio
+	lastDiskCheck time.Time
+	diskSpaceMutex sync.RWMutex
 }
 
 // logFile representa um arquivo de log aberto
@@ -56,10 +61,21 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 		config.TextFormat.TimestampFormat = "2006-01-02T15:04:05.000Z"
 	}
 
-	// Use configured queue size, default to 10000 if not set
+	// Use configured queue size, default to 3000 if not set (menor para proteger memória)
 	queueSize := config.QueueSize
 	if queueSize <= 0 {
-		queueSize = 10000
+		queueSize = 3000
+	}
+
+	// Configurar proteções padrão
+	if config.MaxTotalDiskGB <= 0 {
+		config.MaxTotalDiskGB = 5.0 // 5GB padrão
+	}
+	if config.DiskCheckInterval == "" {
+		config.DiskCheckInterval = "60s"
+	}
+	if config.CleanupThresholdPercent <= 0 {
+		config.CleanupThresholdPercent = 90.0 // 90% padrão
 	}
 
 	return &LocalFileSink{
@@ -96,6 +112,9 @@ func (lfs *LocalFileSink) Start(ctx context.Context) error {
 
 	// Iniciar goroutine de processamento
 	go lfs.processLoop()
+
+	// Iniciar goroutine de monitoramento de disco
+	go lfs.diskMonitorLoop()
 
 	// Iniciar goroutine de rotação de arquivos
 	go lfs.rotationLoop()
@@ -204,6 +223,38 @@ func (lfs *LocalFileSink) rotationLoop() {
 
 // writeLogEntry escreve uma entrada de log
 func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
+	// Verificação robusta de espaço em disco antes de processar
+	if !lfs.isDiskSpaceAvailable() {
+		lfs.logger.WithFields(logrus.Fields{
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+			"reason":      "insufficient_disk_space",
+		}).Error("Dropping log entry due to insufficient disk space")
+		metrics.RecordError("local_file_sink", "disk_full")
+
+		// Tentar limpeza de emergência imediata
+		lfs.performEmergencyCleanup()
+
+		// Verificar novamente após limpeza
+		if !lfs.isDiskSpaceAvailable() {
+			metrics.RecordError("local_file_sink", "disk_full_after_cleanup")
+			return
+		}
+	}
+
+	// Verificação adicional do tamanho estimado da entrada
+	estimatedSize := int64(len(entry.Message) + 200) // ~200 bytes para metadados
+	if !lfs.canWriteSize(estimatedSize) {
+		lfs.logger.WithFields(logrus.Fields{
+			"source_type":     entry.SourceType,
+			"source_id":       entry.SourceID,
+			"estimated_size":  estimatedSize,
+			"reason":          "would_exceed_disk_limit",
+		}).Warn("Dropping log entry - would exceed disk limit")
+		metrics.RecordError("local_file_sink", "size_limit_exceeded")
+		return
+	}
+
 	startTime := time.Now()
 
 	// Determinar nome do arquivo baseado nos labels
@@ -587,4 +638,274 @@ func sanitizeFilename(name string) string {
 		" ", "_",
 	)
 	return replacer.Replace(name)
+}
+
+// diskMonitorLoop monitora o espaço em disco e executa limpeza quando necessário
+func (lfs *LocalFileSink) diskMonitorLoop() {
+	interval, err := time.ParseDuration(lfs.config.DiskCheckInterval)
+	if err != nil {
+		interval = 60 * time.Second // fallback para 1 minuto
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-lfs.ctx.Done():
+			return
+		case <-ticker.C:
+			lfs.checkDiskSpaceAndCleanup()
+		}
+	}
+}
+
+// checkDiskSpaceAndCleanup verifica espaço em disco e executa limpeza se necessário
+func (lfs *LocalFileSink) checkDiskSpaceAndCleanup() {
+	lfs.diskSpaceMutex.Lock()
+	defer lfs.diskSpaceMutex.Unlock()
+
+	// Verificar espaço disponível no disco
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(lfs.config.Directory, &stat)
+	if err != nil {
+		lfs.logger.WithError(err).Error("Failed to check disk space")
+		return
+	}
+
+	// Calcular uso do disco
+	totalBytes := stat.Blocks * uint64(stat.Bsize)
+	freeBytes := stat.Bavail * uint64(stat.Bsize)
+	usedBytes := totalBytes - freeBytes
+	usagePercent := float64(usedBytes) / float64(totalBytes) * 100
+
+	// Calcular tamanho atual do diretório de logs
+	dirSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
+
+	lfs.logger.WithFields(logrus.Fields{
+		"disk_usage_percent": fmt.Sprintf("%.2f%%", usagePercent),
+		"dir_size_gb":        fmt.Sprintf("%.2fGB", dirSizeGB),
+		"max_allowed_gb":     lfs.config.MaxTotalDiskGB,
+		"cleanup_threshold":  lfs.config.CleanupThresholdPercent,
+	}).Debug("Disk space check")
+
+	// Verificar se precisa de limpeza
+	needsCleanup := false
+	cleanupReason := ""
+
+	if usagePercent >= lfs.config.CleanupThresholdPercent {
+		needsCleanup = true
+		cleanupReason = fmt.Sprintf("disk usage %.2f%% >= %.2f%%", usagePercent, lfs.config.CleanupThresholdPercent)
+	} else if dirSizeGB >= lfs.config.MaxTotalDiskGB {
+		needsCleanup = true
+		cleanupReason = fmt.Sprintf("directory size %.2fGB >= %.2fGB", dirSizeGB, lfs.config.MaxTotalDiskGB)
+	}
+
+	if needsCleanup && lfs.config.EmergencyCleanupEnabled {
+		lfs.logger.WithField("reason", cleanupReason).Warn("Emergency cleanup triggered")
+		lfs.performEmergencyCleanup()
+	}
+
+	lfs.lastDiskCheck = time.Now()
+}
+
+// getDirSizeGB calcula o tamanho total do diretório em GB
+func (lfs *LocalFileSink) getDirSizeGB(dirPath string) float64 {
+	var totalSize int64
+
+	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Ignorar erros de arquivos individuais
+		}
+		if !info.IsDir() {
+			totalSize += info.Size()
+		}
+		return nil
+	})
+
+	if err != nil {
+		lfs.logger.WithError(err).Error("Failed to calculate directory size")
+		return 0
+	}
+
+	return float64(totalSize) / (1024 * 1024 * 1024) // Converter para GB
+}
+
+// performEmergencyCleanup executa limpeza de emergência
+func (lfs *LocalFileSink) performEmergencyCleanup() {
+	// Listar todos os arquivos de log
+	files, err := filepath.Glob(filepath.Join(lfs.config.Directory, "*.log*"))
+	if err != nil {
+		lfs.logger.WithError(err).Error("Failed to list log files for cleanup")
+		return
+	}
+
+	// Ordenar por data de modificação (mais antigos primeiro)
+	type fileInfo struct {
+		path    string
+		modTime time.Time
+		size    int64
+	}
+
+	var fileInfos []fileInfo
+	for _, file := range files {
+		stat, err := os.Stat(file)
+		if err != nil {
+			continue
+		}
+		fileInfos = append(fileInfos, fileInfo{
+			path:    file,
+			modTime: stat.ModTime(),
+			size:    stat.Size(),
+		})
+	}
+
+	// Ordenar por data de modificação
+	sort.Slice(fileInfos, func(i, j int) bool {
+		return fileInfos[i].modTime.Before(fileInfos[j].modTime)
+	})
+
+	// Remover arquivos mais antigos até liberar espaço suficiente
+	var removedFiles int
+	var freedBytes int64
+
+	for _, fileInfo := range fileInfos {
+		// Não remover arquivos muito recentes (menos de 1 hora)
+		if time.Since(fileInfo.modTime) < time.Hour {
+			continue
+		}
+
+		err := os.Remove(fileInfo.path)
+		if err != nil {
+			lfs.logger.WithError(err).WithField("file", fileInfo.path).Error("Failed to remove old log file")
+			continue
+		}
+
+		removedFiles++
+		freedBytes += fileInfo.size
+
+		lfs.logger.WithFields(logrus.Fields{
+			"file":      filepath.Base(fileInfo.path),
+			"size_mb":   float64(fileInfo.size) / (1024 * 1024),
+			"mod_time":  fileInfo.modTime.Format(time.RFC3339),
+		}).Info("Removed old log file during emergency cleanup")
+
+		// Verificar se já liberamos espaço suficiente
+		if removedFiles >= 10 { // Limite de segurança
+			break
+		}
+	}
+
+	lfs.logger.WithFields(logrus.Fields{
+		"removed_files": removedFiles,
+		"freed_mb":      float64(freedBytes) / (1024 * 1024),
+	}).Info("Emergency cleanup completed")
+}
+
+// isDiskSpaceAvailable verifica se há espaço suficiente antes de escrever
+func (lfs *LocalFileSink) isDiskSpaceAvailable() bool {
+	lfs.diskSpaceMutex.RLock()
+	defer lfs.diskSpaceMutex.RUnlock()
+
+	// Forçar verificação se passou muito tempo
+	if time.Since(lfs.lastDiskCheck) > 5*time.Minute {
+		lfs.diskSpaceMutex.RUnlock()
+		lfs.checkDiskSpaceAndCleanup()
+		lfs.diskSpaceMutex.RLock()
+	}
+
+	// Verificar espaço atual
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(lfs.config.Directory, &stat)
+	if err != nil {
+		return false
+	}
+
+	totalBytes := stat.Blocks * uint64(stat.Bsize)
+	freeBytes := stat.Bavail * uint64(stat.Bsize)
+	usagePercent := float64(totalBytes-freeBytes) / float64(totalBytes) * 100
+
+	// Bloquear escrita se uso > 95% ou se diretório excede limite
+	if usagePercent > 95.0 {
+		return false
+	}
+
+	dirSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
+	if dirSizeGB >= lfs.config.MaxTotalDiskGB {
+		return false
+	}
+
+	return true
+}
+
+// canWriteSize verifica se pode escrever um tamanho específico sem exceder limites
+func (lfs *LocalFileSink) canWriteSize(size int64) bool {
+	lfs.diskSpaceMutex.RLock()
+	defer lfs.diskSpaceMutex.RUnlock()
+
+	// Calcular tamanho atual do diretório
+	currentSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
+
+	// Converter tamanho para GB
+	sizeGB := float64(size) / (1024 * 1024 * 1024)
+
+	// Verificar se escrita excederia o limite
+	if (currentSizeGB + sizeGB) >= lfs.config.MaxTotalDiskGB {
+		return false
+	}
+
+	// Verificar espaço livre no sistema
+	var stat syscall.Statfs_t
+	err := syscall.Statfs(lfs.config.Directory, &stat)
+	if err != nil {
+		return false
+	}
+
+	freeBytes := stat.Bavail * uint64(stat.Bsize)
+
+	// Garantir que há pelo menos 100MB livres após a escrita
+	minFreeBytes := int64(100 * 1024 * 1024) // 100MB
+	if int64(freeBytes) - size < minFreeBytes {
+		return false
+	}
+
+	return true
+}
+
+// getQueuePressure retorna a pressão atual da fila (0.0 a 1.0)
+func (lfs *LocalFileSink) getQueuePressure() float64 {
+	utilization := lfs.GetQueueUtilization()
+
+	// Calcular pressão baseada na utilização da fila e espaço em disco
+	diskPressure := lfs.getDiskPressure()
+
+	// Retornar a maior pressão entre fila e disco
+	if diskPressure > utilization {
+		return diskPressure
+	}
+	return utilization
+}
+
+// getDiskPressure retorna a pressão do disco (0.0 a 1.0)
+func (lfs *LocalFileSink) getDiskPressure() float64 {
+	currentSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
+	return currentSizeGB / lfs.config.MaxTotalDiskGB
+}
+
+// shouldDropEntryDueToBackpressure verifica se deve descartar entrada por backpressure
+func (lfs *LocalFileSink) shouldDropEntryDueToBackpressure() bool {
+	pressure := lfs.getQueuePressure()
+
+	// Se pressão > 95%, começar a descartar entradas não críticas
+	if pressure > 0.95 {
+		return true
+	}
+
+	// Se pressão > 90%, descartar entradas de debug/trace
+	if pressure > 0.90 {
+		// Implementar lógica baseada em level se necessário
+		return false // Por enquanto, não descartar
+	}
+
+	return false
 }

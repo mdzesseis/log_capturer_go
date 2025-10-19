@@ -9,11 +9,14 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"ssw-logs-capture/internal/metrics"
+	"ssw-logs-capture/pkg/batching"
 	"ssw-logs-capture/pkg/circuit"
 	"ssw-logs-capture/pkg/compression"
+	"ssw-logs-capture/pkg/dlq"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -26,16 +29,25 @@ type LokiSink struct {
 	httpClient   *http.Client
 	breaker      types.CircuitBreaker
 	compressor   *compression.HTTPCompressor
+	deadLetterQueue *dlq.DeadLetterQueue
 
 	queue        chan types.LogEntry
 	batch        []types.LogEntry
 	batchMutex   sync.Mutex
 	lastSent     time.Time
 
+	// Adaptive batcher (se habilitado)
+	adaptiveBatcher *batching.AdaptiveBatcher
+	useAdaptiveBatching bool
+
 	ctx          context.Context
 	cancel       context.CancelFunc
 	isRunning    bool
 	mutex        sync.RWMutex
+
+	// Métricas de backpressure
+	backpressureCount int64
+	droppedCount      int64
 }
 
 // LokiPayload estrutura do payload para Loki
@@ -50,7 +62,7 @@ type LokiStream struct {
 }
 
 // NewLokiSink cria um novo sink para Loki
-func NewLokiSink(config types.LokiConfig, logger *logrus.Logger) *LokiSink {
+func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue *dlq.DeadLetterQueue) *LokiSink {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Parse timeout from string
@@ -103,17 +115,66 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger) *LokiSink {
 		queueSize = 20000
 	}
 
-	return &LokiSink{
-		config:     config,
-		logger:     logger,
-		httpClient: httpClient,
-		breaker:    breaker,
-		compressor: compressor,
-		queue:      make(chan types.LogEntry, queueSize),
-		batch:      make([]types.LogEntry, 0, config.BatchSize),
-		ctx:        ctx,
-		cancel:     cancel,
+	ls := &LokiSink{
+		config:          config,
+		logger:          logger,
+		httpClient:      httpClient,
+		breaker:         breaker,
+		compressor:      compressor,
+		deadLetterQueue: deadLetterQueue,
+		queue:           make(chan types.LogEntry, queueSize),
+		batch:           make([]types.LogEntry, 0, config.BatchSize),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
+
+	// Configurar adaptive batcher se habilitado
+	if config.AdaptiveBatching.Enabled {
+		adaptiveConfig := batching.AdaptiveBatchConfig{
+			MinBatchSize:       config.AdaptiveBatching.MinBatchSize,
+			MaxBatchSize:       config.AdaptiveBatching.MaxBatchSize,
+			InitialBatchSize:   config.AdaptiveBatching.InitialBatchSize,
+			ThroughputTarget:   config.AdaptiveBatching.ThroughputTarget,
+			BufferSize:         config.AdaptiveBatching.BufferSize,
+		}
+
+		// Parse durations with fallbacks
+		if d, err := time.ParseDuration(config.AdaptiveBatching.MinFlushDelay); err == nil {
+			adaptiveConfig.MinFlushDelay = d
+		} else {
+			adaptiveConfig.MinFlushDelay = 50 * time.Millisecond
+		}
+
+		if d, err := time.ParseDuration(config.AdaptiveBatching.MaxFlushDelay); err == nil {
+			adaptiveConfig.MaxFlushDelay = d
+		} else {
+			adaptiveConfig.MaxFlushDelay = 10 * time.Second
+		}
+
+		if d, err := time.ParseDuration(config.AdaptiveBatching.InitialFlushDelay); err == nil {
+			adaptiveConfig.InitialFlushDelay = d
+		} else {
+			adaptiveConfig.InitialFlushDelay = 1 * time.Second
+		}
+
+		if d, err := time.ParseDuration(config.AdaptiveBatching.AdaptationInterval); err == nil {
+			adaptiveConfig.AdaptationInterval = d
+		} else {
+			adaptiveConfig.AdaptationInterval = 30 * time.Second
+		}
+
+		if d, err := time.ParseDuration(config.AdaptiveBatching.LatencyThreshold); err == nil {
+			adaptiveConfig.LatencyThreshold = d
+		} else {
+			adaptiveConfig.LatencyThreshold = 500 * time.Millisecond
+		}
+
+		ls.adaptiveBatcher = batching.NewAdaptiveBatcher(adaptiveConfig, logger)
+		ls.useAdaptiveBatching = true
+		logger.Info("Adaptive batching enabled for Loki sink")
+	}
+
+	return ls
 }
 
 // Start inicia o sink
@@ -133,11 +194,17 @@ func (ls *LokiSink) Start(ctx context.Context) error {
 	ls.isRunning = true
 	ls.logger.WithField("url", ls.config.URL).Info("Starting Loki sink")
 
-	// Iniciar goroutine de processamento
-	go ls.processLoop()
-
-	// Iniciar goroutine de flush por tempo
-	go ls.flushLoop()
+	// Iniciar adaptive batcher se habilitado
+	if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
+		if err := ls.adaptiveBatcher.Start(); err != nil {
+			return fmt.Errorf("failed to start adaptive batcher: %w", err)
+		}
+		go ls.adaptiveBatchLoop()
+	} else {
+		// Usar batching tradicional
+		go ls.processLoop()
+		go ls.flushLoop()
+	}
 
 	return nil
 }
@@ -157,36 +224,70 @@ func (ls *LokiSink) Stop() error {
 	// Cancelar contexto
 	ls.cancel()
 
+	// Parar adaptive batcher se habilitado
+	if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
+		if err := ls.adaptiveBatcher.Stop(); err != nil {
+			ls.logger.WithError(err).Error("Failed to stop adaptive batcher")
+		}
+	}
+
 	// Flush final
 	ls.flushBatch()
 
 	return nil
 }
 
-// Send envia logs para o sink com backpressure - nunca descarta logs
+// Send envia logs para o sink com backpressure inteligente
 func (ls *LokiSink) Send(ctx context.Context, entries []types.LogEntry) error {
 	if !ls.config.Enabled {
 		return nil
 	}
 
 	for _, entry := range entries {
-		// Implementar backpressure - bloquear até conseguir enviar
-		select {
-		case ls.queue <- entry:
-			// Enviado para fila com sucesso
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Second):
-			// Se demorar mais que 5 segundos, log um warning mas continue tentando
-			ls.logger.WithField("queue_utilization", ls.GetQueueUtilization()).
-				Warn("Loki sink queue backpressure - waiting to send log")
+		if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
+			// Usar adaptive batcher
+			if err := ls.adaptiveBatcher.Add(entry); err != nil {
+				ls.sendToDLQ(entry, "adaptive_batcher_error", err.Error(), "loki", 0)
+				atomic.AddInt64(&ls.droppedCount, 1)
+				metrics.RecordError("loki_sink", "adaptive_batcher_error")
+			}
+		} else {
+			// Usar fila tradicional com backpressure
+			queueUtilization := ls.GetQueueUtilization()
 
-			// Tentar novamente sem timeout para garantir que o log seja enviado
+			// Se a fila estiver acima de 95%, tentar enviar para DLQ ao invés de bloquear
+			if queueUtilization > 0.95 {
+				ls.sendToDLQ(entry, "loki_queue_full", "backpressure", "loki", 0)
+				atomic.AddInt64(&ls.droppedCount, 1)
+				metrics.RecordError("loki_sink", "queue_full")
+				continue
+			}
+
+			// Backpressure escalonado baseado na utilização da fila
+			var timeout time.Duration
+			if queueUtilization > 0.9 {
+				timeout = 1 * time.Second // Timeout curto quando quase cheio
+			} else if queueUtilization > 0.75 {
+				timeout = 3 * time.Second // Timeout médio
+			} else {
+				timeout = 10 * time.Second // Timeout normal
+			}
+
 			select {
 			case ls.queue <- entry:
-				// Enviado com sucesso após espera
+				// Enviado para fila com sucesso
 			case <-ctx.Done():
 				return ctx.Err()
+			case <-time.After(timeout):
+				// Timeout atingido - enviar para DLQ
+				ls.logger.WithFields(logrus.Fields{
+					"queue_utilization": queueUtilization,
+					"timeout":           timeout,
+				}).Warn("Loki sink timeout - sending to DLQ")
+
+				ls.sendToDLQ(entry, "loki_timeout", "backpressure", "loki", 0)
+				atomic.AddInt64(&ls.backpressureCount, 1)
+				metrics.RecordError("loki_sink", "backpressure_timeout")
 			}
 		}
 	}
@@ -291,6 +392,11 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 		ls.logger.WithError(err).WithField("entries", len(entries)).Error("Failed to send batch to Loki")
 		metrics.RecordLogSent("loki", "error")
 		metrics.RecordError("loki_sink", "send_error")
+
+		// Enviar batch inteiro para DLQ após falha
+		for _, entry := range entries {
+			ls.sendToDLQ(entry, err.Error(), "send_failed", "loki", 1)
+		}
 	} else {
 		ls.logger.WithField("entries", len(entries)).Debug("Batch sent to Loki successfully")
 		metrics.RecordLogSent("loki", "success")
@@ -493,8 +599,8 @@ func (ls *LokiSink) prepareLokiLabels(labels map[string]string) map[string]strin
 	}
 
 	// Garantir que existam labels obrigatórios
-	if _, exists := lokiLabels["job"]; !exists {
-		lokiLabels["job"] = "ssw-logs-capture"
+	if _, exists := lokiLabels["service"]; !exists {
+		lokiLabels["service"] = "ssw-log-capturer"
 	}
 
 	return lokiLabels
@@ -524,3 +630,79 @@ func (ls *LokiSink) sanitizeLabelName(name string) string {
 
 	return sanitized
 }
+
+// sendToDLQ envia entrada para Dead Letter Queue
+func (ls *LokiSink) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
+	if ls.deadLetterQueue != nil {
+		context := map[string]string{
+			"sink_type":        "loki",
+			"queue_utilization": fmt.Sprintf("%.2f", ls.GetQueueUtilization()),
+			"loki_url":         ls.config.URL,
+		}
+
+		ls.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context)
+		metrics.RecordError("loki_sink", "dlq_entry")
+
+		ls.logger.WithFields(logrus.Fields{
+			"error_type":    errorType,
+			"failed_sink":   failedSink,
+			"retry_count":   retryCount,
+			"source_type":   entry.SourceType,
+			"source_id":     entry.SourceID,
+		}).Debug("Entry sent to DLQ")
+	} else {
+		// Se não tiver DLQ, pelo menos registrar o erro
+		ls.logger.WithFields(logrus.Fields{
+			"error_msg":     errorMsg,
+			"error_type":    errorType,
+			"failed_sink":   failedSink,
+			"retry_count":   retryCount,
+		}).Error("Failed to send log entry and no DLQ available")
+	}
+}
+
+// GetBackpressureStats retorna estatísticas de backpressure
+func (ls *LokiSink) GetBackpressureStats() map[string]interface{} {
+	return map[string]interface{}{
+		"backpressure_count": atomic.LoadInt64(&ls.backpressureCount),
+		"dropped_count":      atomic.LoadInt64(&ls.droppedCount),
+		"queue_utilization":  ls.GetQueueUtilization(),
+		"queue_size":         len(ls.queue),
+		"queue_capacity":     cap(ls.queue),
+	}
+}
+
+// adaptiveBatchLoop loop principal para adaptive batching
+func (ls *LokiSink) adaptiveBatchLoop() {
+	for {
+		select {
+		case <-ls.ctx.Done():
+			return
+		default:
+			// Obter próximo batch do adaptive batcher
+			batch, err := ls.adaptiveBatcher.GetBatch(ls.ctx)
+			if err != nil {
+				if err == context.Canceled {
+					return
+				}
+				ls.logger.WithError(err).Error("Error getting batch from adaptive batcher")
+				continue
+			}
+
+			if len(batch) > 0 {
+				// Enviar batch
+				go ls.sendBatch(batch)
+
+				// Log básico de métricas do adaptive batcher
+				stats := ls.adaptiveBatcher.GetStats()
+				ls.logger.WithFields(logrus.Fields{
+					"batch_size":         stats.CurrentBatchSize,
+					"flush_delay_ms":     stats.CurrentFlushDelay,
+					"throughput_per_sec": stats.ThroughputPerSec,
+					"adaptation_count":   stats.AdaptationCount,
+				}).Debug("Adaptive batcher stats")
+			}
+		}
+	}
+}
+

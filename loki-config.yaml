@@ -32,12 +32,24 @@ compactor:
 
 limits_config:
   retention_period: 168h # Mantém logs por 7 dias
-  ingestion_rate_mb: 10
-  ingestion_burst_size_mb: 20
+  ingestion_rate_mb: 50  # Rate limit for ingestion (50MB/s)
+  ingestion_burst_size_mb: 100  # Burst limit (100MB)
   max_cache_freshness_per_query: 10m
-  reject_old_samples_max_age: 168h
-  # Permitir timestamps até 3 horas no passado para resolver problemas de timezone
-  # reject_old_samples: true
+  reject_old_samples: false  # Allow old samples for log replay/import
+  reject_old_samples_max_age: 720h  # Accept logs up to 30 days old
+  creation_grace_period: 10m  # Grace period for out-of-order samples
+  # Configurações de streams para resolver o problema de cardinalidade
+  max_streams_per_user: 50000  # Aumentado de padrão 10000 para 50000
+  max_streams_matchers_per_query: 10000
+  max_global_streams_per_user: 50000
+  # Configurações para melhor handling de backpressure
+  max_line_size: 256KB  # Tamanho máximo por linha
+  max_entries_limit_per_query: 5000
+  # Performance and stability configurations
+  per_stream_rate_limit: 3MB  # Per-stream rate limit
+  per_stream_rate_limit_burst: 15MB  # Per-stream burst limit
+  max_query_parallelism: 32  # Maximum parallel queries
+  tsdb_max_query_parallelism: 32  # TSDB query parallelism
 
 query_range:
   align_queries_with_step: true

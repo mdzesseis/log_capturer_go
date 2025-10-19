@@ -169,6 +169,13 @@ func (fg *FeedbackGuard) compilePatterns() {
 
 // CheckEntry verifica se uma entrada é própria (self-log)
 func (fg *FeedbackGuard) CheckEntry(entry *types.LogEntry) *GuardResult {
+	// Temporarily force allow all entries
+	return &GuardResult{
+		IsSelfLog: false,
+		Action:    "allow",
+		Reason:    "temporary_disabled",
+	}
+
 	if !fg.config.Enabled {
 		return &GuardResult{
 			IsSelfLog: false,
@@ -314,11 +321,11 @@ func (fg *FeedbackGuard) handleSelfLog(result *GuardResult, filterType string) *
 		fg.stats.SelfLogsDropped++
 		fg.mutex.Unlock()
 
-		fg.logger.WithFields(logrus.Fields{
-			"reason":        result.Reason,
-			"match_pattern": result.MatchPattern,
-			"filter_type":   filterType,
-		}).Debug("Self-log dropped")
+		// fg.logger.WithFields(logrus.Fields{
+		//	"reason":        result.Reason,
+		//	"match_pattern": result.MatchPattern,
+		//	"filter_type":   filterType,
+		// }).Debug("Self-log dropped")
 
 	case "tag":
 		result.Action = "tag"

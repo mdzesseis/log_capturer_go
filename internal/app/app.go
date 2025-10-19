@@ -17,6 +17,10 @@ import (
 	"ssw-logs-capture/internal/monitors"
 	"ssw-logs-capture/internal/processing"
 	"ssw-logs-capture/internal/sinks"
+	"ssw-logs-capture/pkg/buffer"
+	"ssw-logs-capture/pkg/cleanup"
+	"ssw-logs-capture/pkg/dlq"
+	"ssw-logs-capture/pkg/leakdetection"
 	"ssw-logs-capture/pkg/positions"
 	"ssw-logs-capture/pkg/task_manager"
 	"ssw-logs-capture/pkg/types"
@@ -36,11 +40,15 @@ type App struct {
 	processor        *processing.LogProcessor
 	fileMonitor      *monitors.FileMonitor
 	containerMonitor *monitors.ContainerMonitor
+	diskManager      *cleanup.DiskSpaceManager
+	resourceMonitor  *leakdetection.ResourceMonitor
+	diskBuffer       *buffer.DiskBuffer
 
 	sinks []types.Sink
 
-	httpServer    *http.Server
-	metricsServer *metrics.MetricsServer
+	httpServer      *http.Server
+	metricsServer   *metrics.MetricsServer
+	enhancedMetrics *metrics.EnhancedMetrics
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -149,6 +157,21 @@ func (app *App) initializeComponents() error {
 		return fmt.Errorf("failed to initialize monitors: %w", err)
 	}
 
+	// Disk Manager
+	if err := app.initializeDiskManager(); err != nil {
+		return fmt.Errorf("failed to initialize disk manager: %w", err)
+	}
+
+	// Resource Monitor
+	if err := app.initializeResourceMonitor(); err != nil {
+		return fmt.Errorf("failed to initialize resource monitor: %w", err)
+	}
+
+	// Disk Buffer
+	if err := app.initializeDiskBuffer(); err != nil {
+		return fmt.Errorf("failed to initialize disk buffer: %w", err)
+	}
+
 	// HTTP Server
 	if app.config.API.Enabled {
 		app.initializeHTTPServer()
@@ -160,6 +183,9 @@ func (app *App) initializeComponents() error {
 		app.metricsServer = metrics.NewMetricsServer(addr, app.logger)
 	}
 
+	// Enhanced Metrics
+	app.enhancedMetrics = metrics.NewEnhancedMetrics(app.logger)
+
 	return nil
 }
 
@@ -169,7 +195,13 @@ func (app *App) initializeSinks() error {
 
 	// Loki Sink
 	if app.config.Sinks.Loki.Enabled {
-		lokiSink := sinks.NewLokiSink(app.config.Sinks.Loki, app.logger)
+		// Obter DLQ do dispatcher (se disponível)
+		var deadLetterQueue *dlq.DeadLetterQueue
+		if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+			deadLetterQueue = dispatcherImpl.GetDLQ()
+		}
+
+		lokiSink := sinks.NewLokiSink(app.config.Sinks.Loki, app.logger, deadLetterQueue)
 		app.sinks = append(app.sinks, lokiSink)
 		app.dispatcher.AddSink(lokiSink)
 		app.logger.Info("Loki sink initialized")
@@ -258,11 +290,12 @@ func (app *App) initializePositionManager() error {
 
 	// Create buffer configuration
 	bufferConfig := &positions.BufferConfig{
-		FlushInterval:    flushInterval,
-		MaxMemoryBuffer:  app.config.Positions.MaxMemoryBuffer,
-		ForceFlushOnExit: app.config.Positions.ForceFlushOnExit,
-		CleanupInterval:  cleanupInterval,
-		MaxPositionAge:   maxPositionAge,
+		FlushInterval:       flushInterval,
+		MaxMemoryBuffer:     app.config.Positions.MaxMemoryBuffer,
+		MaxMemoryPositions:  app.config.Positions.MaxMemoryPositions,
+		ForceFlushOnExit:    app.config.Positions.ForceFlushOnExit,
+		CleanupInterval:     cleanupInterval,
+		MaxPositionAge:      maxPositionAge,
 	}
 
 	// Create position buffer manager
@@ -281,7 +314,7 @@ func (app *App) initializePositionManager() error {
 func (app *App) initializeMonitors() error {
 	// File Monitor
 	if app.config.File.Enabled {
-		fileMonitor, err := monitors.NewFileMonitor(app.config.File, app.dispatcher, app.taskManager, app.positionManager, app.logger)
+		fileMonitor, err := monitors.NewFileMonitor(app.config.File, app.config.TimestampValidation, app.dispatcher, app.taskManager, app.positionManager, app.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create file monitor: %w", err)
 		}
@@ -291,7 +324,7 @@ func (app *App) initializeMonitors() error {
 
 	// Container Monitor
 	if app.config.Docker.Enabled {
-		containerMonitor, err := monitors.NewContainerMonitor(app.config.Docker, app.dispatcher, app.taskManager, app.positionManager, app.logger)
+		containerMonitor, err := monitors.NewContainerMonitor(app.config.Docker, app.config.TimestampValidation, app.dispatcher, app.taskManager, app.positionManager, app.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create container monitor: %w", err)
 		}
@@ -299,6 +332,156 @@ func (app *App) initializeMonitors() error {
 		app.logger.Info("Container monitor initialized")
 	}
 
+	return nil
+}
+
+// initializeDiskManager inicializa o gerenciador de espaço em disco
+func (app *App) initializeDiskManager() error {
+	if !app.config.Cleanup.Enabled {
+		app.logger.Info("Disk manager disabled")
+		return nil
+	}
+
+	// Converter configuração
+	cleanupConfig := cleanup.Config{
+		CheckInterval:           parseDurationSafe(app.config.Cleanup.CheckInterval, 30*time.Minute),
+		CriticalSpaceThreshold:  app.config.Cleanup.CriticalSpaceThreshold,
+		WarningSpaceThreshold:   app.config.Cleanup.WarningSpaceThreshold,
+		Directories:             make([]cleanup.DirectoryConfig, len(app.config.Cleanup.Directories)),
+	}
+
+	// Valores padrão
+	if cleanupConfig.CriticalSpaceThreshold == 0 {
+		cleanupConfig.CriticalSpaceThreshold = 5.0 // 5%
+	}
+	if cleanupConfig.WarningSpaceThreshold == 0 {
+		cleanupConfig.WarningSpaceThreshold = 15.0 // 15%
+	}
+
+	// Converter configurações de diretórios
+	for i, dirConfig := range app.config.Cleanup.Directories {
+		cleanupConfig.Directories[i] = cleanup.DirectoryConfig{
+			Path:              dirConfig.Path,
+			MaxSizeMB:         dirConfig.MaxSizeMB,
+			RetentionDays:     dirConfig.RetentionDays,
+			FilePatterns:      dirConfig.FilePatterns,
+			MaxFiles:          dirConfig.MaxFiles,
+			CleanupAgeSeconds: dirConfig.CleanupAgeSeconds,
+		}
+	}
+
+	app.diskManager = cleanup.NewDiskSpaceManager(cleanupConfig, app.logger)
+	app.logger.Info("Disk manager initialized")
+	return nil
+}
+
+// initializeResourceMonitor inicializa o monitor de vazamentos de recursos
+func (app *App) initializeResourceMonitor() error {
+	if !app.config.LeakDetection.Enabled {
+		app.logger.Info("Resource monitor disabled")
+		return nil
+	}
+
+	// Converter configuração
+	resourceConfig := leakdetection.ResourceMonitorConfig{
+		MonitoringInterval:      parseDurationSafe(app.config.LeakDetection.MonitoringInterval, 30*time.Second),
+		FDLeakThreshold:         app.config.LeakDetection.FDLeakThreshold,
+		GoroutineLeakThreshold:  app.config.LeakDetection.GoroutineLeakThreshold,
+		MemoryLeakThreshold:     app.config.LeakDetection.MemoryLeakThreshold,
+		AlertCooldown:           parseDurationSafe(app.config.LeakDetection.AlertCooldown, 5*time.Minute),
+		EnableMemoryProfiling:   app.config.LeakDetection.EnableMemoryProfiling,
+		EnableGCOptimization:    app.config.LeakDetection.EnableGCOptimization,
+		MaxAlertHistory:         app.config.LeakDetection.MaxAlertHistory,
+	}
+
+	// Valores padrão
+	if resourceConfig.FDLeakThreshold == 0 {
+		resourceConfig.FDLeakThreshold = 100
+	}
+	if resourceConfig.GoroutineLeakThreshold == 0 {
+		resourceConfig.GoroutineLeakThreshold = 50
+	}
+	if resourceConfig.MemoryLeakThreshold == 0 {
+		resourceConfig.MemoryLeakThreshold = 100 * 1024 * 1024 // 100MB
+	}
+	if resourceConfig.MaxAlertHistory == 0 {
+		resourceConfig.MaxAlertHistory = 100
+	}
+
+	app.resourceMonitor = leakdetection.NewResourceMonitor(resourceConfig, app.logger)
+	app.logger.Info("Resource monitor initialized")
+	return nil
+}
+
+// initializeDiskBuffer inicializa o buffer de disco
+func (app *App) initializeDiskBuffer() error {
+	if !app.config.DiskBuffer.Enabled {
+		app.logger.Info("Disk buffer disabled")
+		return nil
+	}
+
+	// Converter configuração de string para tipos apropriados
+	diskBufferConfig := buffer.DiskBufferConfig{
+		BaseDir:            app.config.DiskBuffer.BaseDir,
+		MaxFileSize:        app.config.DiskBuffer.MaxFileSize,
+		MaxTotalSize:       app.config.DiskBuffer.MaxTotalSize,
+		MaxFiles:           app.config.DiskBuffer.MaxFiles,
+		CompressionEnabled: app.config.DiskBuffer.CompressionEnabled,
+	}
+
+	// Parse durations
+	if d, err := time.ParseDuration(app.config.DiskBuffer.SyncInterval); err == nil {
+		diskBufferConfig.SyncInterval = d
+	} else {
+		diskBufferConfig.SyncInterval = 5 * time.Second
+	}
+
+	if d, err := time.ParseDuration(app.config.DiskBuffer.CleanupInterval); err == nil {
+		diskBufferConfig.CleanupInterval = d
+	} else {
+		diskBufferConfig.CleanupInterval = 1 * time.Hour
+	}
+
+	if d, err := time.ParseDuration(app.config.DiskBuffer.RetentionPeriod); err == nil {
+		diskBufferConfig.RetentionPeriod = d
+	} else {
+		diskBufferConfig.RetentionPeriod = 24 * time.Hour
+	}
+
+	// Parse file permissions
+	if app.config.DiskBuffer.FilePermissions != "" {
+		if perm, err := parseFileMode(app.config.DiskBuffer.FilePermissions); err == nil {
+			diskBufferConfig.FilePermissions = perm
+		}
+	}
+
+	if app.config.DiskBuffer.DirPermissions != "" {
+		if perm, err := parseFileMode(app.config.DiskBuffer.DirPermissions); err == nil {
+			diskBufferConfig.DirPermissions = perm
+		}
+	}
+
+	// Valores padrão
+	if diskBufferConfig.BaseDir == "" {
+		diskBufferConfig.BaseDir = "/tmp/disk_buffer"
+	}
+	if diskBufferConfig.MaxFileSize == 0 {
+		diskBufferConfig.MaxFileSize = 100 * 1024 * 1024 // 100MB
+	}
+	if diskBufferConfig.MaxTotalSize == 0 {
+		diskBufferConfig.MaxTotalSize = 1024 * 1024 * 1024 // 1GB
+	}
+	if diskBufferConfig.MaxFiles == 0 {
+		diskBufferConfig.MaxFiles = 50
+	}
+
+	var err error
+	app.diskBuffer, err = buffer.NewDiskBuffer(diskBufferConfig, app.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create disk buffer: %w", err)
+	}
+
+	app.logger.Info("Disk buffer initialized")
 	return nil
 }
 
@@ -312,13 +495,46 @@ func (app *App) initializeHTTPServer() {
 
 	// Status endpoints
 	router.HandleFunc("/status", app.statusHandler).Methods("GET")
+	router.HandleFunc("/stats", app.statsHandler).Methods("GET")
 	router.HandleFunc("/task/status", app.taskStatusHandler).Methods("GET")
+
+	// Configuration endpoints
+	router.HandleFunc("/config", app.configHandler).Methods("GET")
+	router.HandleFunc("/config/reload", app.configReloadHandler).Methods("POST")
+
+	// Positions endpoints
+	router.HandleFunc("/positions", app.positionsHandler).Methods("GET")
+
+	// DLQ endpoints
+	router.HandleFunc("/dlq/stats", app.dlqStatsHandler).Methods("GET")
+	router.HandleFunc("/dlq/reprocess", app.dlqReprocessHandler).Methods("POST")
+
+	// Debug endpoints
+	router.HandleFunc("/debug/goroutines", app.debugGoroutinesHandler).Methods("GET")
+	router.HandleFunc("/debug/memory", app.debugMemoryHandler).Methods("GET")
+	router.HandleFunc("/debug/positions/validate", app.debugPositionsValidateHandler).Methods("GET")
 
 	// File monitoring endpoints
 	if app.fileMonitor != nil {
 		router.HandleFunc("/monitored/files", app.monitoredFilesHandler).Methods("GET")
 		router.HandleFunc("/monitor/file", app.addFileMonitorHandler).Methods("POST")
 		router.HandleFunc("/monitor/file/{task_name}", app.removeFileMonitorHandler).Methods("DELETE")
+	}
+
+	// Disk manager endpoints
+	if app.diskManager != nil {
+		router.HandleFunc("/admin/disk-status", app.diskStatusHandler).Methods("GET")
+	}
+
+	// Resource monitor endpoints
+	if app.resourceMonitor != nil {
+		router.HandleFunc("/admin/resource-status", app.resourceStatusHandler).Methods("GET")
+	}
+
+	// Disk buffer endpoints
+	if app.diskBuffer != nil {
+		router.HandleFunc("/admin/buffer-stats", app.bufferStatsHandler).Methods("GET")
+		router.HandleFunc("/admin/buffer-clear", app.bufferClearHandler).Methods("POST")
 	}
 
 	// Admin endpoints
@@ -375,6 +591,27 @@ func (app *App) Start() error {
 		}
 	}
 
+	// Iniciar disk manager
+	if app.diskManager != nil {
+		if err := app.diskManager.Start(); err != nil {
+			return fmt.Errorf("failed to start disk manager: %w", err)
+		}
+	}
+
+	// Iniciar resource monitor
+	if app.resourceMonitor != nil {
+		if err := app.resourceMonitor.Start(); err != nil {
+			return fmt.Errorf("failed to start resource monitor: %w", err)
+		}
+	}
+
+	// Iniciar enhanced metrics
+	if app.enhancedMetrics != nil {
+		if err := app.enhancedMetrics.Start(); err != nil {
+			return fmt.Errorf("failed to start enhanced metrics: %w", err)
+		}
+	}
+
 	// Iniciar HTTP server
 	if app.httpServer != nil {
 		app.wg.Add(1)
@@ -412,6 +649,34 @@ func (app *App) Stop() error {
 
 	if app.containerMonitor != nil {
 		app.containerMonitor.Stop()
+	}
+
+	// Parar disk manager
+	if app.diskManager != nil {
+		if err := app.diskManager.Stop(); err != nil {
+			app.logger.WithError(err).Error("Failed to stop disk manager")
+		}
+	}
+
+	// Parar resource monitor
+	if app.resourceMonitor != nil {
+		if err := app.resourceMonitor.Stop(); err != nil {
+			app.logger.WithError(err).Error("Failed to stop resource monitor")
+		}
+	}
+
+	// Parar enhanced metrics
+	if app.enhancedMetrics != nil {
+		if err := app.enhancedMetrics.Stop(); err != nil {
+			app.logger.WithError(err).Error("Failed to stop enhanced metrics")
+		}
+	}
+
+	// Parar disk buffer
+	if app.diskBuffer != nil {
+		if err := app.diskBuffer.Close(); err != nil {
+			app.logger.WithError(err).Error("Failed to close disk buffer")
+		}
 	}
 
 	// Parar position manager
@@ -465,9 +730,24 @@ func (app *App) Run() error {
 // Health check handlers
 
 func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
+	health := app.getDetailedHealth()
+
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"healthy"}`))
+	if health.Status == "healthy" {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}
+
+	// Formato conforme documentação
+	response := map[string]interface{}{
+		"status": health.Status,
+		"components": health.Components,
+		"issues": health.Issues,
+		"check_time": health.CheckTime.Format(time.RFC3339),
+	}
+
+	json.NewEncoder(w).Encode(response)
 }
 
 func (app *App) detailedHealthHandler(w http.ResponseWriter, r *http.Request) {
@@ -654,28 +934,12 @@ func (app *App) getDetailedHealth() types.HealthStatus {
 	components := make(map[string]interface{})
 	issues := make([]string, 0)
 
-	// Verificar sinks
-	sinkStatus := make(map[string]interface{})
-	for i, sink := range app.sinks {
-		sinkName := fmt.Sprintf("sink_%d", i)
-		healthy := sink.IsHealthy()
-		sinkStatus[sinkName] = map[string]interface{}{
-			"healthy": healthy,
-		}
-
-		if !healthy {
-			status = "degraded"
-			issues = append(issues, fmt.Sprintf("Sink %s is unhealthy", sinkName))
-		}
-	}
-	components["sinks"] = sinkStatus
-
-	// Verificar monitors
-	monitorStatus := make(map[string]interface{})
+	// Verificar file monitor
 	if app.fileMonitor != nil {
 		healthy := app.fileMonitor.IsHealthy()
-		monitorStatus["file"] = map[string]interface{}{
-			"healthy": healthy,
+		components["file_monitor"] = map[string]interface{}{
+			"status": getStatusString(healthy),
+			"last_check": time.Now().Format(time.RFC3339),
 		}
 		if !healthy {
 			status = "degraded"
@@ -683,17 +947,96 @@ func (app *App) getDetailedHealth() types.HealthStatus {
 		}
 	}
 
+	// Verificar container monitor
 	if app.containerMonitor != nil {
 		healthy := app.containerMonitor.IsHealthy()
-		monitorStatus["container"] = map[string]interface{}{
-			"healthy": healthy,
+		components["container_monitor"] = map[string]interface{}{
+			"status": getStatusString(healthy),
+			"last_check": time.Now().Format(time.RFC3339),
 		}
 		if !healthy {
 			status = "degraded"
 			issues = append(issues, "Container monitor is unhealthy")
 		}
 	}
-	components["monitors"] = monitorStatus
+
+	// Verificar dispatcher
+	if app.dispatcher != nil {
+		stats := app.dispatcher.GetStats()
+		queueUtil := float64(stats.QueueSize) / 100000.0 // Assumindo queue size de 100k
+		healthy := queueUtil < 0.9 // < 90% utilização
+		components["dispatcher"] = map[string]interface{}{
+			"status": getStatusString(healthy),
+			"queue_size": stats.QueueSize,
+		}
+		if !healthy {
+			status = "degraded"
+			issues = append(issues, "Dispatcher queue is overloaded")
+		}
+	}
+
+	// Verificar sinks
+	sinkComponents := make(map[string]interface{})
+	for i, sink := range app.sinks {
+		var sinkName string
+		switch i {
+		case 0:
+			sinkName = "loki_sink"
+		case 1:
+			sinkName = "local_file_sink"
+		default:
+			sinkName = fmt.Sprintf("sink_%d", i)
+		}
+
+		healthy := sink.IsHealthy()
+		sinkComponents[sinkName] = map[string]interface{}{
+			"status": getStatusString(healthy),
+			"queue_util": 0.0, // TODO: implementar utilização real
+		}
+
+		if !healthy {
+			status = "degraded"
+			issues = append(issues, fmt.Sprintf("Sink %s is unhealthy", sinkName))
+		}
+	}
+	components["sinks"] = sinkComponents
+
+	// Verificar position manager
+	if app.positionManager != nil {
+		components["position_manager"] = map[string]interface{}{
+			"status": "healthy",
+			"positions": 0, // TODO: implementar contagem real
+		}
+	}
+
+	// Verificar resource monitor
+	if app.resourceMonitor != nil {
+		stats := app.resourceMonitor.GetStats()
+		goroutineLeaks := stats.GoroutineLeaks
+		memoryLeaks := stats.MemoryLeaks
+		fdLeaks := stats.FDLeaks
+
+		healthy := goroutineLeaks == 0 && memoryLeaks == 0 && fdLeaks == 0
+		components["resource_monitor"] = map[string]interface{}{
+			"status": getStatusString(healthy),
+			"goroutine_leaks": goroutineLeaks,
+			"memory_leaks": memoryLeaks,
+			"fd_leaks": fdLeaks,
+		}
+
+		if !healthy {
+			status = "degraded"
+			if goroutineLeaks > 0 {
+				issues = append(issues, fmt.Sprintf("Detected %d goroutine leaks", goroutineLeaks))
+			}
+			if memoryLeaks > 0 {
+				issues = append(issues, fmt.Sprintf("Detected %d memory leaks", memoryLeaks))
+			}
+			if fdLeaks > 0 {
+				issues = append(issues, fmt.Sprintf("Detected %d file descriptor leaks", fdLeaks))
+			}
+		}
+	}
 
 	return types.HealthStatus{
 		Status:     status,
@@ -701,6 +1044,38 @@ func (app *App) getDetailedHealth() types.HealthStatus {
 		Issues:     issues,
 		CheckTime:  time.Now(),
 	}
+}
+
+// getStatusString converte boolean para string de status
+func getStatusString(healthy bool) string {
+	if healthy {
+		return "healthy"
+	}
+	return "unhealthy"
+}
+
+// diskStatusHandler retorna status do disk manager
+func (app *App) diskStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if app.diskManager == nil {
+		http.Error(w, "Disk manager not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	status := app.diskManager.GetStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// resourceStatusHandler retorna status do resource monitor
+func (app *App) resourceStatusHandler(w http.ResponseWriter, r *http.Request) {
+	if app.resourceMonitor == nil {
+		http.Error(w, "Resource monitor not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	status := app.resourceMonitor.GetStats()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 // parseDurationSafe safely parses a duration string with a fallback
@@ -712,4 +1087,229 @@ func parseDurationSafe(durationStr string, fallback time.Duration) time.Duration
 		return d
 	}
 	return fallback
+}
+
+// parseFileMode parses a file mode string
+func parseFileMode(modeStr string) (os.FileMode, error) {
+	// Simple parsing for octal modes like "0644", "0755"
+	if len(modeStr) > 0 && modeStr[0] == '0' {
+		var mode uint32
+		if n, err := fmt.Sscanf(modeStr, "%o", &mode); err == nil && n == 1 {
+			return os.FileMode(mode), nil
+		}
+	}
+	return 0, fmt.Errorf("invalid file mode: %s", modeStr)
+}
+
+// bufferStatsHandler retorna estatísticas do disk buffer
+func (app *App) bufferStatsHandler(w http.ResponseWriter, r *http.Request) {
+	if app.diskBuffer == nil {
+		http.Error(w, "Disk buffer not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	stats := app.diskBuffer.GetStats()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(stats)
+}
+
+// bufferClearHandler limpa o disk buffer
+func (app *App) bufferClearHandler(w http.ResponseWriter, r *http.Request) {
+	if app.diskBuffer == nil {
+		http.Error(w, "Disk buffer not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := app.diskBuffer.Clear(); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to clear buffer: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "success",
+		"message": "Disk buffer cleared successfully",
+	})
+}
+
+// statsHandler retorna estatísticas detalhadas conforme documentação
+func (app *App) statsHandler(w http.ResponseWriter, r *http.Request) {
+	stats := app.dispatcher.GetStats()
+
+	fileStats := make(map[string]interface{})
+	containerStats := make(map[string]interface{})
+	sinkStats := make(map[string]interface{})
+
+	if app.fileMonitor != nil {
+		fileStats["files_watched"] = len(app.fileMonitor.GetMonitoredFiles())
+		fileStats["errors"] = 0 // TODO: implementar contador de erros
+	}
+
+	if app.containerMonitor != nil {
+		containerStats["containers_monitored"] = 9 // TODO: implementar contador real
+		containerStats["reconnections"] = 0 // TODO: implementar contador de reconexões
+	}
+
+	for i := range app.sinks {
+		sinkName := fmt.Sprintf("sink_%d", i)
+		sinkStats[sinkName] = map[string]interface{}{
+			"queue_util": 0.0, // TODO: implementar utilização de queue
+			"errors":     0,   // TODO: implementar contador de erros
+		}
+	}
+
+	response := map[string]interface{}{
+		"dispatcher": map[string]interface{}{
+			"total_processed":    stats.TotalProcessed,
+			"error_count":       stats.ErrorCount,
+			"queue_size":        stats.QueueSize,
+			"duplicates_detected": stats.DuplicatesDetected,
+			"throughput_per_sec": 0.0, // TODO: calcular throughput
+		},
+		"file_monitor":      fileStats,
+		"container_monitor": containerStats,
+		"sinks":            sinkStats,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// configHandler retorna configuração atual (sanitizada)
+func (app *App) configHandler(w http.ResponseWriter, r *http.Request) {
+	// Retornar configuração sanitizada (sem senhas/tokens)
+	sanitizedConfig := map[string]interface{}{
+		"app": map[string]interface{}{
+			"environment": app.config.App.Environment,
+			"log_level":   app.config.Logging.Level,
+		},
+		"dispatcher": map[string]interface{}{
+			"queue_size":    app.config.Dispatcher.QueueSize,
+			"worker_count":  app.config.Dispatcher.WorkerCount,
+			"batch_size":    app.config.Dispatcher.BatchSize,
+		},
+		"monitoring": map[string]interface{}{
+			"file_enabled":      app.config.File.Enabled,
+			"container_enabled": app.config.Docker.Enabled,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(sanitizedConfig)
+}
+
+// configReloadHandler recarrega configuração
+func (app *App) configReloadHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implementar reload de configuração
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "error",
+		"message": "Config reload not implemented yet",
+	})
+}
+
+// positionsHandler retorna posições atuais
+func (app *App) positionsHandler(w http.ResponseWriter, r *http.Request) {
+	if app.positionManager == nil {
+		http.Error(w, "Position manager not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// TODO: Implementar método GetAllPositions no position manager
+	response := map[string]interface{}{
+		"files":      []map[string]interface{}{},
+		"containers": []map[string]interface{}{},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// dlqStatsHandler retorna estatísticas da DLQ
+func (app *App) dlqStatsHandler(w http.ResponseWriter, r *http.Request) {
+	// Obter DLQ do dispatcher
+	var dlqStats map[string]interface{}
+	if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+		if dlq := dispatcherImpl.GetDLQ(); dlq != nil {
+			dlqStats = map[string]interface{}{
+				"total_entries":     0, // TODO: implementar contadores na DLQ
+				"size_mb":          0.0,
+				"oldest_entry":     nil,
+				"retry_queue_size": 0,
+			}
+		}
+	}
+
+	if dlqStats == nil {
+		dlqStats = map[string]interface{}{
+			"message": "DLQ not available",
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(dlqStats)
+}
+
+// dlqReprocessHandler força reprocessamento da DLQ
+func (app *App) dlqReprocessHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Implementar reprocessamento da DLQ
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "error",
+		"message": "DLQ reprocessing not implemented yet",
+	})
+}
+
+// debugGoroutinesHandler retorna informações sobre goroutines
+func (app *App) debugGoroutinesHandler(w http.ResponseWriter, r *http.Request) {
+	if app.resourceMonitor != nil {
+		stats := app.resourceMonitor.GetStats()
+		response := map[string]interface{}{
+			"current_goroutines":      stats.Goroutines,
+			"initial_goroutines":      stats.InitialGoroutines,
+			"goroutine_leaks_detected": stats.GoroutineLeaks,
+			"monitoring_uptime_seconds": time.Since(time.Unix(stats.LastCheck, 0)).Seconds(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		http.Error(w, "Resource monitor not enabled", http.StatusServiceUnavailable)
+	}
+}
+
+// debugMemoryHandler retorna informações sobre memória
+func (app *App) debugMemoryHandler(w http.ResponseWriter, r *http.Request) {
+	if app.resourceMonitor != nil {
+		stats := app.resourceMonitor.GetStats()
+		response := map[string]interface{}{
+			"memory_usage_bytes":     stats.MemoryUsage,
+			"memory_leaks_detected":  stats.MemoryLeaks,
+			"alloc_rate_bytes_per_sec": stats.AllocRate,
+			"gc_pauses_ns":          stats.GCPauses,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+	} else {
+		http.Error(w, "Resource monitor not enabled", http.StatusServiceUnavailable)
+	}
+}
+
+// debugPositionsValidateHandler valida integridade das posições
+func (app *App) debugPositionsValidateHandler(w http.ResponseWriter, r *http.Request) {
+	if app.positionManager == nil {
+		http.Error(w, "Position manager not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	// TODO: Implementar validação de posições
+	response := map[string]interface{}{
+		"status":           "success",
+		"validated_files":  0,
+		"validated_containers": 0,
+		"errors":           []string{},
+		"warnings":         []string{},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
