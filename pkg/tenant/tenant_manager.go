@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/your-org/log_capturer_go/pkg/types"
+	"ssw-logs-capture/pkg/types"
 )
 
 // TenantManager gerencia múltiplos tenants no sistema

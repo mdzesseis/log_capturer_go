@@ -7,9 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"ssw-logs-capture/pkg/types"
-
-	"github.com/docker/docker/api/types"
+	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/client"
 	"github.com/sirupsen/logrus"
 )
@@ -247,7 +245,7 @@ func (sd *ServiceDiscovery) runDiscovery() error {
 
 // discoverDockerServices descobre serviços Docker
 func (sd *ServiceDiscovery) discoverDockerServices() error {
-	containers, err := sd.dockerClient.ContainerList(sd.ctx, types.ContainerListOptions{
+	containers, err := sd.dockerClient.ContainerList(sd.ctx, dockertypes.ContainerListOptions{
 		All: true, // Include stopped containers
 	})
 	if err != nil {
@@ -331,7 +329,7 @@ func (sd *ServiceDiscovery) discoverDockerServices() error {
 }
 
 // shouldDiscoverContainer verifica se um container deve ser descoberto
-func (sd *ServiceDiscovery) shouldDiscoverContainer(container types.Container) bool {
+func (sd *ServiceDiscovery) shouldDiscoverContainer(container dockertypes.Container) bool {
 	labels := container.Labels
 
 	// Check required label
@@ -359,7 +357,7 @@ func (sd *ServiceDiscovery) shouldDiscoverContainer(container types.Container) b
 }
 
 // createServiceFromContainer cria um DiscoveredService a partir de um container Docker
-func (sd *ServiceDiscovery) createServiceFromContainer(container types.Container) *DiscoveredService {
+func (sd *ServiceDiscovery) createServiceFromContainer(container dockertypes.Container) *DiscoveredService {
 	labels := container.Labels
 	now := time.Now()
 

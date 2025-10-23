@@ -23,6 +23,31 @@ var (
 		[]string{"source_type", "source_id", "pipeline"},
 	)
 
+	// Gauge para logs por segundo
+	LogsPerSecond = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "logs_per_second",
+			Help: "Current logs per second throughput",
+		},
+		[]string{"component"},
+	)
+
+	// Gauge para utilização da fila do dispatcher
+	DispatcherQueueUtilization = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "dispatcher_queue_utilization",
+		Help: "Current utilization of the dispatcher queue (0.0 to 1.0)",
+	})
+
+	// Histograma para duração de steps de processamento
+	ProcessingStepDuration = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "processing_step_duration_seconds",
+			Help:    "Time spent in each processing step",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"pipeline", "step"},
+	)
+
 	// Counter para logs enviados para sinks
 	LogsSentTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -171,6 +196,9 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 	// Registrar todas as métricas
 	prometheus.MustRegister(
 		LogsProcessedTotal,
+		LogsPerSecond,
+		DispatcherQueueUtilization,
+		ProcessingStepDuration,
 		LogsSentTotal,
 		ErrorsTotal,
 		FilesMonitored,

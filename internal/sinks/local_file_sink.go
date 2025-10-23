@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"ssw-logs-capture/internal/metrics"
+	"ssw-logs-capture/pkg/compression"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -24,6 +25,7 @@ import (
 type LocalFileSink struct {
 	config    types.LocalFileConfig
 	logger    *logrus.Logger
+	compressor *compression.HTTPCompressor
 
 	queue     chan types.LogEntry
 	files     map[string]*logFile
@@ -41,12 +43,14 @@ type LocalFileSink struct {
 
 // logFile representa um arquivo de log aberto
 type logFile struct {
-	path       string
-	file       *os.File
-	writer     io.Writer
-	currentSize int64
-	lastWrite   time.Time
-	mutex       sync.Mutex
+	path         string
+	file         *os.File
+	writer       io.Writer
+	currentSize  int64
+	lastWrite    time.Time
+	mutex        sync.Mutex
+	useCompression bool
+	compressor   *compression.HTTPCompressor
 }
 
 // NewLocalFileSink cria um novo sink para arquivos locais
@@ -78,13 +82,31 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 		config.CleanupThresholdPercent = 90.0 // 90% padrão
 	}
 
+	// Configurar compressor HTTP para local files
+	compressionConfig := compression.Config{
+		DefaultAlgorithm: compression.AlgorithmGzip,
+		AdaptiveEnabled:  false, // Disable adaptive for local files
+		MinBytes:         512,   // Compress smaller files for disk space
+		Level:            6,
+		PoolSize:         5,
+		PerSink: map[string]compression.SinkCompressionConfig{
+			"local_file": {
+				Algorithm: compression.AlgorithmGzip,
+				Enabled:   config.Compress, // Use rotation compress setting
+				Level:     6,
+			},
+		},
+	}
+	compressor := compression.NewHTTPCompressor(compressionConfig, logger)
+
 	return &LocalFileSink{
-		config: config,
-		logger: logger,
-		queue:  make(chan types.LogEntry, queueSize),
-		files:  make(map[string]*logFile),
-		ctx:    ctx,
-		cancel: cancel,
+		config:     config,
+		logger:     logger,
+		compressor: compressor,
+		queue:      make(chan types.LogEntry, queueSize),
+		files:      make(map[string]*logFile),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
@@ -343,11 +365,13 @@ func (lfs *LocalFileSink) getOrCreateLogFile(filename string) (*logFile, error) 
 	}
 
 	lf = &logFile{
-		path:        filename,
-		file:        file,
-		writer:      file,
-		currentSize: info.Size(),
-		lastWrite:   time.Now(),
+		path:           filename,
+		file:           file,
+		writer:         file,
+		currentSize:    info.Size(),
+		lastWrite:      time.Now(),
+		useCompression: lfs.config.Compress, // Use rotation compress setting for real-time compression too
+		compressor:     lfs.compressor,
 	}
 
 	lfs.files[filename] = lf
@@ -518,8 +542,26 @@ func (lf *logFile) writeEntry(entry types.LogEntry, config types.LocalFileConfig
 		line = lf.formatJSONOutput(entry)
 	}
 
+	var dataToWrite []byte
+
+	// Aplicar compressão se habilitada
+	if lf.useCompression && lf.compressor != nil {
+		compressionResult, err := lf.compressor.Compress([]byte(line), compression.AlgorithmAuto, "local_file")
+		if err != nil {
+			// Fallback para dados não comprimidos em caso de erro
+			dataToWrite = []byte(line)
+		} else {
+			// Usar dados comprimidos
+			dataToWrite = compressionResult.Data
+
+			// Compression applied successfully - ratio info available in compressionResult
+		}
+	} else {
+		dataToWrite = []byte(line)
+	}
+
 	// Escrever
-	n, err := lf.writer.Write([]byte(line))
+	n, err := lf.writer.Write(dataToWrite)
 	if err != nil {
 		return err
 	}

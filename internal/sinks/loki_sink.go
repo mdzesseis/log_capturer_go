@@ -27,7 +27,7 @@ type LokiSink struct {
 	config       types.LokiConfig
 	logger       *logrus.Logger
 	httpClient   *http.Client
-	breaker      types.CircuitBreaker
+	breaker      *circuit.Breaker
 	compressor   *compression.HTTPCompressor
 	deadLetterQueue *dlq.DeadLetterQueue
 

@@ -12,7 +12,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v2"
 
-	"github.com/your-org/log_capturer_go/pkg/types"
+	"ssw-logs-capture/pkg/types"
 )
 
 // TenantDiscovery sistema de descoberta automática de tenants

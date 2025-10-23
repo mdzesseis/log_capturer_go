@@ -10,8 +10,8 @@ services:
     restart: unless-stopped
     privileged: true
     user: "0:0"  # Run as root for file access, or remove when using setup script
-    # Override container command to use config file
-    command: ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
+    # Override container command for minimal version
+    command: ["./ssw-logs-capture"]
     # Carrega variáveis de ambiente do arquivo .env
     # env_file:
     #   - .env
@@ -29,6 +29,7 @@ services:
       - LOG_FORMAT=json
       - DEBUG_MODE=true
     ports:
+      - "8080:8080"  # Minimal API
       - "8401:8401"  # API
       - "8001:8001"  # Metrics
     volumes:

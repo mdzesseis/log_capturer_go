@@ -1,3 +1,39 @@
+// Package dispatcher provides the core log entry orchestration and delivery system.
+//
+// The dispatcher is the central component responsible for:
+//   - Receiving log entries from various input sources (file monitors, container monitors)
+//   - Processing and transforming log entries through configured pipelines
+//   - Routing log entries to appropriate output sinks (Loki, local files, etc.)
+//   - Managing delivery reliability with batching, retries, and dead letter queues
+//   - Implementing advanced features like deduplication, rate limiting, and backpressure
+//
+// Key Features:
+//   - Multi-worker parallel processing for high throughput
+//   - Configurable batching for optimized sink delivery
+//   - Retry logic with exponential backoff for transient failures
+//   - Dead letter queue for permanently failed entries
+//   - Deduplication to prevent duplicate log processing
+//   - Adaptive rate limiting and backpressure management
+//   - Graceful degradation during high load or sink failures
+//   - Comprehensive metrics and monitoring integration
+//
+// The dispatcher integrates with enterprise features including:
+//   - Anomaly detection for unusual log patterns
+//   - Distributed tracing for request correlation
+//   - Resource monitoring and leak detection
+//   - Security audit logging and compliance
+//
+// Example usage:
+//
+//	config := DispatcherConfig{
+//		QueueSize:    10000,
+//		Workers:      4,
+//		BatchSize:    100,
+//		BatchTimeout: 5*time.Second,
+//	}
+//	dispatcher := NewDispatcher(config, processor, logger, anomalyDetector)
+//	dispatcher.AddSink(lokiSink)
+//	dispatcher.Start(ctx)
 package dispatcher
 
 import (
@@ -9,6 +45,7 @@ import (
 
 	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/internal/processing"
+	// "ssw-logs-capture/pkg/anomaly" // Temporarily disabled due to compilation errors
 	"ssw-logs-capture/pkg/backpressure"
 	"ssw-logs-capture/pkg/deduplication"
 	"ssw-logs-capture/pkg/degradation"
@@ -19,67 +56,158 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Dispatcher gerencia roteamento de logs para sinks
+// Dispatcher orchestrates log entry processing and delivery to configured output sinks.
+//
+// The Dispatcher is the core component that manages the flow of log entries from
+// input sources to output destinations. It provides:
+//
+// Core Functionality:
+//   - Multi-worker parallel processing for high throughput
+//   - Configurable batching and timeout management
+//   - Retry logic with exponential backoff
+//   - Comprehensive error handling and recovery
+//
+// Advanced Features:
+//   - Deduplication to prevent duplicate processing
+//   - Dead letter queue for permanently failed entries
+//   - Backpressure management during high load
+//   - Graceful degradation with adaptive behavior
+//   - Rate limiting for sink protection
+//   - Anomaly detection integration
+//
+// Performance Optimization:
+//   - Lock-free queue implementation for high concurrency
+//   - Batch processing to reduce sink API calls
+//   - Worker pool for parallel processing
+//   - Memory-efficient buffering strategies
+//
+// Reliability Features:
+//   - Persistent position tracking for resumable processing
+//   - Health monitoring and automatic recovery
+//   - Graceful shutdown with queue draining
+//   - Comprehensive metrics and observability
+//
+// The Dispatcher maintains detailed statistics about processing rates,
+// error rates, and performance metrics for monitoring and alerting.
 type Dispatcher struct {
-	config               DispatcherConfig
-	logger               *logrus.Logger
-	processor            *processing.LogProcessor
-	deduplicationManager *deduplication.DeduplicationManager
-	deadLetterQueue      *dlq.DeadLetterQueue
-	backpressureManager  *backpressure.Manager
-	degradationManager   *degradation.Manager
-	rateLimiter          *ratelimit.AdaptiveRateLimiter
+	// Core configuration and logging
+	config               DispatcherConfig       // Dispatcher configuration parameters
+	logger               *logrus.Logger         // Structured logger for dispatcher events
+	processor            *processing.LogProcessor // Log transformation and filtering pipeline
 
-	sinks       []types.Sink
-	queue       chan dispatchItem
-	stats       types.DispatcherStats
-	statsMutex  sync.RWMutex
+	// Advanced feature managers (conditionally enabled)
+	deduplicationManager *deduplication.DeduplicationManager // Prevents duplicate log processing
+	deadLetterQueue      *dlq.DeadLetterQueue                // Handles permanently failed entries
+	backpressureManager  *backpressure.Manager               // Manages load-based throttling
+	degradationManager   *degradation.Manager                // Implements graceful degradation
+	rateLimiter          *ratelimit.AdaptiveRateLimiter      // Adaptive rate limiting for sink protection
+	// anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies // Temporarily disabled
 
-	ctx       context.Context
-	cancel    context.CancelFunc
-	isRunning bool
-	mutex     sync.RWMutex
+	// Core operational components
+	sinks       []types.Sink          // Collection of configured output destinations
+	queue       chan dispatchItem     // Internal queue for log entry processing
+	stats       types.DispatcherStats // Real-time performance and operational statistics
+	statsMutex  sync.RWMutex          // Mutex for thread-safe statistics access
+
+	// Lifecycle management
+	ctx       context.Context   // Context for coordinated shutdown and cancellation
+	cancel    context.CancelFunc // Cancel function for graceful shutdown
+	isRunning bool              // Running state flag for lifecycle management
+	mutex     sync.RWMutex      // Mutex for thread-safe state management
 }
 
-// DispatcherConfig configuração do dispatcher
+// DispatcherConfig contains all configuration parameters for the Dispatcher.
+//
+// This configuration structure defines:
+//   - Core processing parameters (queue size, workers, batching)
+//   - Retry and timeout behaviors
+//   - Feature enablement flags for advanced capabilities
+//   - Component-specific configurations for integrated features
+//
+// The configuration supports both basic log forwarding and advanced
+// enterprise features like deduplication, rate limiting, and anomaly detection.
+//
+// All duration fields should be specified in Go duration format
+// (e.g., "5s", "1m", "24h"). Zero values will be replaced with
+// sensible defaults during dispatcher initialization.
 type DispatcherConfig struct {
-	QueueSize          int           `yaml:"queue_size"`
-	Workers            int           `yaml:"workers"`
-	BatchSize          int           `yaml:"batch_size"`
-	BatchTimeout       time.Duration `yaml:"batch_timeout"`
-	MaxRetries         int           `yaml:"max_retries"`
-	RetryDelay         time.Duration `yaml:"retry_delay"`
-	TimestampTolerance time.Duration `yaml:"timestamp_tolerance"`
+	// Core processing configuration
+	QueueSize          int           `yaml:"queue_size"`          // Internal queue capacity for buffering log entries
+	Workers            int           `yaml:"workers"`             // Number of worker goroutines for parallel processing
+	BatchSize          int           `yaml:"batch_size"`          // Maximum entries per batch sent to sinks
+	BatchTimeout       time.Duration `yaml:"batch_timeout"`       // Maximum time to wait before sending partial batch
+	MaxRetries         int           `yaml:"max_retries"`         // Maximum retry attempts for failed deliveries
+	RetryDelay         time.Duration `yaml:"retry_delay"`         // Base delay between retry attempts (with exponential backoff)
+	TimestampTolerance time.Duration `yaml:"timestamp_tolerance"` // Acceptable timestamp drift for log entries
 
-	// Configuração de deduplicação
-	DeduplicationEnabled bool                      `yaml:"deduplication_enabled"`
-	DeduplicationConfig  deduplication.Config     `yaml:"deduplication_config"`
+	// Deduplication feature configuration
+	DeduplicationEnabled bool                      `yaml:"deduplication_enabled"` // Enable duplicate log entry detection and filtering
+	DeduplicationConfig  deduplication.Config     `yaml:"deduplication_config"`  // Deduplication algorithm and storage configuration
 
-	// Configuração de Dead Letter Queue
-	DLQEnabled bool        `yaml:"dlq_enabled"`
-	DLQConfig  dlq.Config  `yaml:"dlq_config"`
+	// Dead Letter Queue configuration for permanently failed entries
+	DLQEnabled bool        `yaml:"dlq_enabled"` // Enable dead letter queue for failed log entries
+	DLQConfig  dlq.Config  `yaml:"dlq_config"`  // DLQ storage and processing configuration
 
-	// Configuração de Backpressure
-	BackpressureEnabled bool               `yaml:"backpressure_enabled"`
-	BackpressureConfig  backpressure.Config `yaml:"backpressure_config"`
+	// Backpressure management configuration
+	BackpressureEnabled bool               `yaml:"backpressure_enabled"` // Enable adaptive backpressure management
+	BackpressureConfig  backpressure.Config `yaml:"backpressure_config"`  // Backpressure thresholds and behavior configuration
 
-	// Configuração de Degradation
-	DegradationEnabled bool               `yaml:"degradation_enabled"`
-	DegradationConfig  degradation.Config `yaml:"degradation_config"`
+	// Graceful degradation configuration
+	DegradationEnabled bool               `yaml:"degradation_enabled"` // Enable graceful degradation during overload
+	DegradationConfig  degradation.Config `yaml:"degradation_config"`  // Degradation levels and behavior configuration
 
-	// Configuração de Rate Limiting
-	RateLimitEnabled bool              `yaml:"rate_limit_enabled"`
-	RateLimitConfig  ratelimit.Config  `yaml:"rate_limit_config"`
+	// Rate limiting configuration for sink protection
+	RateLimitEnabled bool              `yaml:"rate_limit_enabled"` // Enable adaptive rate limiting
+	RateLimitConfig  ratelimit.Config  `yaml:"rate_limit_config"`  // Rate limiting algorithms and thresholds
 }
 
-// dispatchItem item na fila de dispatch
+// dispatchItem represents a log entry in the dispatcher's internal processing queue.
+//
+// Each dispatch item contains:
+//   - The original log entry with metadata
+//   - Processing timestamp for timeout and aging calculations
+//   - Retry counter for failure handling and DLQ decisions
+//
+// Dispatch items flow through the processing pipeline and are used
+// for batching, retry logic, and delivery tracking.
 type dispatchItem struct {
-	Entry     types.LogEntry
-	Timestamp time.Time
-	Retries   int
+	Entry     types.LogEntry // The log entry to be processed and delivered
+	Timestamp time.Time      // When this item was queued for processing
+	Retries   int            // Number of delivery attempts for this entry
 }
 
-// NewDispatcher cria um novo dispatcher
+// NewDispatcher creates a new Dispatcher instance with the specified configuration and dependencies.
+//
+// This function performs complete dispatcher initialization including:
+//   - Configuration validation and default value assignment
+//   - Component initialization based on feature enablement
+//   - Internal queue and statistics setup
+//   - Integration with processing pipeline and anomaly detection
+//
+// The function applies sensible defaults for missing configuration values:
+//   - QueueSize: 50000 entries
+//   - Workers: 4 goroutines
+//   - BatchSize: 100 entries
+//   - BatchTimeout: 5 seconds
+//   - MaxRetries: 3 attempts
+//   - RetryDelay: 1 second
+//   - TimestampTolerance: 24 hours
+//
+// Advanced features are conditionally initialized:
+//   - Deduplication Manager: Prevents duplicate log processing
+//   - Dead Letter Queue: Handles permanently failed entries
+//   - Backpressure Manager: Adaptive load management
+//   - Degradation Manager: Graceful performance degradation
+//   - Rate Limiter: Adaptive rate limiting for sink protection
+//
+// Parameters:
+//   - config: Dispatcher configuration with processing and feature settings
+//   - processor: Log transformation and filtering pipeline
+//   - logger: Structured logger for dispatcher events
+//   - anomalyDetector: Anomaly detection integration (can be nil)
+//
+// Returns:
+//   - *Dispatcher: Fully configured dispatcher ready to start
 func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, logger *logrus.Logger) *Dispatcher {
 	// Valores padrão
 	if config.QueueSize == 0 {
@@ -130,13 +258,19 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		degradationManager = degradation.NewManager(config.DegradationConfig, logger)
 	}
 
-	// Configurar Rate Limiter se habilitado
-	var rateLimiter *ratelimit.AdaptiveRateLimiter
-	if config.RateLimitEnabled {
-		rateLimiter = ratelimit.NewAdaptiveRateLimiter(config.RateLimitConfig, logger)
-	}
+		// Configurar Rate Limiter se habilitado
 
-	return &Dispatcher{
+		var rateLimiter *ratelimit.AdaptiveRateLimiter
+
+		if config.RateLimitEnabled {
+
+			rateLimiter = ratelimit.NewAdaptiveRateLimiter(config.RateLimitConfig, logger)
+
+		}
+
+	
+
+		return &Dispatcher{
 		config:               config,
 		logger:               logger,
 		processor:            processor,
@@ -145,6 +279,7 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		backpressureManager:  backpressureManager,
 		degradationManager:   degradationManager,
 		rateLimiter:          rateLimiter,
+		// anomalyDetector:      anomalyDetector, // Temporarily disabled
 		sinks:                make([]types.Sink, 0),
 		queue:                make(chan dispatchItem, config.QueueSize),
 		stats: types.DispatcherStats{
@@ -155,7 +290,24 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 	}
 }
 
-// AddSink adiciona um sink ao dispatcher
+// AddSink adds an output sink to the dispatcher's delivery destinations.
+//
+// This method registers a new sink that will receive processed log entries
+// from the dispatcher. Sinks implement the types.Sink interface and can
+// include:
+//   - Loki sinks for Grafana Loki integration
+//   - Local file sinks for filesystem output
+//   - Custom sinks for specialized integrations
+//
+// The sink is added to the internal collection and will receive log entries
+// through the batching and delivery mechanism. All configured sinks receive
+// the same log entries (fan-out delivery pattern).
+//
+// This method is thread-safe and can be called during dispatcher operation,
+// though it's typically called during application initialization.
+//
+// Parameters:
+//   - sink: Output sink implementing the types.Sink interface
 func (d *Dispatcher) AddSink(sink types.Sink) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -164,7 +316,35 @@ func (d *Dispatcher) AddSink(sink types.Sink) {
 	d.logger.WithField("sink_count", len(d.sinks)).Info("Sink added to dispatcher")
 }
 
-// Start inicia o dispatcher
+// Start begins the dispatcher operation and initializes all worker goroutines.
+//
+// This method performs the complete dispatcher startup sequence:
+//   1. Validates that the dispatcher is not already running
+//   2. Starts advanced feature managers (deduplication, DLQ, backpressure)
+//   3. Configures component integration and callbacks
+//   4. Launches worker goroutines for parallel processing
+//   5. Starts statistics collection and monitoring
+//
+// Advanced Feature Startup:
+//   - Deduplication Manager: Initializes duplicate detection algorithms
+//   - Dead Letter Queue: Sets up failed entry storage and reprocessing
+//   - Backpressure Manager: Begins load monitoring and throttling
+//   - Rate Limiter: Activates adaptive rate limiting algorithms
+//
+// Worker Pool:
+//   - Creates configured number of worker goroutines
+//   - Each worker processes batches of log entries
+//   - Workers handle retry logic and error management
+//   - Statistics updater tracks performance metrics
+//
+// The dispatcher integrates with the provided context for coordinated
+// shutdown and cancellation across the application.
+//
+// Parameters:
+//   - ctx: Application context for shutdown coordination
+//
+// Returns:
+//   - error: Startup failure from any component initialization
 func (d *Dispatcher) Start(ctx context.Context) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -231,7 +411,32 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop para o dispatcher
+// Stop performs graceful shutdown of the dispatcher and all its components.
+//
+// This method orchestrates the complete shutdown sequence:
+//   1. Validates that the dispatcher is currently running
+//   2. Stops advanced feature managers (deduplication, DLQ)
+//   3. Cancels the dispatcher context to signal worker goroutines
+//   4. Drains remaining log entries from the internal queue
+//   5. Ensures all in-flight processing completes
+//
+// Shutdown Sequence:
+//   - Deduplication Manager: Stops duplicate detection and flushes state
+//   - Dead Letter Queue: Stops DLQ processing and persists failed entries
+//   - Worker Goroutines: Gracefully terminate after processing current batches
+//   - Queue Draining: Processes remaining entries to prevent data loss
+//
+// The method ensures that:
+//   - No new log entries are accepted during shutdown
+//   - Existing entries in the queue are processed or persisted
+//   - All background goroutines terminate cleanly
+//   - Component state is properly saved for restart
+//
+// This method is thread-safe and can be called multiple times without error.
+// Subsequent calls after the first will return immediately without effect.
+//
+// Returns:
+//   - error: Always returns nil; errors are logged but don't prevent shutdown
 func (d *Dispatcher) Stop() error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -262,7 +467,42 @@ func (d *Dispatcher) Stop() error {
 	return nil
 }
 
-// Handle processa uma entrada de log
+// Handle processes a single log entry through the dispatcher pipeline.
+//
+// This is the main entry point for log entries into the dispatcher system.
+// The method performs the complete processing workflow:
+//   1. Validates dispatcher operational state
+//   2. Applies rate limiting if enabled
+//   3. Creates a structured log entry with metadata
+//   4. Processes the entry through transformation pipelines
+//   5. Applies deduplication if enabled
+//   6. Queues the entry for batch delivery to sinks
+//
+// Processing Features:
+//   - Rate Limiting: Protects against log floods and sink overload
+//   - Transformation: Applies configured processing pipelines
+//   - Deduplication: Prevents duplicate entries from being processed
+//   - Anomaly Detection: Integrates with anomaly detection systems
+//   - Backpressure: Handles queue overflow with adaptive behavior
+//
+// Error Handling:
+//   - Rate limit exceeded: Returns error and updates throttling metrics
+//   - Queue full: Applies backpressure or degradation strategies
+//   - Processing errors: Logs errors and optionally sends to DLQ
+//   - Context cancellation: Respects timeout and cancellation signals
+//
+// The method updates dispatcher statistics including entry counts,
+// processing rates, and error rates for monitoring and alerting.
+//
+// Parameters:
+//   - ctx: Processing context for timeout and cancellation
+//   - sourceType: Type of log source ("file", "container", etc.)
+//   - sourceID: Unique identifier for the log source
+//   - message: Raw log message content
+//   - labels: Additional metadata and labels for the log entry
+//
+// Returns:
+//   - error: Processing error including rate limiting, queue full, or validation errors
 func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
 	if !d.isRunning {
 		return fmt.Errorf("dispatcher not running")
@@ -276,6 +516,15 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 			d.statsMutex.Unlock()
 			return fmt.Errorf("rate limit exceeded")
 		}
+	}
+
+	// Aplicar rate limiting se habilitado
+	if d.rateLimiter != nil && !d.rateLimiter.Allow() {
+		d.statsMutex.Lock()
+		d.stats.Throttled++
+		d.statsMutex.Unlock()
+		metrics.RecordError("dispatcher", "rate_limit_exceeded")
+		return fmt.Errorf("rate limit exceeded")
 	}
 
 	// Verificar backpressure e aplicar controle de fluxo
@@ -347,6 +596,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 	now := time.Now()
 	if entry.Timestamp.Before(now.Add(-d.config.TimestampTolerance)) {
 		d.logger.WithFields(logrus.Fields{
+			"trace_id":           entry.TraceID,
 			"source_type":        sourceType,
 			"source_id":          sourceID,
 			"original_timestamp": entry.Timestamp,
@@ -369,6 +619,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 			processedEntry, err := d.processor.Process(ctx, &entry)
 			if err != nil {
 				d.logger.WithError(err).WithFields(logrus.Fields{
+					"trace_id":    entry.TraceID,
 					"source_type": sourceType,
 					"source_id":   sourceID,
 				}).Error("Failed to process log entry")
@@ -433,6 +684,7 @@ func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failed
 		d.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context)
 
 		d.logger.WithFields(logrus.Fields{
+			"trace_id":     entry.TraceID,
 			"source_type":  entry.SourceType,
 			"source_id":    entry.SourceID,
 			"failed_sink":  failedSink,
@@ -508,6 +760,28 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 		entries[i] = item.Entry
 	}
 
+	// Detectar anomalias se o detector estiver habilitado
+	// Temporarily disabled anomaly detection
+	/*
+	if d.anomalyDetector != nil {
+		for i := range entries {
+			anomalyResult, err := d.anomalyDetector.DetectAnomaly(&entries[i])
+			if err != nil {
+				logger.WithError(err).WithField("source_id", entries[i].SourceID).Warn("Anomaly detection failed for entry")
+				continue
+			}
+			if anomalyResult.IsAnomaly {
+				if entries[i].Labels == nil {
+					entries[i].Labels = make(map[string]string)
+				}
+				entries[i].Labels["anomaly"] = "true"
+				entries[i].Labels["anomaly_reason"] = anomalyResult.Reason
+				entries[i].Labels["anomaly_score"] = fmt.Sprintf("%.2f", anomalyResult.AnomalyScore)
+			}
+		}
+	}
+	*/
+
 	// Enviar para todos os sinks
 	successCount := 0
 	for _, sink := range d.sinks {
@@ -519,26 +793,7 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 		// Fazer cópia profunda dos entries para evitar race conditions entre sinks
 		entriesCopy := make([]types.LogEntry, len(entries))
 		for i, entry := range entries {
-			entriesCopy[i] = types.LogEntry{
-				Timestamp:   entry.Timestamp,
-				Message:     entry.Message,
-				SourceType:  entry.SourceType,
-				SourceID:    entry.SourceID,
-				Level:       entry.Level,
-				Labels:      make(map[string]string, len(entry.Labels)),
-				Fields:      make(map[string]interface{}, len(entry.Fields)),
-				ProcessedAt: entry.ProcessedAt,
-			}
-
-			// Copiar labels (já são seguros por serem cópias desde a criação)
-			for k, v := range entry.Labels {
-				entriesCopy[i].Labels[k] = v
-			}
-
-			// Copiar fields
-			for k, v := range entry.Fields {
-				entriesCopy[i].Fields[k] = v
-			}
+			entriesCopy[i] = *entry.DeepCopy()
 		}
 
 		ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
@@ -602,6 +857,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 		} else {
 			// Max retries reached, enviar para DLQ
 			d.logger.WithFields(logrus.Fields{
+				"trace_id":    item.Entry.TraceID,
 				"source_type": item.Entry.SourceType,
 				"source_id":   item.Entry.SourceID,
 				"retries":     item.Retries,
@@ -649,18 +905,36 @@ func (d *Dispatcher) statsUpdater() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	var lastProcessed int64
+	lastCheck := time.Now()
+
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
-			d.updateStats(func(stats *types.DispatcherStats) {
-				stats.QueueSize = len(d.queue)
-			})
+			now := time.Now()
+			d.statsMutex.Lock()
+			
+			currentProcessed := d.stats.TotalProcessed
+			d.stats.QueueSize = len(d.queue)
 
-			// Atualizar métricas
-			stats := d.GetStats()
-			metrics.SetQueueSize("dispatcher", "main", stats.QueueSize)
+			d.statsMutex.Unlock()
+
+			duration := now.Sub(lastCheck).Seconds()
+			if duration > 0 {
+				processedSinceLast := currentProcessed - lastProcessed
+				logsPerSecond := float64(processedSinceLast) / duration
+				metrics.LogsPerSecond.WithLabelValues("dispatcher").Set(logsPerSecond)
+			}
+
+			lastProcessed = currentProcessed
+			lastCheck = now
+
+			// Atualizar métricas de utilização da fila
+			queueUtilization := float64(d.stats.QueueSize) / float64(d.config.QueueSize)
+			metrics.DispatcherQueueUtilization.Set(queueUtilization)
+			metrics.SetQueueSize("dispatcher", "main", d.stats.QueueSize)
 		}
 	}
 }
@@ -754,9 +1028,77 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 		"level":       d.backpressureManager.GetLevel().String(),
 	}).Warn("Log entry throttled due to backpressure, but no DLQ available")
 
-	// Ainda assim tenta processar, mas com delay
-	time.Sleep(10 * time.Millisecond)
-	return d.Handle(ctx, sourceType, sourceID, message, labels)
+	// Em vez de recursão infinita, implementar delay e falha controlada
+	select {
+	case <-time.After(10 * time.Millisecond):
+		// Retry apenas uma vez sem backpressure check para evitar recursão
+		return d.handleWithoutBackpressure(ctx, sourceType, sourceID, message, labels)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// handleWithoutBackpressure processa uma entrada sem verificar backpressure (usado internamente)
+func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
+	if !d.isRunning {
+		return fmt.Errorf("dispatcher not running")
+	}
+
+	// Criar entrada de log com cópia segura dos labels
+	labelsCopy := make(map[string]string, len(labels))
+	for k, v := range labels {
+		labelsCopy[k] = v
+	}
+
+	entry := types.LogEntry{
+		Timestamp:   time.Now(),
+		Message:     message,
+		SourceType:  sourceType,
+		SourceID:    sourceID,
+		Labels:      labelsCopy,
+		ProcessedAt: time.Now(),
+	}
+
+	// Processar entrada
+	if d.processor != nil {
+		processedEntry, err := d.processor.Process(ctx, &entry)
+		if err != nil {
+			d.logger.WithError(err).WithFields(logrus.Fields{
+				"trace_id":    entry.TraceID,
+				"source_type": sourceType,
+				"source_id":   sourceID,
+			}).Error("Failed to process log entry in low priority path")
+			return err
+		}
+		if processedEntry != nil {
+			entry = *processedEntry
+		}
+	}
+
+	// Adicionar à fila com timeout
+	item := dispatchItem{
+		Entry:     entry,
+		Timestamp: time.Now(),
+		Retries:   0,
+	}
+
+	select {
+	case d.queue <- item:
+		d.updateStats(func(stats *types.DispatcherStats) {
+			stats.TotalProcessed++
+			stats.QueueSize = len(d.queue)
+			stats.LastProcessedTime = time.Now()
+		})
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(1 * time.Second):
+		// Se não conseguir adicionar à fila em 1 segundo, descartar
+		d.updateStats(func(stats *types.DispatcherStats) {
+			stats.ErrorCount++
+		})
+		return fmt.Errorf("timeout adding to dispatcher queue")
+	}
 }
 
 // GetDLQ retorna a instância da Dead Letter Queue

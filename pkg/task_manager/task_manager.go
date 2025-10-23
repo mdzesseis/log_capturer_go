@@ -295,7 +295,7 @@ func (tm *taskManager) cleanupTasks() {
 }
 
 // Cleanup limpa todos os recursos
-func (tm *taskManager) Cleanup() error {
+func (tm *taskManager) Cleanup() {
 	tm.mutex.Lock()
 	defer tm.mutex.Unlock()
 
@@ -315,5 +315,4 @@ func (tm *taskManager) Cleanup() error {
 	}
 
 	tm.logger.Info("Task manager cleanup completed")
-	return nil
 }

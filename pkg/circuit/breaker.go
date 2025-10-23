@@ -25,7 +25,7 @@ type Breaker struct {
 	config BreakerConfig
 	logger *logrus.Logger
 
-	state         string
+	state         types.CircuitBreakerState
 	failures      int64
 	successes     int64
 	requests      int64
@@ -38,7 +38,7 @@ type Breaker struct {
 	maxHalfOpen   int
 
 	// Callbacks para eventos
-	onStateChange func(from, to string)
+	onStateChange func(from, to types.CircuitBreakerState)
 	onFailure     func(error)
 	onSuccess     func()
 
@@ -189,7 +189,7 @@ func (b *Breaker) reset() {
 }
 
 // setState muda o estado do circuit breaker
-func (b *Breaker) setState(newState string) {
+func (b *Breaker) setState(newState types.CircuitBreakerState) {
 	if b.state == newState {
 		return
 	}
@@ -211,7 +211,7 @@ func (b *Breaker) setState(newState string) {
 }
 
 // State retorna o estado atual do circuit breaker
-func (b *Breaker) State() string {
+func (b *Breaker) State() types.CircuitBreakerState {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.state
@@ -250,7 +250,7 @@ func (b *Breaker) GetStats() types.CircuitBreakerStats {
 }
 
 // SetStateChangeCallback define callback para mudanças de estado
-func (b *Breaker) SetStateChangeCallback(fn func(from, to string)) {
+func (b *Breaker) SetStateChangeCallback(fn func(from, to types.CircuitBreakerState)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.onStateChange = fn

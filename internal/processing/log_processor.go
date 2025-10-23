@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -255,7 +256,11 @@ func (lp *LogProcessor) processThroughPipeline(ctx context.Context, entry *types
 		}
 
 		// Processar step
+		stepStart := time.Now()
 		processedEntry, err := compiledStep.Processor.Process(ctx, currentEntry)
+		duration := time.Since(stepStart)
+		metrics.ProcessingStepDuration.WithLabelValues(pipeline.Name, compiledStep.Step.Name).Observe(duration.Seconds())
+
 		if err != nil {
 			lp.logger.WithError(err).WithFields(logrus.Fields{
 				"pipeline": pipeline.Name,

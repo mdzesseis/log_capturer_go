@@ -1,0 +1,8 @@
+> /todos 
+  ⎿  5 todos:
+
+     ☒ Configurar thresholds mais restritivos para leak detection
+     ☐ Implementar cleanup adequado nos monitors
+     ☐ Otimizar Container Monitor com pool de goroutines
+     ☐ Implementar pool de goroutines reutilizáveis
+     ☐ Adicionar monitoramento contínuo de goroutines

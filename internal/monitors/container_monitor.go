@@ -20,6 +20,7 @@ import (
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -705,7 +706,9 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 				standardLabels := addStandardLabels(mc.labels)
 
 				// Criar entry para validações
+				traceID := uuid.New().String()
 				entry := &types.LogEntry{
+					TraceID:     traceID,
 					Timestamp:   time.Now(),
 					Message:     line,
 					SourceType:  "docker",

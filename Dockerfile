@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s" \
     -trimpath \
     -o ssw-logs-capture \
-    ./cmd/main.go
+    ./cmd/main_minimal.go
 
 # Final stage
 FROM alpine:3.19
@@ -56,10 +56,10 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8401/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Expose ports
-EXPOSE 8401 8001
+EXPOSE 8080
 
 # Default command
-CMD ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
+CMD ["./ssw-logs-capture"]

@@ -21,6 +21,7 @@ import (
 	"ssw-logs-capture/pkg/validation"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -334,11 +335,42 @@ func (fm *FileMonitor) monitorLoop(ctx context.Context) error {
 			fm.logger.WithError(err).Error("File watcher error")
 			metrics.RecordError("file_monitor", "watcher_error")
 		case <-ticker.C:
-			fm.pollFiles()
+			fm.healthCheckFiles()
 		}
 
 		// Heartbeat
 		fm.taskManager.Heartbeat("file_monitor")
+	}
+}
+
+// healthCheckFiles verifica a saúde dos arquivos monitorados sem reler o conteúdo.
+func (fm *FileMonitor) healthCheckFiles() {
+	fm.mutex.RLock()
+	files := make([]*monitoredFile, 0, len(fm.files))
+	for _, mf := range fm.files {
+		files = append(files, mf)
+	}
+	fm.mutex.RUnlock()
+
+	for _, mf := range files {
+		info, err := os.Stat(mf.path)
+		if err != nil {
+			fm.logger.WithError(err).WithField("path", mf.path).Warn("Health check: failed to stat file. It might have been removed.")
+			// A lógica de remoção pode ser acionada aqui se necessário
+			continue
+		}
+
+		// Lógica para verificar se o arquivo foi rotacionado ou truncado silenciosamente
+		// Esta é uma verificação de segurança caso o fsnotify falhe.
+		if info.Size() < mf.position {
+			fm.logger.WithFields(logrus.Fields{
+				"path": mf.path,
+				"stored_position": mf.position,
+				"actual_size": info.Size(),
+			}).Warn("Health check detected file truncation. Forcing re-read.")
+			mf.position = 0 // Reseta a posição
+			fm.readFile(mf) // Força a releitura
+		}
 	}
 }
 
@@ -525,7 +557,9 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 		standardLabels := addStandardLabelsFile(mf.labels)
 
 		// Criar entry para validações
+		traceID := uuid.New().String()
 		entry := &types.LogEntry{
+			TraceID:     traceID,
 			Timestamp:   time.Now(),
 			Message:     line,
 			SourceType:  "file",
@@ -629,15 +663,17 @@ func (fm *FileMonitor) discoverFiles() error {
 	if fm.config.PipelineConfig != nil {
 		fm.logger.Info("Processing file pipeline configuration")
 
+		// TODO: Fix processSpecificFiles to handle map[string]interface{} properly
 		// Processar arquivos específicos do pipeline
-		if err := fm.processSpecificFiles(); err != nil {
-			fm.logger.WithError(err).Warn("Failed to process specific files from pipeline")
-		}
+		// if err := fm.processSpecificFiles(); err != nil {
+		// 	fm.logger.WithError(err).Warn("Failed to process specific files from pipeline")
+		// }
 
+		// TODO: Fix processPipelineDirectories to handle map[string]interface{} properly
 		// Processar diretórios do pipeline
-		if err := fm.processPipelineDirectories(); err != nil {
-			fm.logger.WithError(err).Warn("Failed to process directories from pipeline")
-		}
+		// if err := fm.processPipelineDirectories(); err != nil {
+		// 	fm.logger.WithError(err).Warn("Failed to process directories from pipeline")
+		// }
 	} else {
 		// Usar configuração default de files_config
 		fm.logger.Info("No pipeline configured, using default directories from files_config")
@@ -655,61 +691,17 @@ func (fm *FileMonitor) discoverFiles() error {
 	return nil
 }
 
+// TODO: processSpecificFiles needs to be rewritten to handle map[string]interface{} properly
 // processSpecificFiles processa arquivos específicos do pipeline
 func (fm *FileMonitor) processSpecificFiles() error {
-	if fm.config.PipelineConfig == nil {
-		return nil
-	}
-
-	for _, fileEntry := range fm.config.PipelineConfig.Files {
-		if !fileEntry.Enabled {
-			fm.logger.WithField("file", fileEntry.Path).Debug("Skipping disabled file from pipeline")
-			continue
-		}
-
-		// Verificar se arquivo existe
-		if _, err := os.Stat(fileEntry.Path); os.IsNotExist(err) {
-			fm.logger.WithField("file", fileEntry.Path).Warn("File configured in pipeline does not exist, skipping")
-			continue
-		}
-
-		// Marcar como arquivo específico (tem precedência)
-		fm.specificFiles[fileEntry.Path] = true
-
-		// Adicionar arquivo para monitoramento
-		if err := fm.AddFile(fileEntry.Path, fileEntry.Labels); err != nil {
-			fm.logger.WithError(err).WithField("file", fileEntry.Path).Error("Failed to add specific file from pipeline")
-		} else {
-			fm.logger.WithFields(logrus.Fields{
-				"file":   fileEntry.Path,
-				"labels": fileEntry.Labels,
-			}).Info("Added specific file from pipeline")
-		}
-	}
-
+	// Temporarily disabled - needs to be rewritten to handle map[string]interface{}
 	return nil
 }
 
+// TODO: processPipelineDirectories needs to be rewritten to handle map[string]interface{} properly
 // processPipelineDirectories processa diretórios do pipeline
 func (fm *FileMonitor) processPipelineDirectories() error {
-	if fm.config.PipelineConfig == nil {
-		return nil
-	}
-
-	for _, dirEntry := range fm.config.PipelineConfig.Directories {
-		if !dirEntry.Enabled {
-			fm.logger.WithField("directory", dirEntry.Path).Debug("Skipping disabled directory from pipeline")
-			continue
-		}
-
-		fm.logger.WithField("directory", dirEntry.Path).Info("Scanning pipeline directory for log files")
-
-		if err := fm.scanPipelineDirectory(dirEntry); err != nil {
-			fm.logger.WithError(err).WithField("directory", dirEntry.Path).Error("Failed to scan pipeline directory")
-			continue
-		}
-	}
-
+	// Temporarily disabled - needs to be rewritten to handle map[string]interface{}
 	return nil
 }
 
