@@ -33,6 +33,10 @@ func LoadConfig(configFile string) (*types.Config, error) {
 	applyDefaults(config)
 	applyEnvironmentOverrides(config)
 
+	// Debug: Print server config
+	fmt.Printf("DEBUG: Server config - Enabled: %v, Host: %s, Port: %d\n",
+		config.Server.Enabled, config.Server.Host, config.Server.Port)
+
 	// Carregar file pipeline se configurado
 	if err := loadFilePipeline(config); err != nil {
 		fmt.Printf("Warning: Failed to load file pipeline: %v\n", err)

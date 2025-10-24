@@ -12,7 +12,7 @@ import (
 	"ssw-logs-capture/internal/monitors"
 	"ssw-logs-capture/internal/processing"
 	"ssw-logs-capture/internal/sinks"
-	// "ssw-logs-capture/pkg/anomaly" // Temporarily disabled due to compilation errors
+	"ssw-logs-capture/pkg/anomaly"
 	"ssw-logs-capture/pkg/buffer"
 	"ssw-logs-capture/pkg/cleanup"
 	"ssw-logs-capture/pkg/discovery"
@@ -257,17 +257,33 @@ func (app *App) initAuxiliaryServices() error {
 		return err
 	}
 	// Anomaly Detector
-	// Temporarily disabled due to compilation errors
-	/*
 	if app.config.AnomalyDetection.Enabled {
-		anomalyDetector, err := anomaly.NewAnomalyDetector(app.config.AnomalyDetection, app.logger)
+		// Convert types.AnomalyDetectionConfig to anomaly.Config
+		anomalyConfig := anomaly.Config{
+			Enabled:              app.config.AnomalyDetection.Enabled,
+			Algorithm:            app.config.AnomalyDetection.Algorithm,
+			SensitivityThreshold: convertSensitivityLevel(app.config.AnomalyDetection.SensitivityLevel),
+			WindowSize:           app.config.AnomalyDetection.WindowSize,
+			TrainingInterval:     "1h",  // Default training interval
+			MinTrainingSamples:   app.config.AnomalyDetection.MinSamples,
+			MaxTrainingSamples:   10000, // Default max samples
+			Features:             []string{"text", "statistical", "temporal", "pattern"},
+			ModelConfig:          make(map[string]interface{}),
+			WhitelistPatterns:    []string{},
+			BlacklistPatterns:    []string{},
+			AutoTuning:           app.config.AnomalyDetection.TrainingEnabled,
+			AlertThreshold:       app.config.AnomalyDetection.Thresholds.ErrorRateSpike,
+			SaveModel:            true,
+			ModelPath:            app.config.AnomalyDetection.ModelPath,
+		}
+
+		anomalyDetector, err := anomaly.NewAnomalyDetector(anomalyConfig, app.logger)
 		if err != nil {
 			return fmt.Errorf("failed to create anomaly detector: %w", err)
 		}
 		app.anomalyDetector = anomalyDetector
 		app.logger.Info("Anomaly detector initialized")
 	}
-	*/
 
 	// Enhanced Metrics
 	app.enhancedMetrics = metrics.NewEnhancedMetrics(app.logger)
@@ -773,7 +789,9 @@ func (app *App) handleConfigReload(oldConfig, newConfig *types.Config) error {
 // When the HTTP server is disabled in configuration, this method
 // returns without creating the server instance.
 func (app *App) initHTTPServer() {
+	app.logger.WithField("enabled", app.config.Server.Enabled).Debug("Checking HTTP server configuration")
 	if !app.config.Server.Enabled {
+		app.logger.Info("HTTP server disabled in configuration")
 		return
 	}
 	router := mux.NewRouter()
@@ -783,6 +801,7 @@ func (app *App) initHTTPServer() {
 		Addr:    addr,
 		Handler: router,
 	}
+	app.logger.WithField("addr", addr).Info("HTTP server initialized")
 }
 
 // initMetricsServer configures the Prometheus metrics server.
@@ -866,6 +885,20 @@ func ensureDirectoryExists(dir string) error {
 	}
 
 	return nil
+}
+
+// convertSensitivityLevel converts sensitivity level string to float64
+func convertSensitivityLevel(level string) float64 {
+	switch level {
+	case "low":
+		return 0.5
+	case "medium":
+		return 0.7
+	case "high":
+		return 0.9
+	default:
+		return 0.7 // Default to medium
+	}
 }
 
 // parseDurationSafe safely parses a duration string with fallback handling.

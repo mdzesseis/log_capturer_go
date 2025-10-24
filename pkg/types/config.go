@@ -267,25 +267,45 @@ type TimestampValidationConfig struct {
 	AcceptedFormats      []string `yaml:"accepted_formats"`       // List of accepted timestamp formats
 }
 
-// FilePipelineConfig contains file pipeline configuration settings.
-type FilePipelineConfig struct {
-	Enabled        bool                   `yaml:"enabled"`         // Enable file pipeline
-	Files          map[string]interface{} `yaml:"files"`           // File monitoring configurations
-	PipelineConfig map[string]interface{} `yaml:"pipeline_config"` // Pipeline configuration
-	Version        string                 `yaml:"version"`         // Configuration version
-	Directories    []string               `yaml:"directories"`     // Directories to monitor
+// FilePipelineFileEntry represents a specific file entry in file pipeline configuration.
+type FilePipelineFileEntry struct {
+	Path    string            `yaml:"path"`    // File path to monitor
+	Labels  map[string]string `yaml:"labels"`  // Labels for this file
+	Enabled bool              `yaml:"enabled"` // Enable monitoring for this file
 }
 
 // FilePipelineDirEntry represents a directory entry in file pipeline configuration.
 type FilePipelineDirEntry struct {
-	Path                string            `yaml:"path"`                // Directory path to monitor
-	IncludePatterns     []string          `yaml:"include_patterns"`    // File patterns to include
-	ExcludePatterns     []string          `yaml:"exclude_patterns"`    // File patterns to exclude
-	ExcludeDirectories  []string          `yaml:"exclude_directories"` // Directories to exclude
-	Recursive           bool              `yaml:"recursive"`           // Monitor recursively
-	FollowSymlinks      bool              `yaml:"follow_symlinks"`     // Follow symbolic links
-	Patterns            []string          `yaml:"patterns"`            // File patterns
-	DefaultLabels       map[string]string `yaml:"default_labels"`      // Default labels for entries
+	Path                string            `yaml:"path"`                 // Directory path to monitor
+	Patterns            []string          `yaml:"patterns"`             // File patterns
+	ExcludePatterns     []string          `yaml:"exclude_patterns"`     // File patterns to exclude
+	ExcludeDirectories  []string          `yaml:"exclude_directories"`  // Directories to exclude
+	Recursive           bool              `yaml:"recursive"`            // Monitor recursively
+	DefaultLabels       map[string]string `yaml:"default_labels"`       // Default labels for entries
+	Enabled             bool              `yaml:"enabled"`              // Enable monitoring for this directory
+	FollowSymlinks      bool              `yaml:"follow_symlinks"`      // Follow symbolic links (kept for compatibility)
+	IncludePatterns     []string          `yaml:"include_patterns"`     // Include patterns (kept for compatibility)
+}
+
+// FilePipelineMonitoringConfig represents monitoring configuration in file pipeline.
+type FilePipelineMonitoringConfig struct {
+	DirectoryScanInterval int    `yaml:"directory_scan_interval"` // Directory scan interval in seconds
+	MaxFiles              int    `yaml:"max_files"`               // Maximum files to monitor
+	ReadBufferSize        int    `yaml:"read_buffer_size"`        // Read buffer size in bytes
+	PollInterval          int    `yaml:"poll_interval"`           // Poll interval in milliseconds
+	FollowSymlinks        bool   `yaml:"follow_symlinks"`         // Follow symbolic links
+	IncludeHidden         bool   `yaml:"include_hidden"`          // Include hidden files
+	MaxFileSize           int64  `yaml:"max_file_size"`           // Maximum file size to monitor
+	RotationAction        string `yaml:"rotation_action"`         // Action when file is rotated
+}
+
+// FilePipelineConfig contains file pipeline configuration settings.
+type FilePipelineConfig struct {
+	Enabled     bool                          `yaml:"enabled"`     // Enable file pipeline
+	Files       []FilePipelineFileEntry       `yaml:"files"`       // File monitoring configurations
+	Directories []FilePipelineDirEntry        `yaml:"directories"` // Directories to monitor
+	Monitoring  FilePipelineMonitoringConfig  `yaml:"monitoring"`  // Monitoring configuration
+	Version     string                        `yaml:"version"`     // Configuration version
 }
 
 // Legacy configuration structures for backward compatibility

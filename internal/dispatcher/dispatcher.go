@@ -832,28 +832,35 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 	for _, item := range batch {
 		if item.Retries < d.config.MaxRetries {
-			// Reagendar item
+			// Reagendar item usando timer ao invés de goroutine
 			item.Retries++
-			go func(item dispatchItem, ctx context.Context) {
-				// Usar select com context para permitir cancelamento
+
+			// Usar um timer para evitar criar muitas goroutines
+			retryDelay := d.config.RetryDelay * time.Duration(item.Retries)
+			timer := time.NewTimer(retryDelay)
+
+			go func(item dispatchItem, timer *time.Timer) {
+				defer timer.Stop()
+
 				select {
-				case <-time.After(d.config.RetryDelay * time.Duration(item.Retries)):
+				case <-timer.C:
 					// Tentar reagendar com context
 					select {
 					case d.queue <- item:
 						// Reagendado com sucesso
-					case <-ctx.Done():
+						d.logger.WithField("retries", item.Retries).Debug("Item rescheduled successfully")
+					case <-d.ctx.Done():
 						// Context cancelado
 						return
 					default:
 						// Fila cheia, descartar
 						d.logger.Warn("Failed to reschedule failed item, queue full")
 					}
-				case <-ctx.Done():
+				case <-d.ctx.Done():
 					// Context cancelado durante espera
 					return
 				}
-			}(item, d.ctx)
+			}(item, timer)
 		} else {
 			// Max retries reached, enviar para DLQ
 			d.logger.WithFields(logrus.Fields{

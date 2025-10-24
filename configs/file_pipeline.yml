@@ -5,7 +5,7 @@
 # Sobrescreve as configurações default de files_config em config.yaml
 # =============================================================================
 
-version: "1.0"
+# version: "1.0"
 
 # -----------------------------------------------------------------------------
 # ARQUIVOS ESPECÍFICOS PARA MONITORAMENTO

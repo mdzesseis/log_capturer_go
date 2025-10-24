@@ -35,7 +35,7 @@ import (
 	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/internal/monitors"
 	"ssw-logs-capture/internal/processing"
-	// "ssw-logs-capture/pkg/anomaly" // Temporarily disabled due to compilation errors
+	"ssw-logs-capture/pkg/anomaly"
 	"ssw-logs-capture/pkg/buffer"
 	"ssw-logs-capture/pkg/cleanup"
 	"ssw-logs-capture/pkg/discovery"
@@ -89,7 +89,7 @@ type App struct {
 	resourceMonitor  *leakdetection.ResourceMonitor     // Monitors system resources and detects potential leaks
 	diskBuffer       *buffer.DiskBuffer                 // Provides persistent buffering for log entries
 	reloader         *hotreload.ConfigReloader          // Handles configuration hot-reloading
-	// anomalyDetector  *anomaly.AnomalyDetector           // Detects anomalies in log patterns and system behavior // Temporarily disabled
+	anomalyDetector  *anomaly.AnomalyDetector           // Detects anomalies in log patterns and system behavior
 
 	// Enterprise features - advanced capabilities for production environments
 	securityManager   *security.AuthManager          // Handles authentication, authorization, and audit logging
@@ -170,6 +170,13 @@ func New(configFile string) (*App, error) {
 		cancel:     cancel,
 		configFile: configFile,
 	}
+
+	// Debug: Log server configuration
+	logger.WithFields(logrus.Fields{
+		"server_enabled": cfg.Server.Enabled,
+		"server_host":    cfg.Server.Host,
+		"server_port":    cfg.Server.Port,
+	}).Info("Server configuration loaded")
 
 	if err := app.initializeComponents(); err != nil {
 		return nil, fmt.Errorf("failed to initialize components: %w", err)
@@ -289,6 +296,11 @@ func (app *App) Start() error {
 			return fmt.Errorf("failed to start enhanced metrics: %w", err)
 		}
 	}
+	if app.anomalyDetector != nil {
+		if err := app.anomalyDetector.Start(); err != nil {
+			return fmt.Errorf("failed to start anomaly detector: %w", err)
+		}
+	}
 	if app.reloader != nil {
 		if err := app.reloader.Start(); err != nil {
 			return fmt.Errorf("failed to start config reloader: %w", err)
@@ -379,6 +391,11 @@ func (app *App) Stop() error {
 	if app.enhancedMetrics != nil {
 		if err := app.enhancedMetrics.Stop(); err != nil {
 			app.logger.WithError(err).Error("Failed to stop enhanced metrics")
+		}
+	}
+	if app.anomalyDetector != nil {
+		if err := app.anomalyDetector.Stop(); err != nil {
+			app.logger.WithError(err).Error("Failed to stop anomaly detector")
 		}
 	}
 	if app.reloader != nil {

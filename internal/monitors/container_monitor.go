@@ -234,13 +234,17 @@ func (cm *ContainerMonitor) checkDockerConnection() error {
 
 // monitorLoop loop principal de monitoramento
 func (cm *ContainerMonitor) monitorLoop(ctx context.Context) error {
-	// Varredura inicial de containers
+	// Varredura inicial de containers - única vez
+	cm.logger.Info("Performing initial container discovery scan")
 	if err := cm.scanContainers(); err != nil {
 		cm.logger.WithError(err).Error("Initial container scan failed")
+	} else {
+		cm.logger.WithField("containers", len(cm.containers)).Info("Initial container discovery completed")
 	}
 
-	// Loop de reconexão
-	ticker := time.NewTicker(cm.config.ReconnectInterval)
+	// Após varredura inicial, apenas aguardar contexto ser cancelado
+	// A descoberta agora é totalmente orientada a eventos
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -248,41 +252,57 @@ func (cm *ContainerMonitor) monitorLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			// Verificar containers periodicamente
-			if err := cm.scanContainers(); err != nil {
-				cm.logger.WithError(err).Error("Container scan failed")
-				metrics.RecordError("container_monitor", "scan_error")
-			}
+			// Apenas heartbeat - sem scanning periódico
+			cm.taskManager.Heartbeat("container_monitor")
 		}
-
-		// Heartbeat
-		cm.taskManager.Heartbeat("container_monitor")
 	}
 }
 
 // eventsLoop monitora eventos do Docker
 func (cm *ContainerMonitor) eventsLoop(ctx context.Context) error {
-	eventChan, errChan := cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{})
+	cm.logger.Info("Starting Docker events listener for container discovery")
+
+	// Filtrar apenas eventos de containers
+	eventFilters := filters.NewArgs()
+	eventFilters.Add("type", "container")
+
+	eventChan, errChan := cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
+		Filters: eventFilters,
+	})
+
+	heartbeatTicker := time.NewTicker(30 * time.Second)
+	defer heartbeatTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			cm.logger.Info("Docker events listener stopped")
 			return nil
+
 		case event := <-eventChan:
 			cm.handleDockerEvent(event)
+
 		case err := <-errChan:
 			if err != nil {
-				cm.logger.WithError(err).Error("Docker events error")
+				cm.logger.WithError(err).Error("Docker events stream error - attempting to reconnect")
 				metrics.RecordError("container_monitor", "events_error")
 
-				// Tentar reconectar após erro
-				time.Sleep(5 * time.Second)
-				eventChan, errChan = cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{})
+				// Aguardar antes de reconectar
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-time.After(5 * time.Second):
+					// Recriar stream de eventos
+					eventChan, errChan = cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
+						Filters: eventFilters,
+					})
+					cm.logger.Info("Docker events stream reconnected")
+				}
 			}
-		}
 
-		// Heartbeat
-		cm.taskManager.Heartbeat("container_events")
+		case <-heartbeatTicker.C:
+			cm.taskManager.Heartbeat("container_events")
+		}
 	}
 }
 
@@ -347,36 +367,119 @@ func (cm *ContainerMonitor) scanContainers() error {
 	return nil
 }
 
-// handleDockerEvent processa eventos do Docker
+// handleDockerEvent processa eventos do Docker de forma reativa
 func (cm *ContainerMonitor) handleDockerEvent(event events.Message) {
+	containerID := event.Actor.ID[:12]
+	containerName := event.Actor.Attributes["name"]
+
+	cm.logger.WithFields(logrus.Fields{
+		"event":          event.Action,
+		"container_id":   containerID,
+		"container_name": containerName,
+	}).Debug("Received Docker event")
+
 	switch event.Action {
 	case "start":
-		// Container iniciado - aguardar um pouco e escanear
-		// Use o task manager para gerenciar a goroutine
-		taskName := "container_scan_" + event.Actor.ID[:12]
+		// Container iniciado - adicionar diretamente
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID,
+			"container_name": containerName,
+		}).Info("Container started - adding to monitoring")
+
+		// Aguardar um pouco para garantir que container está pronto
+		taskName := "container_add_" + containerID
 		cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
-			// Usar select com context para permitir cancelamento
 			select {
-			case <-time.After(2 * time.Second):
-				return cm.scanContainers()
+			case <-time.After(1 * time.Second):
+				// Buscar informações completas do container
+				return cm.addContainerByID(containerID)
 			case <-ctx.Done():
 				return ctx.Err()
 			}
 		})
+
 	case "die", "stop":
 		// Container parado
-		containerID := event.Actor.ID[:12]
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID,
+			"container_name": containerName,
+		}).Info("Container stopped - removing from monitoring")
+
 		cm.mutex.Lock()
 		cm.stopContainerMonitoring(containerID)
 		cm.mutex.Unlock()
+
+		metrics.RecordContainerEvent("stopped", containerID)
+
 	case "destroy":
-		// Container removido - marcar como removed para limpeza futura
-		containerID := event.Actor.ID[:12]
+		// Container removido - limpar posições
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID,
+			"container_name": containerName,
+		}).Info("Container destroyed - cleaning up positions")
+
 		if cm.positionManager != nil {
 			cm.positionManager.SetContainerStatus(containerID, "removed")
 		}
-		cm.logger.WithField("container_id", containerID).Debug("Container marked as removed")
+
+		metrics.RecordContainerEvent("destroyed", containerID)
+
+	case "pause":
+		// Container pausado - apenas log
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID,
+			"container_name": containerName,
+		}).Debug("Container paused - monitoring continues")
+
+		metrics.RecordContainerEvent("paused", containerID)
+
+	case "unpause":
+		// Container despausado - apenas log
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID,
+			"container_name": containerName,
+		}).Debug("Container unpaused - monitoring continues")
+
+		metrics.RecordContainerEvent("unpaused", containerID)
 	}
+}
+
+// addContainerByID adiciona um container específico para monitoramento por ID
+func (cm *ContainerMonitor) addContainerByID(containerID string) error {
+	ctx, cancel := context.WithTimeout(cm.ctx, 10*time.Second)
+	defer cancel()
+
+	// Buscar informações do container
+	containers, err := cm.dockerPool.ContainerList(ctx, dockerTypes.ContainerListOptions{
+		All:     true,
+		Filters: filters.NewArgs(filters.Arg("id", containerID)),
+	})
+
+	if err != nil {
+		cm.logger.WithError(err).WithField("container_id", containerID).Error("Failed to fetch container info")
+		return fmt.Errorf("failed to list container %s: %w", containerID, err)
+	}
+
+	if len(containers) == 0 {
+		cm.logger.WithField("container_id", containerID).Warn("Container not found")
+		return fmt.Errorf("container %s not found", containerID)
+	}
+
+	dockerContainer := containers[0]
+
+	// Verificar se já está sendo monitorado
+	cm.mutex.Lock()
+	defer cm.mutex.Unlock()
+
+	if _, exists := cm.containers[containerID]; exists {
+		cm.logger.WithField("container_id", containerID).Debug("Container already being monitored")
+		return nil
+	}
+
+	// Adicionar monitoramento
+	cm.startContainerMonitoring(dockerContainer)
+
+	return nil
 }
 
 // shouldMonitorContainer verifica se um container deve ser monitorado baseado nos filtros

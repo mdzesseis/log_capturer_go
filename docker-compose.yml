@@ -11,7 +11,8 @@ services:
     privileged: true
     user: "0:0"  # Run as root for file access, or remove when using setup script
     # Override container command for minimal version
-    command: ["./ssw-logs-capture"]
+    #command: ["./ssw-logs-capture"]
+    command: ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
     # Carrega variáveis de ambiente do arquivo .env
     # env_file:
     #   - .env
@@ -29,14 +30,14 @@ services:
       - LOG_FORMAT=json
       - DEBUG_MODE=true
     ports:
-      - "8080:8080"  # Minimal API
+     # - "8080:8080"  # Minimal API
       - "8401:8401"  # API
       - "8001:8001"  # Metrics
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./configs:/app/configs:ro
       - /var/log/monitoring_data/logs:/logs
-      - /var/lib/docker/containers:/var/lib/docker/containers
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/log/monitoring_data/data:/app/data
       - /var/log/monitoring_data/dlq:/app/dlq
       - /var/log/monitoring_data/batch_persistence:/app/batch_persistence

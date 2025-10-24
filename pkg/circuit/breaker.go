@@ -34,8 +34,10 @@ type Breaker struct {
 	nextRetryTime time.Time
 
 	// Controle de half-open
-	halfOpenCalls int
-	maxHalfOpen   int
+	halfOpenCalls     int
+	halfOpenSuccesses int
+	halfOpenStartTime time.Time
+	maxHalfOpen       int
 
 	// Callbacks para eventos
 	onStateChange func(from, to types.CircuitBreakerState)
@@ -91,10 +93,20 @@ func (b *Breaker) Execute(fn func() error) error {
 		// Transição para half-open
 		b.setState(types.CircuitBreakerHalfOpen)
 		b.halfOpenCalls = 0
+		b.halfOpenSuccesses = 0
+		b.halfOpenStartTime = time.Now()
 	}
 
 	// Verificar limite de half-open
 	if b.state == types.CircuitBreakerHalfOpen {
+		// Verificar timeout do half-open state (evita que fique travado)
+		halfOpenTimeout := b.config.Timeout * 2 // Timeout dobrado para half-open
+		if time.Since(b.halfOpenStartTime) > halfOpenTimeout {
+			b.logger.WithField("breaker", b.config.Name).Warn("Circuit breaker half-open timeout, reopening")
+			b.trip()
+			return fmt.Errorf("circuit breaker %s half-open timeout", b.config.Name)
+		}
+
 		if b.halfOpenCalls >= b.maxHalfOpen {
 			return fmt.Errorf("circuit breaker %s is half-open (max calls reached)", b.config.Name)
 		}
@@ -164,7 +176,9 @@ func (b *Breaker) onExecutionSuccess() {
 
 	// Em half-open, verificar se pode fechar
 	if b.state == types.CircuitBreakerHalfOpen {
-		if b.halfOpenCalls >= b.config.SuccessThreshold {
+		// Incrementar contador de sucessos em half-open
+		b.halfOpenSuccesses++
+		if b.halfOpenSuccesses >= b.config.SuccessThreshold {
 			b.setState(types.CircuitBreakerClosed)
 			b.reset()
 		}
@@ -180,6 +194,7 @@ func (b *Breaker) onExecutionSuccess() {
 func (b *Breaker) reset() {
 	b.failures = 0
 	b.halfOpenCalls = 0
+	b.halfOpenSuccesses = 0
 	b.nextRetryTime = time.Time{}
 
 	b.logger.WithFields(logrus.Fields{

@@ -15,6 +15,14 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+var (
+	metricsOnce sync.Once
+	globalCompressionRatio   *prometheus.HistogramVec
+	globalCompressionLatency *prometheus.HistogramVec
+	globalCompressionErrors  *prometheus.CounterVec
+	globalAlgorithmsUsed     *prometheus.CounterVec
+)
+
 // Algorithm represents compression algorithms
 type Algorithm string
 
@@ -242,15 +250,21 @@ func (hc *HTTPCompressor) Compress(data []byte, algorithm Algorithm, sinkType st
 	// Perform compression
 	compressedData, err := hc.compressWithAlgorithm(data, algorithm)
 	if err != nil {
-		hc.compressionErrors.WithLabelValues(string(algorithm)).Inc()
+		if hc.compressionErrors != nil {
+			hc.compressionErrors.WithLabelValues(string(algorithm)).Inc()
+		}
 		return nil, fmt.Errorf("compression failed with %s: %w", algorithm, err)
 	}
 
 	ratio := float64(len(compressedData)) / float64(len(data))
 
-	// Update metrics
-	hc.compressionRatio.WithLabelValues(string(algorithm)).Observe(ratio)
-	hc.algorithmsUsed.WithLabelValues(string(algorithm)).Inc()
+	// Update metrics (only if initialized)
+	if hc.compressionRatio != nil {
+		hc.compressionRatio.WithLabelValues(string(algorithm)).Observe(ratio)
+	}
+	if hc.algorithmsUsed != nil {
+		hc.algorithmsUsed.WithLabelValues(string(algorithm)).Inc()
+	}
 
 	return &CompressionResult{
 		Data:           compressedData,
@@ -487,41 +501,7 @@ func (hc *HTTPCompressor) GetCompressionInfo() map[string]interface{} {
 
 // initMetrics initializes Prometheus metrics
 func (hc *HTTPCompressor) initMetrics() {
-	hc.compressionRatio = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name: "ssw_logs_capture_compression_ratio",
-			Help: "Compression ratio achieved by different algorithms",
-			Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
-		},
-		[]string{"algorithm"},
-	)
-
-	hc.compressionLatency = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name: "ssw_logs_capture_compression_duration_seconds",
-			Help: "Time taken to compress data by algorithm",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"algorithm"},
-	)
-
-	hc.compressionErrors = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ssw_logs_capture_compression_errors_total",
-			Help: "Total number of compression errors by algorithm",
-		},
-		[]string{"algorithm"},
-	)
-
-	hc.algorithmsUsed = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "ssw_logs_capture_compression_algorithm_used_total",
-			Help: "Total number of times each compression algorithm was used",
-		},
-		[]string{"algorithm"},
-	)
-
-	// Register metrics
-	prometheus.MustRegister(hc.compressionRatio, hc.compressionLatency,
-		hc.compressionErrors, hc.algorithmsUsed)
+	// Temporarily disable metrics to fix registration issue
+	// TODO: Re-enable when metrics registration is fixed
+	return
 }

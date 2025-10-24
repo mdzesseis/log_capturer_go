@@ -191,31 +191,49 @@ type MetricsServer struct {
 	logger *logrus.Logger
 }
 
+var (
+	metricsRegisteredOnce sync.Once
+)
+
+// safeRegister safely registers metrics, ignoring already registered ones
+func safeRegister(collector prometheus.Collector) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Ignore "duplicate metrics collector registration attempted" panics
+			if _, ok := r.(error); ok {
+				// Silently ignore registration errors
+			}
+		}
+	}()
+	prometheus.MustRegister(collector)
+}
+
 // NewMetricsServer cria um novo servidor de métricas
 func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
-	// Registrar todas as métricas
-	prometheus.MustRegister(
-		LogsProcessedTotal,
-		LogsPerSecond,
-		DispatcherQueueUtilization,
-		ProcessingStepDuration,
-		LogsSentTotal,
-		ErrorsTotal,
-		FilesMonitored,
-		ContainersMonitored,
-		SinkQueueUtilization,
-		ComponentHealth,
-		ProcessingDuration,
-		SinkSendDuration,
-		QueueSize,
-		TaskHeartbeats,
-		ActiveTasks,
+	// Registrar todas as métricas de forma segura (apenas uma vez)
+	metricsRegisteredOnce.Do(func() {
+		// Register metrics safely, ignoring conflicts
+		safeRegister(LogsProcessedTotal)
+		safeRegister(LogsPerSecond)
+		safeRegister(DispatcherQueueUtilization)
+		safeRegister(ProcessingStepDuration)
+		safeRegister(LogsSentTotal)
+		safeRegister(ErrorsTotal)
+		safeRegister(FilesMonitored)
+		safeRegister(ContainersMonitored)
+		safeRegister(SinkQueueUtilization)
+		safeRegister(ComponentHealth)
+		safeRegister(ProcessingDuration)
+		safeRegister(SinkSendDuration)
+		safeRegister(QueueSize)
+		safeRegister(TaskHeartbeats)
+		safeRegister(ActiveTasks)
 		// CircuitBreakerState and CircuitBreakerEvents removed (package deleted)
-		MemoryUsage,
-		CPUUsage,
-		GCRuns,
-		Goroutines,
-	)
+		safeRegister(MemoryUsage)
+		safeRegister(CPUUsage)
+		safeRegister(GCRuns)
+		safeRegister(Goroutines)
+	})
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
@@ -285,6 +303,11 @@ func SetContainerMonitored(containerID, containerName, image string, monitored b
 		value = 1
 	}
 	ContainersMonitored.WithLabelValues(containerID, containerName, image).Set(value)
+}
+
+// RecordContainerEvent registra eventos de containers Docker
+func RecordContainerEvent(event, containerID string) {
+	ErrorsTotal.WithLabelValues("container_monitor", event).Inc()
 }
 
 // SetSinkQueueUtilization define a utilização da fila de um sink

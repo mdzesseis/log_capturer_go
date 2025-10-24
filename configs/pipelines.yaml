@@ -14,7 +14,7 @@ pipelines:
         type: log_level_extract
         config:
           pattern: '(?i)\b(trace|debug|info|warn|warning|error|fatal|crit|critical)\b'
-          field: level
+          # field: level
 
       - name: ensure_msg_field
         type: field_add
@@ -37,7 +37,7 @@ pipelines:
         type: timestamp_parse
         config:
           format: "2006-01-02T15:04:05.000000Z"
-          field: message
+          # field: message
           use_as_log_timestamp: true
           timezone: "UTC"
 
@@ -203,10 +203,7 @@ pipelines:
         type: timestamp_parse
         config:
           field: "_temp_time"
-          formats:
-            - "2006-01-02T15:04:05+00:00"
-            - "2006-01-02T15:04:05Z"
-            - "2006-01-02T15:04:05.000Z"
+          format: "2006-01-02T15:04:05Z"
           use_as_log_timestamp: true
           timezone: "UTC"
 

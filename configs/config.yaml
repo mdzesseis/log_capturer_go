@@ -11,7 +11,7 @@ app:
   name: "ssw-logs-capture"
   version: "v0.0.2"
   environment: "production"
-  log_level: "info"
+  log_level: "debug"
   log_format: "json"
   log_file: ""
   operation_timeout: "1h"
@@ -20,6 +20,7 @@ app:
 # CONFIGURAÇÕES DO SERVIDOR HTTP
 # -----------------------------------------------------------------------------
 server:
+  enabled: true
   port: 8401
   host: "0.0.0.0"
   read_timeout: "30s"
@@ -78,11 +79,13 @@ file_monitor_service:
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE MONITORAMENTO DE CONTAINERS
 # -----------------------------------------------------------------------------
+# NOTA: O sistema agora usa descoberta orientada a eventos Docker em vez de polling
+# O campo 'reconnect_interval' ainda existe mas é usado apenas para fallback/heartbeat
 container_monitor:
   enabled: true
   socket_path: "unix:///var/run/docker.sock"
   health_check_delay: "30s"
-  reconnect_interval: "30s"
+  reconnect_interval: "30s"          # Agora usado apenas para heartbeat (não mais polling)
   max_concurrent: 25
   include_labels: {}
   exclude_labels: {}
@@ -187,7 +190,7 @@ sinks:
       timeout_escalation: true         # Timeout escalonado baseado na utilização
     dlq_config:
       enabled: true
-      send_on_queue_full: true         # Enviar para DLQ quando fila cheia
+      send_on_queue_full: false         # Enviar para DLQ quando fila cheia
       send_on_timeout: true            # Enviar para DLQ em timeout
       send_on_error: true              # Enviar para DLQ em erro de envio
     # Configurações de batching adaptativo
@@ -246,7 +249,7 @@ sinks:
 # -----------------------------------------------------------------------------
 processing:
   enabled: true
-  pipelines_file: "pipelines.yaml"
+  pipelines_file: "/app/configs/pipelines.yaml"
   worker_count: 2
   queue_size: 5000
   processing_timeout: "5s"
@@ -283,14 +286,14 @@ service_discovery:
   # Configuração Docker Discovery
   docker:
     socket_path: "unix:///var/run/docker.sock"
-    require_label: "logs.capture"              # Label obrigatória
-    pipeline_label: "logs.pipeline"            # Label para pipeline
-    component_label: "logs.component"          # Label para componente
-    tenant_label: "logs.tenant"                # Label para tenant
-    required_labels:                            # Labels obrigatórias
-      logs.capture: "true"
-    exclude_labels:                             # Labels para exclusão
-      logs.exclude: "true"
+    # require_label: "logs.capture"              # Label obrigatória
+    # pipeline_label: "logs.pipeline"            # Label para pipeline
+    # component_label: "logs.component"          # Label para componente
+    # tenant_label: "logs.tenant"                # Label para tenant
+    # required_labels:                            # Labels obrigatórias
+    #   logs.capture: "true"
+    # exclude_labels:                             # Labels para exclusão
+    #   logs.exclude: "true"
 
   # Configuração File Discovery
   file:
@@ -305,13 +308,13 @@ service_discovery:
       service_type: "logs"
 
   # Configuração Kubernetes (futuro)
-  kubernetes:
-    namespace: "default"
-    service_account: "log-capturer"
-    required_annotations:
-      logs.capture/enabled: "true"
-    required_labels:
-      app.kubernetes.io/component: "logging"
+  # kubernetes:
+  #   namespace: "default"
+  #   service_account: "log-capturer"
+  #   required_annotations:
+  #     logs.capture/enabled: "true"
+  #   required_labels:
+  #     app.kubernetes.io/component: "logging"
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE HOT RELOAD
@@ -385,8 +388,8 @@ leak_detection:
 # CONFIGURAÇÕES DE BUFFER DE DISCO
 # -----------------------------------------------------------------------------
 disk_buffer:
-  enabled: false                    # Desabilitado por padrão
-  base_dir: "/app/buffer"
+  enabled: true                    # Desabilitado por padrão
+  directory: "/app/buffer"
   max_file_size: 104857600          # 100MB por arquivo
   max_total_size: 1073741824        # 1GB total
   max_files: 50
@@ -402,67 +405,29 @@ disk_buffer:
 # -----------------------------------------------------------------------------
 anomaly_detection:
   enabled: true                     # Habilitar detecção de anomalias
-  model_type: "ensemble"            # Tipos: "isolation_forest", "statistical", "neural_network", "ensemble"
-  training_interval: "30m"          # Re-treinar modelo a cada 30 minutos
-  prediction_interval: "1s"         # Executar predições a cada segundo
-  buffer_size: 10000                # Buffer de dados para treinamento
+  algorithm: "ml_ensemble"          # Tipos: "isolation_forest", "statistical", "neural_network", "ml_ensemble"
+  sensitivity_level: "medium"       # Níveis: "low", "medium", "high"
+  window_size: "1h"                 # Janela de análise
+  min_samples: 100                  # Mínimo de amostras para treinamento
+  model_path: "/app/data/models"    # Diretório para salvar modelos
+  training_enabled: true            # Habilitar treinamento online
 
-  # Configuração de limiares
-  threshold_config:
-    low_threshold: 0.3              # Anomalias leves
-    medium_threshold: 0.6           # Anomalias médias
-    high_threshold: 0.8             # Anomalias altas
-    critical_threshold: 0.9         # Anomalias críticas
+  # Limiares de detecção
+  thresholds:
+    volume_change: 0.5              # Mudança no volume de logs
+    pattern_deviation: 0.7          # Desvio de padrão
+    error_rate_spike: 0.8           # Pico na taxa de erros
+    latency_increase: 0.6           # Aumento na latência
 
-  # Configuração dos modelos
-  model_config:
-    isolation_forest:
-      num_trees: 100                # Número de árvores
-      max_samples: 256              # Amostras por árvore
-      max_depth: 10                 # Profundidade máxima
+  # Ações ao detectar anomalias
+  actions:
+    alert_enabled: true             # Habilitar alertas
+    webhook_url: ""                 # URL do webhook (opcional)
+    auto_scale: false               # Auto-scaling (desabilitado)
+    circuit_breaker: false          # Circuit breaker (desabilitado)
+    log_level: "warn"               # Nível de log para anomalias
+    metrics_enabled: true           # Exportar métricas de anomalias
 
-    statistical:
-      zscore_threshold: 2.5         # Limite z-score
-      percentile_mode: true         # Usar percentis
-      percentile_limits: [1, 5, 95, 99] # Percentis para detecção
-      window_size: 1000             # Janela móvel
-
-    neural_network:
-      hidden_size: 20               # Neurônios camada oculta
-      learning_rate: 0.01           # Taxa de aprendizado
-      epochs: 100                   # Épocas de treinamento
-      batch_size: 32                # Tamanho do lote
-
-    ensemble:
-      models: ["isolation_forest", "statistical"] # Modelos a combinar
-      voting_method: "weighted"     # Método de votação
-      model_weights:                # Pesos dos modelos
-        isolation_forest: 0.6
-        statistical: 0.4
-
-  # Configuração de extração de features
-  feature_extraction:
-    text_features: true             # Features de texto
-    statistical_features: true     # Features estatísticas
-    temporal_features: true        # Features temporais
-    pattern_features: true         # Features de padrões
-    custom_features: false         # Features customizadas
-
-  # Configuração de alertas
-  alert_config:
-    enabled: true                   # Habilitar alertas
-    webhook_url: ""                 # URL para webhook
-    email_to: ""                    # Email para alertas
-    slack_channel: ""               # Canal Slack
-    cooldown_period: "5m"           # Cooldown entre alertas
-    include_context: true           # Incluir contexto
-    max_alerts_per_hour: 10         # Máximo de alertas por hora
-
-  # Configuração de padrões
-  pattern_config:
-    enabled: true                   # Habilitar padrões
-    whitelist_enabled: true         # Habilitar whitelist
-    blacklist_enabled: true         # Habilitar blacklist
     whitelist_patterns:             # Padrões normais (regex)
       - "^INFO.*application started$"
       - "^DEBUG.*configuration loaded$"

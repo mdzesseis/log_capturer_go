@@ -21,7 +21,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags="-w -s" \
     -trimpath \
     -o ssw-logs-capture \
-    ./cmd/main_minimal.go
+    ./cmd/main.go
 
 # Final stage
 FROM alpine:3.19
@@ -38,8 +38,8 @@ RUN addgroup -g ${DOCKER_GID} docker && \
     adduser appuser docker
 
 # Create directories
-RUN mkdir -p /app /logs /app/data/positions /app/configs /var/log/monitoring_data && \
-    chown -R appuser:appuser /app /logs /var/log/monitoring_data && \
+RUN mkdir -p /app /logs /app/data/positions /app/configs /var/log/monitoring_data /app/logs/output && \
+    chown -R appuser:appuser /app /logs /var/log/monitoring_data /app/logs/output && \
     chmod 755 /var/log/monitoring_data
 
 # Copy binary from builder
@@ -56,10 +56,10 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8001/health || exit 1
 
 # Expose ports
-EXPOSE 8080
+EXPOSE 8401 8001
 
 # Default command
-CMD ["./ssw-logs-capture"]
+CMD ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
