@@ -796,7 +796,7 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 			entriesCopy[i] = *entry.DeepCopy()
 		}
 
-		ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(d.ctx, 120*time.Second)
 		err := sink.Send(ctx, entriesCopy)
 		cancel()
 
@@ -1132,7 +1132,7 @@ func (d *Dispatcher) reprocessLogEntry(entry types.LogEntry, originalSink string
 	}).Debug("Attempting to reprocess DLQ entry")
 
 	// Criar contexto com timeout para reprocessamento
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
 	// Tentar encontrar o sink específico que falhou

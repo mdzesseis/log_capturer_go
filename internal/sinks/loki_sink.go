@@ -86,9 +86,9 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 	// Configurar circuit breaker
 	breaker := circuit.NewBreaker(circuit.BreakerConfig{
 		Name:             "loki_sink",
-		FailureThreshold: 5,
+		FailureThreshold: 20,      // Aumentado de 5 para 20 - menos sensível
 		SuccessThreshold: 3,
-		Timeout:          30 * time.Second,
+		Timeout:          60 * time.Second,  // Aumentado de 30s para 60s
 		HalfOpenMaxCalls: 10,
 	}, logger)
 
@@ -299,7 +299,9 @@ func (ls *LokiSink) Send(ctx context.Context, entries []types.LogEntry) error {
 func (ls *LokiSink) IsHealthy() bool {
 	ls.mutex.RLock()
 	defer ls.mutex.RUnlock()
-	return ls.isRunning && !ls.breaker.IsOpen()
+	// Não verificar breaker aqui - deixar o breaker gerenciar estado internamente
+	// Isso permite que o breaker tente half-open após o timeout
+	return ls.isRunning
 }
 
 // GetQueueUtilization retorna a utilização da fila
@@ -592,8 +594,13 @@ func (ls *LokiSink) prepareLokiLabels(labels map[string]string) map[string]strin
 		lokiLabels[sanitizedKey] = value
 	}
 
-	// Copiar labels do log, sanitizando nomes (sobrescreve defaults se existir)
+	// Copiar labels do log, filtrando temporários e alta cardinalidade
 	for key, value := range labels {
+		// FILTRAR labels temporários e de alta cardinalidade
+		if ls.shouldDropLabel(key) {
+			continue
+		}
+
 		sanitizedKey := ls.sanitizeLabelName(key)
 		lokiLabels[sanitizedKey] = value
 	}
@@ -604,6 +611,53 @@ func (ls *LokiSink) prepareLokiLabels(labels map[string]string) map[string]strin
 	}
 
 	return lokiLabels
+}
+
+// shouldDropLabel determina se um label deve ser descartado para evitar alta cardinalidade
+func (ls *LokiSink) shouldDropLabel(key string) bool {
+	// Lista de prefixos que indicam labels temporários
+	temporaryPrefixes := []string{
+		"_temp_",
+		"label__temp_",
+		"temp_",
+	}
+
+	// Labels de alta cardinalidade que devem ser removidos
+	highCardinalityLabels := []string{
+		"timestamp",
+		"time",
+		"trace_id",
+		"request_id",
+		"transaction_id",
+		"container_id",  // Mantemos container_name mas removemos ID
+		"file_path",     // Mantemos file_name mas removemos path completo
+		"filepath",
+		"pid",
+		"thread_id",
+		"line_number",
+		"offset",
+		"position",
+		"instance",       // IP addresses - alta cardinalidade
+		"instance_name",  // Container IDs - alta cardinalidade
+		"image",          // Imagens com versões - média/alta cardinalidade
+		"msg",            // Mensagem não deve ser label
+	}
+
+	// Verificar prefixos temporários
+	for _, prefix := range temporaryPrefixes {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			return true
+		}
+	}
+
+	// Verificar labels de alta cardinalidade
+	for _, highCard := range highCardinalityLabels {
+		if key == highCard {
+			return true
+		}
+	}
+
+	return false
 }
 
 // sanitizeLabelName sanitiza nome do label para o Loki

@@ -208,6 +208,10 @@ func (app *App) initializeComponents() error {
 	if err := app.initSinks(); err != nil {
 		return err
 	}
+	// Position manager must be initialized before monitors
+	if err := app.initializePositionManager(); err != nil {
+		return err
+	}
 	if err := app.initMonitors(); err != nil {
 		return err
 	}

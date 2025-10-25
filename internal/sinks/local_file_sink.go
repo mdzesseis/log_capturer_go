@@ -170,31 +170,20 @@ func (lfs *LocalFileSink) Stop() error {
 	return nil
 }
 
-// Send envia logs para o sink com backpressure - nunca descarta logs
+// Send envia logs para o sink com backpressure - respeita contexto para evitar deadlock
 func (lfs *LocalFileSink) Send(ctx context.Context, entries []types.LogEntry) error {
 	if !lfs.config.Enabled {
 		return nil
 	}
 
 	for _, entry := range entries {
-		// Implementar backpressure - bloquear até conseguir enviar
+		// SEMPRE respeitar o contexto para evitar deadlock
 		select {
 		case lfs.queue <- entry:
 			// Enviado para fila com sucesso
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(5 * time.Second):
-			// Se demorar mais que 5 segundos, log um warning mas continue tentando
-			lfs.logger.WithField("queue_utilization", lfs.GetQueueUtilization()).
-				Warn("Local file sink queue backpressure - waiting to send log")
-
-			// Tentar novamente sem timeout para garantir que o log seja enviado
-			select {
-			case lfs.queue <- entry:
-				// Enviado com sucesso após espera
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			// Contexto cancelado/timeout - retornar erro imediatamente
+			return fmt.Errorf("failed to send to local file sink queue: %w", ctx.Err())
 		}
 	}
 
@@ -308,7 +297,23 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 
 // getLogFileName determina o nome do arquivo de log
 func (lfs *LocalFileSink) getLogFileName(entry types.LogEntry) string {
-	// Usar combinação de source_type e labels para determinar o arquivo
+	// Escolher pattern baseado no source_type
+	var pattern string
+
+	if entry.SourceType == "container" && lfs.config.FilenamePatternContainers != "" {
+		pattern = lfs.config.FilenamePatternContainers
+	} else if entry.SourceType == "file" && lfs.config.FilenamePatternFiles != "" {
+		pattern = lfs.config.FilenamePatternFiles
+	} else if lfs.config.FilenamePattern != "" {
+		pattern = lfs.config.FilenamePattern
+	}
+
+	// Se há pattern configurado, usar lógica dinâmica
+	if pattern != "" {
+		return lfs.buildFilenameFromPattern(entry, pattern)
+	}
+
+	// Fallback para lógica legada
 	var parts []string
 
 	// Adicionar data
@@ -330,6 +335,52 @@ func (lfs *LocalFileSink) getLogFileName(entry types.LogEntry) string {
 
 	filename := strings.Join(parts, "_") + ".log"
 	return filepath.Join(lfs.config.Directory, filename)
+}
+
+// buildFilenameFromPattern constrói o nome do arquivo substituindo placeholders no pattern
+func (lfs *LocalFileSink) buildFilenameFromPattern(entry types.LogEntry, pattern string) string {
+
+	// Substituir {date} - formato: YYYY-MM-DD
+	date := entry.Timestamp.Format("2006-01-02")
+	pattern = strings.ReplaceAll(pattern, "{date}", date)
+
+	// Substituir {hour} - formato: HH
+	hour := entry.Timestamp.Format("15")
+	pattern = strings.ReplaceAll(pattern, "{hour}", hour)
+
+	// Determinar source específico baseado no tipo
+	if entry.SourceType == "container" {
+		// Para containers: {nomedocontainer} e {idcontainer}
+		if containerName, exists := entry.Labels["container_name"]; exists {
+			pattern = strings.ReplaceAll(pattern, "{nomedocontainer}", sanitizeFilename(containerName))
+		}
+		if containerID, exists := entry.Labels["container_id"]; exists {
+			// Usar apenas os primeiros 12 caracteres do ID (como Docker faz)
+			shortID := containerID
+			if len(shortID) > 12 {
+				shortID = shortID[:12]
+			}
+			pattern = strings.ReplaceAll(pattern, "{idcontainer}", shortID)
+		}
+	} else if entry.SourceType == "file" {
+		// Para arquivos: {nomedoarquivomonitorado}
+		if filePath, exists := entry.Labels["file_path"]; exists {
+			basename := filePath[strings.LastIndex(filePath, "/")+1:]
+			// Remover extensão do arquivo para o placeholder
+			baseName := strings.TrimSuffix(basename, filepath.Ext(basename))
+			pattern = strings.ReplaceAll(pattern, "{nomedoarquivomonitorado}", sanitizeFilename(baseName))
+		} else if fileName, exists := entry.Labels["file_name"]; exists {
+			baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+			pattern = strings.ReplaceAll(pattern, "{nomedoarquivomonitorado}", sanitizeFilename(baseName))
+		}
+	}
+
+	// Remover placeholders não substituídos (evitar nomes estranhos)
+	pattern = strings.ReplaceAll(pattern, "{nomedoarquivomonitorado}", "unknown-file")
+	pattern = strings.ReplaceAll(pattern, "{nomedocontainer}", "unknown-container")
+	pattern = strings.ReplaceAll(pattern, "{idcontainer}", "unknown-id")
+
+	return filepath.Join(lfs.config.Directory, pattern)
 }
 
 // getOrCreateLogFile obtém ou cria um arquivo de log

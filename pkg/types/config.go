@@ -180,24 +180,30 @@ type LokiSinkConfig struct {
 
 // LocalFileSinkConfig contains local file output settings.
 type LocalFileSinkConfig struct {
-	Enabled      bool   `yaml:"enabled"`       // Enable local file sink
-	Directory    string `yaml:"directory"`     // Output directory
-	Filename     string `yaml:"filename"`      // Output filename pattern
-	MaxFileSize  string `yaml:"max_file_size"`  // Maximum file size before rotation
-	MaxFiles     int    `yaml:"max_files"`     // Maximum number of rotated files
-	Compress     bool   `yaml:"compress"`      // Compress rotated files
-	OutputFormat string `yaml:"output_format"` // Output format (json, text, csv)
+	Enabled                   bool                   `yaml:"enabled"`                      // Enable local file sink
+	Directory                 string                 `yaml:"directory"`                    // Output directory
+	Filename                  string                 `yaml:"filename"`                     // Output filename pattern (legacy)
+	FilenamePattern           string                 `yaml:"filename_pattern"`             // Dynamic filename pattern (fallback)
+	FilenamePatternFiles      string                 `yaml:"filename_pattern_files"`       // Pattern for file sources
+	FilenamePatternContainers string                 `yaml:"filename_pattern_containers"`  // Pattern for container sources
+	MaxFileSize               string                 `yaml:"max_file_size"`                // Maximum file size before rotation
+	MaxFiles                  int                    `yaml:"max_files"`                    // Maximum number of rotated files
+	Compress                  bool                 `yaml:"compress"`                     // Compress rotated files
+	OutputFormat              string               `yaml:"output_format"`                // Output format (json, text, csv)
+	TextFormat                TextFormatConfig     `yaml:"text_format"`                  // Text format configuration
+	QueueSize                 int                  `yaml:"queue_size"`                   // Queue size for buffering
 }
 
 // PositionsConfig contains file position tracking settings.
 type PositionsConfig struct {
-	Enabled          bool   `yaml:"enabled"`           // Enable position tracking
-	Directory        string `yaml:"directory"`         // Position files directory
-	FlushInterval    string `yaml:"flush_interval"`    // Position flush interval
-	MaxMemoryBuffer  int    `yaml:"max_memory_buffer"` // Maximum in-memory position entries
-	ForceFlushOnExit bool   `yaml:"force_flush_on_exit"` // Force flush on application exit
-	CleanupInterval  string `yaml:"cleanup_interval"`  // Cleanup interval for stale positions
-	MaxPositionAge   string `yaml:"max_position_age"`  // Maximum age for position entries
+	Enabled            bool   `yaml:"enabled"`               // Enable position tracking
+	Directory          string `yaml:"directory"`             // Position files directory
+	FlushInterval      string `yaml:"flush_interval"`        // Position flush interval
+	MaxMemoryBuffer    int    `yaml:"max_memory_buffer"`     // Maximum in-memory position entries
+	MaxMemoryPositions int    `yaml:"max_memory_positions"`  // Maximum total positions in memory
+	ForceFlushOnExit   bool   `yaml:"force_flush_on_exit"`   // Force flush on application exit
+	CleanupInterval    string `yaml:"cleanup_interval"`      // Cleanup interval for stale positions
+	MaxPositionAge     string `yaml:"max_position_age"`      // Maximum age for position entries
 }
 
 // DiskBufferConfig contains persistent buffering settings.
@@ -378,10 +384,13 @@ type RotationConfig struct {
 
 // LocalFileConfig represents legacy local file configuration (alias for LocalFileSinkConfig).
 type LocalFileConfig struct {
-	Enabled                 bool              `yaml:"enabled"`                   // Enable local file sink
-	Directory               string            `yaml:"directory"`                 // Output directory
-	Filename                string            `yaml:"filename"`                  // Output filename pattern
-	MaxFileSize             string            `yaml:"max_file_size"`             // Maximum file size before rotation
+	Enabled                      bool              `yaml:"enabled"`                         // Enable local file sink
+	Directory                    string            `yaml:"directory"`                       // Output directory
+	Filename                     string            `yaml:"filename"`                        // Output filename pattern (legacy)
+	FilenamePattern              string            `yaml:"filename_pattern"`                // Dynamic filename pattern (fallback if specific patterns not set)
+	FilenamePatternFiles         string            `yaml:"filename_pattern_files"`          // Pattern for file sources: {date}, {hour}, {nomedoarquivomonitorado}
+	FilenamePatternContainers    string            `yaml:"filename_pattern_containers"`     // Pattern for container sources: {date}, {hour}, {nomedocontainer}, {idcontainer}
+	MaxFileSize                  string            `yaml:"max_file_size"`                   // Maximum file size before rotation
 	MaxFiles                int               `yaml:"max_files"`                 // Maximum number of rotated files
 	Compress                bool              `yaml:"compress"`                  // Compress rotated files
 	OutputFormat            string            `yaml:"output_format"`             // Output format (json, text, csv)

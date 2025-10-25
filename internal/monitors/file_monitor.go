@@ -129,9 +129,13 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	fm.isRunning = true
 	fm.logger.Info("Starting file monitor")
 
-	// Iniciar position manager
-	if err := fm.positionManager.Start(); err != nil {
-		return fmt.Errorf("failed to start position manager: %w", err)
+	// Iniciar position manager (se disponível)
+	if fm.positionManager != nil {
+		if err := fm.positionManager.Start(); err != nil {
+			return fmt.Errorf("failed to start position manager: %w", err)
+		}
+	} else {
+		fm.logger.Warn("Position manager not available, position tracking will be disabled")
 	}
 
 	// Iniciar descoberta automática de arquivos em background após 2 segundos
@@ -624,6 +628,7 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 			}
 
 			bytesRead := int64(linesRead * 10) // Rough estimate, could be improved
+			if fm.positionManager != nil {
 			fm.positionManager.UpdateFilePosition(
 				mf.path,
 				mf.position,
@@ -634,6 +639,7 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 				bytesRead,
 				int64(linesRead),
 			)
+			}
 		}
 	}
 

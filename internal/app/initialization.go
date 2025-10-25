@@ -116,13 +116,18 @@ func (app *App) initSinks() error {
 	if app.config.Sinks.LocalFile.Enabled {
 		// Convert LocalFileSinkConfig to LocalFileConfig for compatibility
 		localFileConfig := types.LocalFileConfig{
-			Enabled:                 app.config.Sinks.LocalFile.Enabled,
-			Directory:               app.config.Sinks.LocalFile.Directory,
-			Filename:                app.config.Sinks.LocalFile.Filename,
-			MaxFileSize:             app.config.Sinks.LocalFile.MaxFileSize,
-			MaxFiles:                app.config.Sinks.LocalFile.MaxFiles,
-			Compress:                app.config.Sinks.LocalFile.Compress,
-			OutputFormat:            "json", // Default format
+			Enabled:                   app.config.Sinks.LocalFile.Enabled,
+			Directory:                 app.config.Sinks.LocalFile.Directory,
+			Filename:                  app.config.Sinks.LocalFile.Filename,
+			FilenamePattern:           app.config.Sinks.LocalFile.FilenamePattern,
+			FilenamePatternFiles:      app.config.Sinks.LocalFile.FilenamePatternFiles,
+			FilenamePatternContainers: app.config.Sinks.LocalFile.FilenamePatternContainers,
+			MaxFileSize:               app.config.Sinks.LocalFile.MaxFileSize,
+			MaxFiles:                  app.config.Sinks.LocalFile.MaxFiles,
+			Compress:                  app.config.Sinks.LocalFile.Compress,
+			OutputFormat:              app.config.Sinks.LocalFile.OutputFormat,
+			TextFormat:                app.config.Sinks.LocalFile.TextFormat,
+			QueueSize:                 app.config.Sinks.LocalFile.QueueSize,
 		}
 		localFileSink := sinks.NewLocalFileSink(localFileConfig, app.logger)
 		app.sinks = append(app.sinks, localFileSink)
@@ -240,10 +245,7 @@ func (app *App) initMonitors() error {
 //   - error: Service initialization failure with specific component context
 func (app *App) initAuxiliaryServices() error {
 	var err error
-	// Position Manager
-	if err = app.initializePositionManager(); err != nil {
-		return err
-	}
+	// Position Manager is initialized earlier (before monitors)
 	// Disk Manager
 	if err = app.initializeDiskManager(); err != nil {
 		return err
@@ -339,6 +341,7 @@ func (app *App) initializePositionManager() error {
 	bufferConfig := &positions.BufferConfig{
 		FlushInterval:      parseDurationSafe(app.config.Positions.FlushInterval, 30*time.Second),
 		MaxMemoryBuffer:    app.config.Positions.MaxMemoryBuffer,
+		MaxMemoryPositions: app.config.Positions.MaxMemoryPositions,
 		ForceFlushOnExit:   app.config.Positions.ForceFlushOnExit,
 		CleanupInterval:    parseDurationSafe(app.config.Positions.CleanupInterval, 5*time.Minute),
 		MaxPositionAge:     parseDurationSafe(app.config.Positions.MaxPositionAge, 24*time.Hour),

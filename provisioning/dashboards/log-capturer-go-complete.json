@@ -287,7 +287,7 @@
           "refId": "A"
         },
         {
-          "expr": "ssw_throughput_logs_per_second",
+          "expr": "",
           "legendFormat": "{{component}} (janela: {{measurement_window}})",
           "refId": "B"
         }
@@ -377,7 +377,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "component_health",
+          "expr": "",
           "legendFormat": "{{component_type}}: {{component_name}}",
           "refId": "A"
         }
@@ -467,12 +467,12 @@
       },
       "targets": [
         {
-          "expr": "rate(errors_total[5m])",
+          "expr": "",
           "legendFormat": "{{component}} - {{error_type}}",
           "refId": "A"
         },
         {
-          "expr": "rate(ssw_errors_total[5m])",
+          "expr": "",
           "legendFormat": "{{component}} - {{error_type}} ({{severity}})",
           "refId": "B"
         }
@@ -549,7 +549,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "ssw_sink_health",
+          "expr": "",
           "legendFormat": "{{sink_name}} ({{sink_type}})",
           "refId": "A"
         }
@@ -840,12 +840,12 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "ssw_monitored_containers_count",
+          "expr": "",
           "legendFormat": "Containers Monitorados",
           "refId": "A"
         },
         {
-          "expr": "ssw_monitored_files_count",
+          "expr": "",
           "legendFormat": "Arquivos Monitorados",
           "refId": "B"
         }
@@ -1009,17 +1009,17 @@
           "refId": "C"
         },
         {
-          "expr": "histogram_quantile(0.50, rate(ssw_log_processing_duration_seconds_bucket[5m]))",
+          "expr": "",
           "legendFormat": "P50 SSW - {{pipeline}}/{{stage}}",
           "refId": "D"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(ssw_log_processing_duration_seconds_bucket[5m]))",
+          "expr": "",
           "legendFormat": "P95 SSW - {{pipeline}}/{{stage}}",
           "refId": "E"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(ssw_log_processing_duration_seconds_bucket[5m]))",
+          "expr": "",
           "legendFormat": "P99 SSW - {{pipeline}}/{{stage}}",
           "refId": "F"
         }
@@ -1201,7 +1201,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, rate(ssw_response_time_seconds_bucket[5m]))",
+          "expr": "",
           "legendFormat": "P99 - {{operation}} ({{component}})",
           "refId": "A"
         }
@@ -1309,7 +1309,7 @@
           "refId": "A"
         },
         {
-          "expr": "ssw_queue_size",
+          "expr": "",
           "legendFormat": "{{queue_type}} ({{component}})",
           "refId": "B"
         }
@@ -1651,7 +1651,7 @@
       },
       "targets": [
         {
-          "expr": "rate(task_heartbeats_total[5m])",
+          "expr": "",
           "legendFormat": "{{task_type}}",
           "refId": "A"
         }

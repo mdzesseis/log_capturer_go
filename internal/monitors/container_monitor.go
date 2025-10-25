@@ -667,6 +667,23 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 	mc.cancel = cancel
 	defer cancel()
 
+	// Enviar heartbeat em goroutine separada com ticker gerenciado internamente
+	taskName := "container_" + mc.id
+	go func() {
+		// Criar ticker DENTRO da goroutine para garantir limpeza adequada
+		heartbeatTicker := time.NewTicker(30 * time.Second)
+		defer heartbeatTicker.Stop()
+
+		for {
+			select {
+			case <-containerCtx.Done():
+				return
+			case <-heartbeatTicker.C:
+				cm.taskManager.Heartbeat(taskName)
+			}
+		}
+	}()
+
 	// Configurar opções de logs
 	logOptions := dockerTypes.ContainerLogsOptions{
 		ShowStdout: true,

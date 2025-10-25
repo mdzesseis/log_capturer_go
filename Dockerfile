@@ -38,8 +38,16 @@ RUN addgroup -g ${DOCKER_GID} docker && \
     adduser appuser docker
 
 # Create directories
-RUN mkdir -p /app /logs /app/data/positions /app/configs /var/log/monitoring_data /app/logs/output && \
-    chown -R appuser:appuser /app /logs /var/log/monitoring_data /app/logs/output && \
+RUN mkdir -p /app /logs \
+    /app/data/positions \
+    /app/data/models \
+    /app/data/config_backups \
+    /app/configs \
+    /app/dlq \
+    /app/buffer \
+    /app/logs/output \
+    /var/log/monitoring_data && \
+    chown -R appuser:appuser /app /logs /var/log/monitoring_data && \
     chmod 755 /var/log/monitoring_data
 
 # Copy binary from builder

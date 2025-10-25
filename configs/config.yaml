@@ -210,7 +210,9 @@ sinks:
   local_file:
     enabled: true
     directory: "/app/logs/output"
-    filename_pattern: "logs-{date}-{hour}.log"
+    filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
+    filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
+    filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
     output_format: "text"
     text_format:
       include_timestamp: false       # Não incluir timestamp adicional
