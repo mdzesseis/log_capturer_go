@@ -409,9 +409,10 @@ anomaly_detection:
   enabled: true                     # Habilitar detecção de anomalias
   algorithm: "ml_ensemble"          # Tipos: "isolation_forest", "statistical", "neural_network", "ml_ensemble"
   sensitivity_level: "medium"       # Níveis: "low", "medium", "high"
-  window_size: "1h"                 # Janela de análise
-  min_samples: 100                  # Mínimo de amostras para treinamento
+  window_size: "5m"                 # Janela de análise (reduzido para teste)
+  min_samples: 10                   # Mínimo de amostras para treinamento (reduzido para teste)
   model_path: "/app/data/models"    # Diretório para salvar modelos
+  save_model: true                  # Salvar modelos treinados em disco
   training_enabled: true            # Habilitar treinamento online
 
   # Limiares de detecção

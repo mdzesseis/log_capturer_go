@@ -266,7 +266,7 @@ func (app *App) initAuxiliaryServices() error {
 			Algorithm:            app.config.AnomalyDetection.Algorithm,
 			SensitivityThreshold: convertSensitivityLevel(app.config.AnomalyDetection.SensitivityLevel),
 			WindowSize:           app.config.AnomalyDetection.WindowSize,
-			TrainingInterval:     "1h",  // Default training interval
+			TrainingInterval:     "1m",  // Training interval for testing (use 1h for production)
 			MinTrainingSamples:   app.config.AnomalyDetection.MinSamples,
 			MaxTrainingSamples:   10000, // Default max samples
 			Features:             []string{"text", "statistical", "temporal", "pattern"},
@@ -285,6 +285,12 @@ func (app *App) initAuxiliaryServices() error {
 		}
 		app.anomalyDetector = anomalyDetector
 		app.logger.Info("Anomaly detector initialized")
+
+		// Inject anomaly detector into dispatcher
+		if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+			dispatcherImpl.SetAnomalyDetector(anomalyDetector)
+			app.logger.Info("Anomaly detector integrated with dispatcher")
+		}
 	}
 
 	// Enhanced Metrics

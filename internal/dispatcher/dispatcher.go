@@ -45,7 +45,7 @@ import (
 
 	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/internal/processing"
-	// "ssw-logs-capture/pkg/anomaly" // Temporarily disabled due to compilation errors
+	"ssw-logs-capture/pkg/anomaly"
 	"ssw-logs-capture/pkg/backpressure"
 	"ssw-logs-capture/pkg/deduplication"
 	"ssw-logs-capture/pkg/degradation"
@@ -101,7 +101,7 @@ type Dispatcher struct {
 	backpressureManager  *backpressure.Manager               // Manages load-based throttling
 	degradationManager   *degradation.Manager                // Implements graceful degradation
 	rateLimiter          *ratelimit.AdaptiveRateLimiter      // Adaptive rate limiting for sink protection
-	// anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies // Temporarily disabled
+	anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies
 
 	// Core operational components
 	sinks       []types.Sink          // Collection of configured output destinations
@@ -761,8 +761,6 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 	}
 
 	// Detectar anomalias se o detector estiver habilitado
-	// Temporarily disabled anomaly detection
-	/*
 	if d.anomalyDetector != nil {
 		for i := range entries {
 			anomalyResult, err := d.anomalyDetector.DetectAnomaly(&entries[i])
@@ -780,7 +778,6 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 			}
 		}
 	}
-	*/
 
 	// Enviar para todos os sinks
 	successCount := 0
@@ -1111,6 +1108,13 @@ func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, 
 // GetDLQ retorna a instância da Dead Letter Queue
 func (d *Dispatcher) GetDLQ() *dlq.DeadLetterQueue {
 	return d.deadLetterQueue
+}
+
+// SetAnomalyDetector sets the anomaly detector for the dispatcher
+func (d *Dispatcher) SetAnomalyDetector(detector *anomaly.AnomalyDetector) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.anomalyDetector = detector
 }
 
 // setupDLQReprocessing configura o callback de reprocessamento da DLQ

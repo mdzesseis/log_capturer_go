@@ -674,6 +674,15 @@ func (ad *AnomalyDetector) trainModels() error {
 	ad.stats.LastTrainingTime = time.Now()
 	ad.lastTrainingTime = time.Now()
 
+	// Auto-save models after training if configured
+	if ad.config.SaveModel && ad.config.ModelPath != "" {
+		if err := ad.saveModels(); err != nil {
+			ad.logger.WithError(err).Warn("Failed to auto-save models after training")
+		} else {
+			ad.logger.Info("Models auto-saved successfully after training")
+		}
+	}
+
 	return nil
 }
 
@@ -709,9 +718,10 @@ func (ad *AnomalyDetector) loadModels() error {
 	for name, model := range ad.models {
 		modelPath := fmt.Sprintf("%s/%s_model.json", ad.config.ModelPath, name)
 		if err := model.Load(modelPath); err != nil {
-			ad.logger.WithError(err).WithField("model", name).Warn("Failed to load model")
+			// Log como Debug ao invés de Warn - é esperado que modelos não existam na primeira execução
+			ad.logger.WithError(err).WithField("model", name).Debug("Model not found, will be trained from scratch")
 		} else {
-			ad.logger.WithField("model", name).Info("Model loaded")
+			ad.logger.WithField("model", name).Info("Model loaded successfully")
 		}
 	}
 
