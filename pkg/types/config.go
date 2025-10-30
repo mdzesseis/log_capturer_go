@@ -396,11 +396,13 @@ type LocalFileConfig struct {
 	OutputFormat            string            `yaml:"output_format"`             // Output format (json, text, csv)
 	TextFormat              TextFormatConfig  `yaml:"text_format"`               // Text format configuration
 	QueueSize               int               `yaml:"queue_size"`                // Internal queue size
+	WorkerCount             int               `yaml:"worker_count"`              // Number of worker goroutines for processing queue
 	MaxTotalDiskGB          float64           `yaml:"max_total_disk_gb"`         // Maximum total disk usage in GB
 	DiskCheckInterval       string            `yaml:"disk_check_interval"`       // Disk check interval
 	CleanupThresholdPercent float64           `yaml:"cleanup_threshold_percent"` // Cleanup threshold percentage
 	Rotation                RotationConfig    `yaml:"rotation"`                  // File rotation configuration
 	EmergencyCleanupEnabled bool              `yaml:"emergency_cleanup_enabled"` // Enable emergency cleanup
+	MaxOpenFiles            int               `yaml:"max_open_files"`            // Maximum open file descriptors (C8: File Descriptor Leak fix)
 }
 
 // DockerConfig represents legacy Docker monitoring configuration.

@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/compression"
 	"ssw-logs-capture/pkg/types"
 )
@@ -256,6 +257,9 @@ func (s *SplunkSink) getToken() (string, error) {
 func (s *SplunkSink) Start(ctx context.Context) error {
 	s.logger.Info("Starting Splunk sink")
 
+	// Definir como healthy no início
+	metrics.SetComponentHealth("sink", "splunk", true)
+
 	go s.processBatches()
 	go s.flushWorker()
 
@@ -273,6 +277,9 @@ func (s *SplunkSink) Stop() error {
 	s.stopMutex.Unlock()
 
 	s.logger.Info("Stopping Splunk sink")
+
+	// Definir como unhealthy ao parar
+	metrics.SetComponentHealth("sink", "splunk", false)
 
 	// Signal shutdown
 	s.cancel()
@@ -570,17 +577,17 @@ func (s *SplunkSink) createSplunkEvent(entry types.LogEntry) SplunkEvent {
 		Fields:     make(map[string]interface{}),
 	}
 
-	// Override with label values if present
-	if host, ok := entry.Labels["host"]; ok {
+	// Override with label values if present (thread-safe access)
+	if host, ok := entry.GetLabel("host"); ok {
 		event.Host = host
 	}
-	if source, ok := entry.Labels["source"]; ok {
+	if source, ok := entry.GetLabel("source"); ok {
 		event.Source = source
 	}
-	if sourceType, ok := entry.Labels["sourcetype"]; ok {
+	if sourceType, ok := entry.GetLabel("sourcetype"); ok {
 		event.SourceType = sourceType
 	}
-	if index, ok := entry.Labels["index"]; ok {
+	if index, ok := entry.GetLabel("index"); ok {
 		event.Index = index
 	}
 
@@ -596,12 +603,15 @@ func (s *SplunkSink) createSplunkEvent(entry types.LogEntry) SplunkEvent {
 	for k, v := range s.config.DefaultLabels {
 		eventData[k] = v
 	}
-	for k, v := range entry.Labels {
+	// Thread-safe copy of labels
+	labelsCopy := entry.CopyLabels()
+	for k, v := range labelsCopy {
 		eventData[k] = v
 	}
 
-	// Add fields to Splunk fields
-	for k, v := range entry.Fields {
+	// Thread-safe copy of fields
+	fieldsCopy := entry.CopyFields()
+	for k, v := range fieldsCopy {
 		event.Fields[k] = v
 	}
 
@@ -762,14 +772,21 @@ func (s *SplunkSink) shouldRetry(err error) bool {
 
 // sendToDLQ sends failed entries to Dead Letter Queue
 func (s *SplunkSink) sendToDLQ(entries []types.LogEntry, reason string) {
-	s.logger.WithField("reason", reason).Info("Sending batch to DLQ")
+	s.logger.WithFields(logrus.Fields{
+		"error":         reason,
+		"entries_count": len(entries),
+	}).Info("Sending batch to DLQ")
 
 	// Convert entries to DLQ format and send
 	for _, entry := range entries {
 		// Send to DLQ channel if available (would need DLQ integration)
+		// TODO: Integrate with actual DLQ implementation
 		s.logger.WithFields(logrus.Fields{
 			"original_source": entry.SourceID,
-			"reason":         reason,
+			"source_type":     entry.SourceType,
+			"error":           reason,
+			"error_type":      "splunk_batch_failed",
+			"failed_sink":     "splunk",
 		}).Warn("Entry sent to DLQ due to repeated failures")
 	}
 }

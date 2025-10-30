@@ -201,8 +201,8 @@ func (fg *FeedbackGuard) CheckEntry(entry *types.LogEntry) *GuardResult {
 		return fg.handleSelfLog(result, "source_id")
 	}
 
-	// 2. Verificar labels do container
-	if containerName, exists := entry.Labels["container"]; exists {
+	// 2. Verificar labels do container (thread-safe)
+	if containerName, exists := entry.GetLabel("container"); exists {
 		if fg.checkSelfIdentifiers(containerName) {
 			result.IsSelfLog = true
 			result.Reason = "self_container_label"
@@ -221,8 +221,8 @@ func (fg *FeedbackGuard) CheckEntry(entry *types.LogEntry) *GuardResult {
 		}
 	}
 
-	// 3. Verificar labels de path/source
-	if sourcePath, exists := entry.Labels["source"]; exists {
+	// 3. Verificar labels de path/source (thread-safe)
+	if sourcePath, exists := entry.GetLabel("source"); exists {
 		for _, pattern := range fg.pathPatterns {
 			if pattern.MatchString(sourcePath) {
 				result.IsSelfLog = true
@@ -287,8 +287,8 @@ func (fg *FeedbackGuard) isLogCapturerLog(entry *types.LogEntry) bool {
 		}
 	}
 
-	// Verificar labels específicas do log capturer
-	if service, exists := entry.Labels["service"]; exists {
+	// Verificar labels específicas do log capturer (thread-safe)
+	if service, exists := entry.GetLabel("service"); exists {
 		if strings.Contains(strings.ToLower(service), "log") &&
 		   (strings.Contains(strings.ToLower(service), "capture") ||
 		    strings.Contains(strings.ToLower(service), "capturer")) {
@@ -368,11 +368,9 @@ func (fg *FeedbackGuard) ShouldProcessEntry(entry *types.LogEntry) bool {
 func (fg *FeedbackGuard) TagSelfEntry(entry *types.LogEntry) bool {
 	result := fg.CheckEntry(entry)
 	if result.Action == "tag" {
-		if entry.Labels == nil {
-			entry.Labels = make(map[string]string)
-		}
-		entry.Labels[fg.config.SelfLogTag] = "true"
-		entry.Labels["self_log_reason"] = result.Reason
+		// Thread-safe label updates
+		entry.SetLabel(fg.config.SelfLogTag, "true")
+		entry.SetLabel("self_log_reason", result.Reason)
 		return true
 	}
 	return false

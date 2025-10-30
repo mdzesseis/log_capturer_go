@@ -45,14 +45,15 @@ type ContainerMonitor struct {
 
 // monitoredContainer representa um container sendo monitorado
 type monitoredContainer struct {
-	id         string
-	name       string
-	image      string
-	labels     map[string]string
-	since      time.Time
-	stream     io.ReadCloser
-	lastRead   time.Time
-	cancel     context.CancelFunc
+	id           string
+	name         string
+	image        string
+	labels       map[string]string
+	since        time.Time
+	stream       io.ReadCloser
+	lastRead     time.Time
+	cancel       context.CancelFunc
+	heartbeatWg  sync.WaitGroup // Rastreia goroutine de heartbeat
 }
 
 // NewContainerMonitor cria um novo monitor de containers
@@ -389,6 +390,8 @@ func (cm *ContainerMonitor) handleDockerEvent(event events.Message) {
 		// Aguardar um pouco para garantir que container está pronto
 		taskName := "container_add_" + containerID
 		cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
+			defer cm.taskManager.StopTask(taskName) // Limpar task após conclusão
+
 			select {
 			case <-time.After(1 * time.Second):
 				// Buscar informações completas do container
@@ -610,6 +613,7 @@ func (cm *ContainerMonitor) startContainerMonitoring(dockerContainer dockerTypes
 
 	// Atualizar métricas
 	metrics.SetContainerMonitored(containerID, name, image, true)
+	metrics.UpdateTotalContainersMonitored(len(cm.containers))
 
 	cm.logger.WithFields(logrus.Fields{
 		"container_id":   containerID,
@@ -654,6 +658,7 @@ func (cm *ContainerMonitor) stopContainerMonitoring(containerID string) {
 
 	// Atualizar métricas
 	metrics.SetContainerMonitored(containerID, mc.name, mc.image, false)
+	metrics.UpdateTotalContainersMonitored(len(cm.containers))
 
 	cm.logger.WithFields(logrus.Fields{
 		"container_id":   containerID,
@@ -665,11 +670,17 @@ func (cm *ContainerMonitor) stopContainerMonitoring(containerID string) {
 func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredContainer) error {
 	containerCtx, cancel := context.WithCancel(ctx)
 	mc.cancel = cancel
-	defer cancel()
+	defer func() {
+		cancel()
+		// Aguardar heartbeat goroutine terminar
+		mc.heartbeatWg.Wait()
+	}()
 
 	// Enviar heartbeat em goroutine separada com ticker gerenciado internamente
 	taskName := "container_" + mc.id
+	mc.heartbeatWg.Add(1)
 	go func() {
+		defer mc.heartbeatWg.Done()
 		// Criar ticker DENTRO da goroutine para garantir limpeza adequada
 		heartbeatTicker := time.NewTicker(30 * time.Second)
 		defer heartbeatTicker.Stop()

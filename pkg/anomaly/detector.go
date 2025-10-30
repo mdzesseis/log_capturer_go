@@ -32,8 +32,11 @@ type AnomalyDetector struct {
 
 	// Detection stats
 	stats Stats
-	ctx   context.Context
-	wg    sync.WaitGroup
+
+	// C2: Context Leak Fix - Add cancel function for proper shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // Config configuração do detector de anomalias
@@ -114,10 +117,15 @@ type FeatureExtractor interface {
 
 // NewAnomalyDetector cria uma nova instância do detector
 func NewAnomalyDetector(config Config, logger *logrus.Logger) (*AnomalyDetector, error) {
+	// C2: Always create cancelable context even when disabled
+	ctx, cancel := context.WithCancel(context.Background())
+
 	if !config.Enabled {
 		return &AnomalyDetector{
 			config: config,
 			logger: logger,
+			ctx:    ctx,
+			cancel: cancel,
 		}, nil
 	}
 
@@ -140,7 +148,8 @@ func NewAnomalyDetector(config Config, logger *logrus.Logger) (*AnomalyDetector,
 		logger:     logger,
 		models:     make(map[string]Model),
 		extractors: make(map[string]FeatureExtractor),
-		ctx:        context.Background(),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 
 	// Initialize feature extractors
@@ -158,17 +167,17 @@ func NewAnomalyDetector(config Config, logger *logrus.Logger) (*AnomalyDetector,
 
 // initializeExtractors inicializa os extratores de features
 func (ad *AnomalyDetector) initializeExtractors() error {
-	// Text features extractor
-	ad.extractors["text"] = &TextFeatureExtractor{}
+	// Text features extractor - use constructor to initialize regex patterns
+	ad.extractors["text"] = NewTextFeatureExtractor()
 
-	// Statistical features extractor
-	ad.extractors["statistical"] = &StatisticalFeatureExtractor{}
+	// Statistical features extractor - use constructor to initialize maps
+	ad.extractors["statistical"] = NewStatisticalFeatureExtractor()
 
-	// Temporal features extractor
-	ad.extractors["temporal"] = &TemporalFeatureExtractor{}
+	// Temporal features extractor - use constructor to initialize slices
+	ad.extractors["temporal"] = NewTemporalFeatureExtractor()
 
-	// Pattern features extractor
-	ad.extractors["pattern"] = &PatternFeatureExtractor{}
+	// Pattern features extractor - use constructor to compile regex patterns
+	ad.extractors["pattern"] = NewPatternFeatureExtractor()
 
 	return nil
 }
@@ -177,29 +186,33 @@ func (ad *AnomalyDetector) initializeExtractors() error {
 func (ad *AnomalyDetector) initializeModels() error {
 	switch ad.config.Algorithm {
 	case "isolation_forest":
-		ad.models["main"] = &IsolationForestModel{
-			config: ad.config.ModelConfig,
-			logger: ad.logger,
-		}
+		// Use constructor to initialize default parameters
+		model := NewIsolationForestModel()
+		model.config = ad.config.ModelConfig
+		model.logger = ad.logger
+		ad.models["main"] = model
 	case "statistical":
-		ad.models["main"] = &StatisticalModel{
-			config: ad.config.ModelConfig,
-			logger: ad.logger,
-		}
+		// Use constructor to initialize maps
+		model := NewStatisticalModel()
+		model.config = ad.config.ModelConfig
+		model.logger = ad.logger
+		ad.models["main"] = model
 	case "ml_ensemble":
-		// Multiple models for ensemble
-		ad.models["isolation"] = &IsolationForestModel{
-			config: ad.config.ModelConfig,
-			logger: ad.logger,
-		}
-		ad.models["statistical"] = &StatisticalModel{
-			config: ad.config.ModelConfig,
-			logger: ad.logger,
-		}
-		ad.models["neural"] = &NeuralNetworkModel{
-			config: ad.config.ModelConfig,
-			logger: ad.logger,
-		}
+		// Multiple models for ensemble - use constructors for each
+		isolationModel := NewIsolationForestModel()
+		isolationModel.config = ad.config.ModelConfig
+		isolationModel.logger = ad.logger
+		ad.models["isolation"] = isolationModel
+
+		statisticalModel := NewStatisticalModel()
+		statisticalModel.config = ad.config.ModelConfig
+		statisticalModel.logger = ad.logger
+		ad.models["statistical"] = statisticalModel
+
+		neuralModel := NewNeuralNetworkModel()
+		neuralModel.config = ad.config.ModelConfig
+		neuralModel.logger = ad.logger
+		ad.models["neural"] = neuralModel
 	default:
 		return fmt.Errorf("unsupported algorithm: %s", ad.config.Algorithm)
 	}
@@ -246,6 +259,25 @@ func (ad *AnomalyDetector) Stop() error {
 
 	ad.logger.Info("Stopping anomaly detector")
 
+	// C2: Cancel context to signal goroutines to stop
+	if ad.cancel != nil {
+		ad.cancel()
+	}
+
+	// Wait for goroutines to finish (with timeout for safety)
+	done := make(chan struct{})
+	go func() {
+		ad.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		ad.logger.Info("All anomaly detector goroutines stopped")
+	case <-time.After(5 * time.Second):
+		ad.logger.Warn("Timeout waiting for anomaly detector goroutines to stop")
+	}
+
 	// Save models if configured
 	if ad.config.SaveModel && ad.config.ModelPath != "" {
 		if err := ad.saveModels(); err != nil {
@@ -253,7 +285,6 @@ func (ad *AnomalyDetector) Stop() error {
 		}
 	}
 
-	ad.wg.Wait()
 	ad.logger.Info("Anomaly detector stopped")
 	return nil
 }
@@ -559,7 +590,12 @@ func (ad *AnomalyDetector) findSimilarEntries(entry ProcessedLogEntry) []string 
 	for i := len(ad.trainingBuffer) - 1; i >= 0 && len(similar) < 3; i-- {
 		candidate := ad.trainingBuffer[i]
 		if ad.calculateSimilarity(entry, candidate) > 0.8 {
-			similar = append(similar, fmt.Sprintf("%s: %s", candidate.Timestamp.Format("15:04:05"), candidate.Message[:50]))
+			// Safely truncate message to avoid slice bounds panic
+			msg := candidate.Message
+			if len(msg) > 50 {
+				msg = msg[:50] + "..."
+			}
+			similar = append(similar, fmt.Sprintf("%s: %s", candidate.Timestamp.Format("15:04:05"), msg))
 		}
 	}
 
@@ -604,11 +640,17 @@ func (ad *AnomalyDetector) addToTrainingBuffer(entry ProcessedLogEntry) {
 
 	ad.trainingBuffer = append(ad.trainingBuffer, entry)
 
+	// C10: Memory Leak Fix - Reallocate instead of reslice
 	// Limit buffer size
 	if len(ad.trainingBuffer) > ad.config.MaxTrainingSamples {
-		// Remove oldest entries
-		removeCount := len(ad.trainingBuffer) - ad.config.MaxTrainingSamples
-		ad.trainingBuffer = ad.trainingBuffer[removeCount:]
+		// ❌ OLD (leaks memory): ad.trainingBuffer = ad.trainingBuffer[removeCount:]
+		// This keeps the old underlying array in memory!
+
+		// ✅ NEW: Create new slice and copy data
+		// This allows old array to be garbage collected
+		newBuffer := make([]ProcessedLogEntry, ad.config.MaxTrainingSamples)
+		copy(newBuffer, ad.trainingBuffer[len(ad.trainingBuffer)-ad.config.MaxTrainingSamples:])
+		ad.trainingBuffer = newBuffer
 	}
 
 	ad.stats.TrainingSamples = len(ad.trainingBuffer)

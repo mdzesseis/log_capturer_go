@@ -1,0 +1,191 @@
+name: Revisão Avançada de Código
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  advanced-review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configurar Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Executar go vet
+      id: vet
+      run: go vet ./...
+      continue-on-error: true
+
+    - name: Verificar formatação com gofmt
+      id: gofmt
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "needs-format=true" >> $GITHUB_OUTPUT
+          echo "## Arquivos que precisam de formatação:" >> temp_report.md
+          gofmt -s -l . >> temp_report.md
+        else
+          echo "needs-format=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Executar golangci-lint avançado
+      id: lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        args: --enable-all --timeout=10m
+      continue-on-error: true
+
+    - name: Executar gosec para análise de segurança
+      id: gosec
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec -fmt=text -out=gosec_report.txt ./... || true
+        if [ -s gosec_report.txt ]; then
+          echo "security-issues=true" >> $GITHUB_OUTPUT
+        else
+          echo "security-issues=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Executar benchmarks se existirem
+      id: bench
+      run: |
+        if find . -name "*_test.go" -exec grep -l "func Benchmark" {} \;; then
+          go test -bench=. -benchmem ./... > bench_report.txt 2>&1 || true
+          echo "benchmarks=true" >> $GITHUB_OUTPUT
+        else
+          echo "benchmarks=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Gerar relatório detalhado em português brasileiro
+      run: |
+        mkdir -p relatorios_code_review
+        TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+        REPORT_FILE="relatorios_code_review/relatorio_review_${TIMESTAMP}.md"
+        
+        echo "# Relatório de Revisão Avançada de Código" > $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "**Data e Hora:** $(date)" >> $REPORT_FILE
+        echo "**Commit:** ${{ github.sha }}" >> $REPORT_FILE
+        echo "**Branch:** ${{ github.ref_name }}" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 1. Resumo Executivo" >> $REPORT_FILE
+        echo "Este relatório apresenta uma análise profunda e detalhada do código, incluindo verificações de qualidade, segurança, complexidade e desempenho." >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 2. Erros e Problemas Encontrados" >> $REPORT_FILE
+        echo "### 2.1. go vet" >> $REPORT_FILE
+        if [ "${{ steps.vet.outcome }}" == "failure" ]; then
+          echo "- **Status:** Problemas detectados" >> $REPORT_FILE
+          echo "- **Impacto:** Possíveis bugs em tempo de execução ou comportamentos indefinidos." >> $REPORT_FILE
+          echo "- **Soluções Possíveis:** Corrigir os avisos indicados nos logs do workflow." >> $REPORT_FILE
+        else
+          echo "- **Status:** Nenhum problema detectado." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "### 2.2. gofmt" >> $REPORT_FILE
+        if [ "${{ steps.gofmt.outputs.needs-format }}" == "true" ]; then
+          echo "- **Status:** Código precisa de formatação." >> $REPORT_FILE
+          cat temp_report.md >> $REPORT_FILE
+          echo "- **Impacto:** Código inconsistente, dificuldade de leitura e manutenção." >> $REPORT_FILE
+          echo "- **Soluções:** Executar \`gofmt -s -w .\` para formatar automaticamente." >> $REPORT_FILE
+        else
+          echo "- **Status:** Código bem formatado." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "### 2.3. golangci-lint" >> $REPORT_FILE
+        if [ "${{ steps.lint.outcome }}" == "failure" ]; then
+          echo "- **Status:** Problemas de linting detectados (anotações no commit)." >> $REPORT_FILE
+          echo "- **Impacto:** Bugs potenciais, violações de boas práticas, complexidade alta, ineficiências." >> $REPORT_FILE
+          echo "- **Soluções:** Verificar as anotações no commit para detalhes específicos." >> $REPORT_FILE
+        else
+          echo "- **Status:** Nenhum problema de linting." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "### 2.4. gosec (Segurança)" >> $REPORT_FILE
+        if [ "${{ steps.gosec.outputs.security-issues }}" == "true" ]; then
+          echo "- **Status:** Vulnerabilidades de segurança detectadas." >> $REPORT_FILE
+          echo "- **Impacto:** Riscos de segurança, como injeção de código ou exposição de dados." >> $REPORT_FILE
+          echo "- **Soluções:** Revisar o relatório gosec_report.txt e aplicar correções." >> $REPORT_FILE
+          cat gosec_report.txt >> $REPORT_FILE
+        else
+          echo "- **Status:** Nenhum problema de segurança detectado." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "## 3. Análise de Desempenho e Gargalos" >> $REPORT_FILE
+        if [ "${{ steps.bench.outputs.benchmarks }}" == "true" ]; then
+          echo "### Benchmarks Executados" >> $REPORT_FILE
+          cat bench_report.txt >> $REPORT_FILE
+          echo "- **Impacto:** Identificação de gargalos em funções críticas." >> $REPORT_FILE
+          echo "- **Melhorias Sugeridas:** Otimizar algoritmos ineficientes, reduzir alocações de memória." >> $REPORT_FILE
+        else
+          echo "Nenhum benchmark encontrado no código." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "## 4. Recomendações Gerais" >> $REPORT_FILE
+        echo "- **Manutenibilidade:** Refatorar código complexo." >> $REPORT_FILE
+        echo "- **Performance:** Monitorar uso de CPU e memória." >> $REPORT_FILE
+        echo "- **Segurança:** Implementar revisões regulares." >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 5. Próximos Passos" >> $REPORT_FILE
+        echo "Revisar os problemas identificados e aplicar correções." >> $REPORT_FILE
+        
+        echo "report-file=$REPORT_FILE" >> $GITHUB_OUTPUT
+
+    - name: Upload relatório como artefato
+      uses: actions/upload-artifact@v4
+      with:
+        name: relatorio-review-${{ github.run_number }}
+        path: relatorios_code_review/
+
+    - name: Criar issue detalhada se problemas encontrados
+      if: steps.vet.outcome == 'failure' || steps.gofmt.outputs.needs-format == 'true' || steps.lint.outcome == 'failure' || steps.gosec.outputs.security-issues == 'true'
+      uses: actions/github-script@v6
+      env:
+        VET_OUTCOME: ${{ steps.vet.outcome }}
+        GOFMT_NEEDS: ${{ steps.gofmt.outputs.needs-format }}
+        LINT_OUTCOME: ${{ steps.lint.outcome }}
+        SECURITY_ISSUES: ${{ steps.gosec.outputs.security-issues }}
+        REPORT_FILE: ${{ steps.generate-report.outputs.report-file }}
+      with:
+        script: |
+          const fs = require('fs');
+          const reportContent = fs.readFileSync(process.env.REPORT_FILE, 'utf8');
+          
+          const issueBody = `## Relatório de Revisão de Código Detalhado
+
+          **Commit:** ${{ github.sha }}
+          **Data:** ${new Date().toLocaleString('pt-BR')}
+
+          ### Resumo dos Problemas:
+          - **go vet:** ${process.env.VET_OUTCOME === 'failure' ? 'Erros detectados' : 'OK'}
+          - **gofmt:** ${process.env.GOFMT_NEEDS === 'true' ? 'Precisa formatação' : 'OK'}
+          - **golangci-lint:** ${process.env.LINT_OUTCOME === 'failure' ? 'Problemas encontrados' : 'OK'}
+          - **gosec (Segurança):** ${process.env.SECURITY_ISSUES === 'true' ? 'Vulnerabilidades detectadas' : 'OK'}
+
+          ### Detalhes Completos:
+          ${reportContent}
+
+          ### Impactos e Soluções:
+          - Consulte o relatório para detalhes.
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: 'Problemas Críticos Encontrados na Revisão de Código',
+            body: issueBody,
+            labels: ['code-review', 'bug', 'enhancement']
+          });

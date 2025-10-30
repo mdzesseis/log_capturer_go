@@ -39,6 +39,10 @@ type LocalFileSink struct {
 	// Proteções contra disco cheio
 	lastDiskCheck time.Time
 	diskSpaceMutex sync.RWMutex
+
+	// Gerenciamento de file descriptors (C8: File Descriptor Leak)
+	maxOpenFiles int
+	openFileCount int
 }
 
 // logFile representa um arquivo de log aberto
@@ -71,6 +75,17 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 		queueSize = 3000
 	}
 
+	// Use configured worker count, default to 3 if not set
+	workerCount := config.WorkerCount
+	if workerCount <= 0 {
+		workerCount = 3
+	}
+
+	logger.WithFields(logrus.Fields{
+		"queue_size":   queueSize,
+		"worker_count": workerCount,
+	}).Info("Initializing local file sink")
+
 	// Configurar proteções padrão
 	if config.MaxTotalDiskGB <= 0 {
 		config.MaxTotalDiskGB = 5.0 // 5GB padrão
@@ -81,6 +96,16 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 	if config.CleanupThresholdPercent <= 0 {
 		config.CleanupThresholdPercent = 90.0 // 90% padrão
 	}
+
+	// Configurar limite de file descriptors (C8: File Descriptor Leak)
+	maxOpenFiles := 100 // Padrão: 100 arquivos abertos simultaneamente
+	if config.MaxOpenFiles > 0 {
+		maxOpenFiles = config.MaxOpenFiles
+	}
+
+	logger.WithFields(logrus.Fields{
+		"max_open_files": maxOpenFiles,
+	}).Info("File descriptor management configured")
 
 	// Configurar compressor HTTP para local files
 	compressionConfig := compression.Config{
@@ -100,13 +125,15 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 	compressor := compression.NewHTTPCompressor(compressionConfig, logger)
 
 	return &LocalFileSink{
-		config:     config,
-		logger:     logger,
-		compressor: compressor,
-		queue:      make(chan types.LogEntry, queueSize),
-		files:      make(map[string]*logFile),
-		ctx:        ctx,
-		cancel:     cancel,
+		config:        config,
+		logger:        logger,
+		compressor:    compressor,
+		queue:         make(chan types.LogEntry, queueSize),
+		files:         make(map[string]*logFile),
+		ctx:           ctx,
+		cancel:        cancel,
+		maxOpenFiles:  maxOpenFiles,
+		openFileCount: 0,
 	}
 }
 
@@ -132,8 +159,22 @@ func (lfs *LocalFileSink) Start(ctx context.Context) error {
 	lfs.isRunning = true
 	lfs.logger.WithField("directory", lfs.config.Directory).Info("Starting local file sink")
 
-	// Iniciar goroutine de processamento
-	go lfs.processLoop()
+	// Definir como healthy no início
+	metrics.SetComponentHealth("sink", "local_file", true)
+
+	// Determine worker count
+	workerCount := lfs.config.WorkerCount
+	if workerCount <= 0 {
+		workerCount = 3 // Default to 3 workers
+	}
+
+	// Iniciar goroutines de processamento (multiple workers)
+	for i := 0; i < workerCount; i++ {
+		workerID := i
+		go lfs.processLoop(workerID)
+	}
+
+	lfs.logger.WithField("worker_count", workerCount).Info("Started local file sink workers")
 
 	// Iniciar goroutine de monitoramento de disco
 	go lfs.diskMonitorLoop()
@@ -156,6 +197,9 @@ func (lfs *LocalFileSink) Stop() error {
 	lfs.logger.Info("Stopping local file sink")
 	lfs.isRunning = false
 
+	// Definir como unhealthy ao parar
+	metrics.SetComponentHealth("sink", "local_file", false)
+
 	// Cancelar contexto
 	lfs.cancel()
 
@@ -168,6 +212,43 @@ func (lfs *LocalFileSink) Stop() error {
 	lfs.filesMutex.Unlock()
 
 	return nil
+}
+
+// closeLeastRecentlyUsed fecha o arquivo menos recentemente usado (LRU) para liberar file descriptors
+// Deve ser chamado com filesMutex LOCK já adquirido
+func (lfs *LocalFileSink) closeLeastRecentlyUsed() {
+	// Encontrar arquivo menos recentemente usado
+	var oldestPath string
+	var oldestTime time.Time
+	firstIteration := true
+
+	for path, lf := range lfs.files {
+		lf.mutex.Lock()
+		lastWrite := lf.lastWrite
+		lf.mutex.Unlock()
+
+		if firstIteration || lastWrite.Before(oldestTime) {
+			oldestPath = path
+			oldestTime = lastWrite
+			firstIteration = false
+		}
+	}
+
+	// Fechar o arquivo mais antigo
+	if oldestPath != "" {
+		if lf, exists := lfs.files[oldestPath]; exists {
+			lf.close()
+			delete(lfs.files, oldestPath)
+			lfs.openFileCount--
+
+			lfs.logger.WithFields(logrus.Fields{
+				"file":        filepath.Base(oldestPath),
+				"last_write":  oldestTime.Format(time.RFC3339),
+				"open_files":  lfs.openFileCount,
+				"max_files":   lfs.maxOpenFiles,
+			}).Debug("Closed LRU file to free file descriptor")
+		}
+	}
 }
 
 // Send envia logs para o sink com backpressure - respeita contexto para evitar deadlock
@@ -206,10 +287,13 @@ func (lfs *LocalFileSink) GetQueueUtilization() float64 {
 }
 
 // processLoop loop principal de processamento
-func (lfs *LocalFileSink) processLoop() {
+func (lfs *LocalFileSink) processLoop(workerID int) {
+	lfs.logger.WithField("worker_id", workerID).Debug("Local file sink worker started")
+
 	for {
 		select {
 		case <-lfs.ctx.Done():
+			lfs.logger.WithField("worker_id", workerID).Debug("Local file sink worker stopped")
 			return
 		case entry := <-lfs.queue:
 			lfs.writeLogEntry(entry)
@@ -325,10 +409,10 @@ func (lfs *LocalFileSink) getLogFileName(entry types.LogEntry) string {
 		parts = append(parts, entry.SourceType)
 	}
 
-	// Adicionar container name ou file path
-	if containerName, exists := entry.Labels["container_name"]; exists {
+	// Adicionar container name ou file path (thread-safe access)
+	if containerName, exists := entry.GetLabel("container_name"); exists {
 		parts = append(parts, sanitizeFilename(containerName))
-	} else if filepath, exists := entry.Labels["filepath"]; exists {
+	} else if filepath, exists := entry.GetLabel("filepath"); exists {
 		basename := filepath[strings.LastIndex(filepath, "/")+1:]
 		parts = append(parts, sanitizeFilename(basename))
 	}
@@ -348,13 +432,13 @@ func (lfs *LocalFileSink) buildFilenameFromPattern(entry types.LogEntry, pattern
 	hour := entry.Timestamp.Format("15")
 	pattern = strings.ReplaceAll(pattern, "{hour}", hour)
 
-	// Determinar source específico baseado no tipo
+	// Determinar source específico baseado no tipo (thread-safe label access)
 	if entry.SourceType == "container" {
 		// Para containers: {nomedocontainer} e {idcontainer}
-		if containerName, exists := entry.Labels["container_name"]; exists {
+		if containerName, exists := entry.GetLabel("container_name"); exists {
 			pattern = strings.ReplaceAll(pattern, "{nomedocontainer}", sanitizeFilename(containerName))
 		}
-		if containerID, exists := entry.Labels["container_id"]; exists {
+		if containerID, exists := entry.GetLabel("container_id"); exists {
 			// Usar apenas os primeiros 12 caracteres do ID (como Docker faz)
 			shortID := containerID
 			if len(shortID) > 12 {
@@ -364,12 +448,12 @@ func (lfs *LocalFileSink) buildFilenameFromPattern(entry types.LogEntry, pattern
 		}
 	} else if entry.SourceType == "file" {
 		// Para arquivos: {nomedoarquivomonitorado}
-		if filePath, exists := entry.Labels["file_path"]; exists {
+		if filePath, exists := entry.GetLabel("file_path"); exists {
 			basename := filePath[strings.LastIndex(filePath, "/")+1:]
 			// Remover extensão do arquivo para o placeholder
 			baseName := strings.TrimSuffix(basename, filepath.Ext(basename))
 			pattern = strings.ReplaceAll(pattern, "{nomedoarquivomonitorado}", sanitizeFilename(baseName))
-		} else if fileName, exists := entry.Labels["file_name"]; exists {
+		} else if fileName, exists := entry.GetLabel("file_name"); exists {
 			baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 			pattern = strings.ReplaceAll(pattern, "{nomedoarquivomonitorado}", sanitizeFilename(baseName))
 		}
@@ -402,6 +486,17 @@ func (lfs *LocalFileSink) getOrCreateLogFile(filename string) (*logFile, error) 
 		return lf, nil
 	}
 
+	// C8: Verificar limite de file descriptors ANTES de abrir novo arquivo
+	if lfs.openFileCount >= lfs.maxOpenFiles {
+		// Fechar arquivo menos recentemente usado para liberar descriptor
+		lfs.closeLeastRecentlyUsed()
+
+		lfs.logger.WithFields(logrus.Fields{
+			"open_files": lfs.openFileCount,
+			"max_files":  lfs.maxOpenFiles,
+		}).Debug("Hit max open files limit, closed LRU file")
+	}
+
 	// Criar arquivo
 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -426,7 +521,13 @@ func (lfs *LocalFileSink) getOrCreateLogFile(filename string) (*logFile, error) 
 	}
 
 	lfs.files[filename] = lf
-	lfs.logger.WithField("filename", filename).Debug("Created new log file")
+	lfs.openFileCount++ // C8: Incrementar contador de file descriptors
+
+	lfs.logger.WithFields(logrus.Fields{
+		"filename":   filename,
+		"open_files": lfs.openFileCount,
+		"max_files":  lfs.maxOpenFiles,
+	}).Debug("Created new log file")
 
 	return lf, nil
 }
@@ -473,6 +574,7 @@ func (lfs *LocalFileSink) rotateFiles() {
 
 			// Remover do mapa (será recriado quando necessário)
 			delete(lfs.files, filename)
+			lfs.openFileCount-- // C8: Decrementar contador de file descriptors
 		}
 	}
 
@@ -650,9 +752,10 @@ func (lf *logFile) formatJSONOutput(entry types.LogEntry) string {
 		"processed_at": entry.ProcessedAt.Format(time.RFC3339Nano),
 	}
 
-	// Adicionar labels se existirem
-	if len(entry.Labels) > 0 {
-		output["labels"] = entry.Labels
+	// Adicionar labels se existirem (thread-safe copy)
+	labelsCopy := entry.CopyLabels()
+	if len(labelsCopy) > 0 {
+		output["labels"] = labelsCopy
 	}
 
 	// Serializar para JSON
@@ -682,14 +785,10 @@ func (lf *logFile) formatTextOutput(entry types.LogEntry, config types.LocalFile
 		entry.SourceID))
 
 	// Adicionar labels importantes como prefixo se existirem
-	// Adicionar labels se habilitado
-	if config.TextFormat.IncludeLabels && len(entry.Labels) > 0 {
+	// Adicionar labels se habilitado (thread-safe copy)
+	labelsCopy := entry.CopyLabels()
+	if config.TextFormat.IncludeLabels && len(labelsCopy) > 0 {
 		var labelPairs []string
-		// Fazer cópia do map para evitar concurrent access durante iteração
-		labelsCopy := make(map[string]string, len(entry.Labels))
-		for k, v := range entry.Labels {
-			labelsCopy[k] = v
-		}
 		for key, value := range labelsCopy {
 			// Incluir apenas algumas labels importantes no formato texto
 			if key == "level" || key == "service" || key == "container" || key == "container_name" {
@@ -896,18 +995,24 @@ func (lfs *LocalFileSink) performEmergencyCleanup() {
 }
 
 // isDiskSpaceAvailable verifica se há espaço suficiente antes de escrever
+// Refatorado para evitar deadlock: nunca faz unlock/relock manual dentro de defer
 func (lfs *LocalFileSink) isDiskSpaceAvailable() bool {
+	// FASE 1: Verificar se precisa atualizar (sem lock para leitura rápida)
+	lfs.diskSpaceMutex.RLock()
+	lastCheck := lfs.lastDiskCheck
+	lfs.diskSpaceMutex.RUnlock()
+
+	// FASE 2: Atualizar se necessário (SEM LOCK - evita deadlock)
+	if time.Since(lastCheck) > 5*time.Minute {
+		// Chamar sem lock - checkDiskSpaceAndCleanup adquire seu próprio lock
+		lfs.checkDiskSpaceAndCleanup()
+	}
+
+	// FASE 3: Verificar espaço atual (operação rápida, ok ter lock)
 	lfs.diskSpaceMutex.RLock()
 	defer lfs.diskSpaceMutex.RUnlock()
 
-	// Forçar verificação se passou muito tempo
-	if time.Since(lfs.lastDiskCheck) > 5*time.Minute {
-		lfs.diskSpaceMutex.RUnlock()
-		lfs.checkDiskSpaceAndCleanup()
-		lfs.diskSpaceMutex.RLock()
-	}
-
-	// Verificar espaço atual
+	// Verificar espaço no sistema de arquivos (syscall rápido)
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(lfs.config.Directory, &stat)
 	if err != nil {
@@ -918,36 +1023,37 @@ func (lfs *LocalFileSink) isDiskSpaceAvailable() bool {
 	freeBytes := stat.Bavail * uint64(stat.Bsize)
 	usagePercent := float64(totalBytes-freeBytes) / float64(totalBytes) * 100
 
-	// Bloquear escrita se uso > 95% ou se diretório excede limite
+	// Bloquear escrita se uso > 95%
 	if usagePercent > 95.0 {
 		return false
 	}
 
-	dirSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
-	if dirSizeGB >= lfs.config.MaxTotalDiskGB {
-		return false
-	}
+	// NOTA: Removida chamada a getDirSizeGB() aqui para evitar I/O lento com lock
+	// A verificação de tamanho do diretório é feita periodicamente por checkDiskSpaceAndCleanup()
 
 	return true
 }
 
 // canWriteSize verifica se pode escrever um tamanho específico sem exceder limites
+// Refatorado para evitar I/O lento com lock ativo
 func (lfs *LocalFileSink) canWriteSize(size int64) bool {
-	lfs.diskSpaceMutex.RLock()
-	defer lfs.diskSpaceMutex.RUnlock()
-
-	// Calcular tamanho atual do diretório
+	// FASE 1: Calcular tamanho do diretório SEM LOCK (I/O pode ser lento)
 	currentSizeGB := lfs.getDirSizeGB(lfs.config.Directory)
+
+	// FASE 2: Verificações rápidas COM LOCK
+	lfs.diskSpaceMutex.RLock()
+	maxGB := lfs.config.MaxTotalDiskGB
+	lfs.diskSpaceMutex.RUnlock()
 
 	// Converter tamanho para GB
 	sizeGB := float64(size) / (1024 * 1024 * 1024)
 
-	// Verificar se escrita excederia o limite
-	if (currentSizeGB + sizeGB) >= lfs.config.MaxTotalDiskGB {
+	// Verificar se escrita excederia o limite configurado
+	if (currentSizeGB + sizeGB) >= maxGB {
 		return false
 	}
 
-	// Verificar espaço livre no sistema
+	// Verificar espaço livre no sistema de arquivos (syscall rápido)
 	var stat syscall.Statfs_t
 	err := syscall.Statfs(lfs.config.Directory, &stat)
 	if err != nil {
@@ -958,7 +1064,7 @@ func (lfs *LocalFileSink) canWriteSize(size int64) bool {
 
 	// Garantir que há pelo menos 100MB livres após a escrita
 	minFreeBytes := int64(100 * 1024 * 1024) // 100MB
-	if int64(freeBytes) - size < minFreeBytes {
+	if int64(freeBytes)-size < minFreeBytes {
 		return false
 	}
 

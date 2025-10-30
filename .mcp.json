@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "gopls": {
+      "command": "/home/mateus/go/bin/mcp-gopls",
+      "args": [],
+      "env": {
+        "PATH": "/home/mateus/go/bin:/usr/local/go/bin:/usr/bin:/bin"
+      }
+    }
+  }
+}

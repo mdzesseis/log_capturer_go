@@ -1,0 +1,155 @@
+name: Revisão de Configurações Docker
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/Dockerfile*'
+      - '**/docker-compose*.yml'
+      - '**/docker-compose*.yaml'
+
+jobs:
+  docker-review:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Instalar hadolint para linting de Dockerfile
+      run: |
+        wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+        chmod +x /usr/local/bin/hadolint
+
+    - name: Executar hadolint nos Dockerfiles
+      id: hadolint
+      run: |
+        find . -name "Dockerfile*" -exec hadolint {} \; > hadolint_report.txt 2>&1 || true
+        if [ -s hadolint_report.txt ]; then
+          echo "docker-issues=true" >> $GITHUB_OUTPUT
+        else
+          echo "docker-issues=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Validar docker-compose
+      id: compose
+      run: |
+        find . -name "docker-compose*.yml" -o -name "docker-compose*.yaml" | while read file; do
+          docker-compose -f "$file" config > /dev/null 2>&1
+          if [ $? -ne 0 ]; then
+            echo "Erro de validação em $file" >> compose_report.txt
+            echo "compose-issues=true" >> $GITHUB_OUTPUT
+          fi
+        done
+        if [ ! -f compose_report.txt ]; then
+          echo "compose-issues=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Verificar vulnerabilidades em imagens base
+      run: |
+        # Instalar trivy para scan de vulnerabilidades
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update && sudo apt-get install -y trivy
+        find . -name "Dockerfile*" | xargs -I {} sh -c 'grep -i FROM {} | head -1 | cut -d" " -f2' | xargs -I {} trivy image {} > trivy_report.txt 2>&1 || true
+
+    - name: Gerar relatório detalhado de Docker em português brasileiro
+      run: |
+        mkdir -p relatorios_docker_review
+        TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+        REPORT_FILE="relatorios_docker_review/relatorio_docker_${TIMESTAMP}.md"
+        
+        echo "# Relatório de Revisão de Configurações Docker" > $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        echo "**Data e Hora:** $(date)" >> $REPORT_FILE
+        echo "**Commit:** ${{ github.sha }}" >> $REPORT_FILE
+        echo "**Branch:** ${{ github.ref_name }}" >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 1. Resumo Executivo" >> $REPORT_FILE
+        echo "Este relatório analisa as configurações Docker, incluindo Dockerfiles e docker-compose, focando em melhores práticas, segurança e eficiência." >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 2. Problemas Encontrados" >> $REPORT_FILE
+        echo "### 2.1. Hadolint (Linting de Dockerfile)" >> $REPORT_FILE
+        if [ "${{ steps.hadolint.outputs.docker-issues }}" == "true" ]; then
+          echo "- **Status:** Problemas detectados." >> $REPORT_FILE
+          echo "- **Impacto:** Possíveis ineficiências, vulnerabilidades ou violações de melhores práticas." >> $REPORT_FILE
+          echo "- **Soluções:** Revisar e corrigir conforme as regras do Hadolint." >> $REPORT_FILE
+          cat hadolint_report.txt >> $REPORT_FILE
+        else
+          echo "- **Status:** Nenhum problema detectado." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "### 2.2. Validação de docker-compose" >> $REPORT_FILE
+        if [ "${{ steps.compose.outputs.compose-issues }}" == "true" ]; then
+          echo "- **Status:** Erros de configuração." >> $REPORT_FILE
+          echo "- **Impacto:** Falhas na orquestração de containers." >> $REPORT_FILE
+          echo "- **Soluções:** Corrigir sintaxe e dependências no arquivo." >> $REPORT_FILE
+          cat compose_report.txt >> $REPORT_FILE
+        else
+          echo "- **Status:** Configurações válidas." >> $REPORT_FILE
+        fi
+        echo "" >> $REPORT_FILE
+        
+        echo "### 2.3. Scan de Vulnerabilidades (Trivy)" >> $REPORT_FILE
+        echo "- **Relatório:**" >> $REPORT_FILE
+        cat trivy_report.txt >> $REPORT_FILE
+        echo "- **Impacto:** Riscos de segurança nas imagens base." >> $REPORT_FILE
+        echo "- **Soluções:** Atualizar imagens para versões seguras ou usar alternativas." >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 3. Recomendações Gerais" >> $REPORT_FILE
+        echo "- Use imagens base oficiais e atualizadas." >> $REPORT_FILE
+        echo "- Minimize camadas e otimize cache." >> $REPORT_FILE
+        echo "- Execute scans regulares de segurança." >> $REPORT_FILE
+        echo "" >> $REPORT_FILE
+        
+        echo "## 4. Próximos Passos" >> $REPORT_FILE
+        echo "Aplicar correções e reexecutar o workflow." >> $REPORT_FILE
+        
+        echo "report-file=$REPORT_FILE" >> $GITHUB_OUTPUT
+
+    - name: Upload relatório como artefato
+      uses: actions/upload-artifact@v4
+      with:
+        name: relatorio-docker-${{ github.run_number }}
+        path: relatorios_docker_review/
+
+    - name: Criar issue se problemas encontrados
+      if: steps.hadolint.outputs.docker-issues == 'true' || steps.compose.outputs.compose-issues == 'true'
+      uses: actions/github-script@v6
+      env:
+        DOCKER_ISSUES: ${{ steps.hadolint.outputs.docker-issues }}
+        COMPOSE_ISSUES: ${{ steps.compose.outputs.compose-issues }}
+        REPORT_FILE: ${{ steps.generate-report.outputs.report-file }}
+      with:
+        script: |
+          const fs = require('fs');
+          const reportContent = fs.readFileSync(process.env.REPORT_FILE, 'utf8');
+          
+          const issueBody = `## Relatório de Revisão de Docker Detalhado
+
+          **Commit:** ${{ github.sha }}
+          **Data:** ${new Date().toLocaleString('pt-BR')}
+
+          ### Resumo:
+          - **Hadolint:** ${process.env.DOCKER_ISSUES === 'true' ? 'Problemas encontrados' : 'OK'}
+          - **docker-compose:** ${process.env.COMPOSE_ISSUES === 'true' ? 'Erros de validação' : 'OK'}
+
+          ### Detalhes:
+          ${reportContent}
+
+          ### Impactos e Soluções:
+          - Revisar configurações para melhores práticas e segurança.
+          - Relatório completo em artefatos.
+          `;
+
+          github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: 'Problemas em Configurações Docker',
+            body: issueBody,
+            labels: ['docker', 'review', 'security']
+          });

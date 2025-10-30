@@ -12,12 +12,12 @@ import (
 
 // BreakerConfig configuração do circuit breaker
 type BreakerConfig struct {
-	Name               string        `yaml:"name"`
-	FailureThreshold   int           `yaml:"failure_threshold"`   // Falhas consecutivas para abrir
-	SuccessThreshold   int           `yaml:"success_threshold"`   // Sucessos para fechar
-	Timeout            time.Duration `yaml:"timeout"`             // Tempo no estado aberto
-	HalfOpenMaxCalls   int           `yaml:"half_open_max_calls"` // Máximo de calls no estado half-open
-	ResetTimeout       time.Duration `yaml:"reset_timeout"`       // Timeout para reset automático
+	Name             string        `yaml:"name"`
+	FailureThreshold int           `yaml:"failure_threshold"`   // Falhas consecutivas para abrir
+	SuccessThreshold int           `yaml:"success_threshold"`   // Sucessos para fechar
+	Timeout          time.Duration `yaml:"timeout"`             // Tempo no estado aberto
+	HalfOpenMaxCalls int           `yaml:"half_open_max_calls"` // Máximo de calls no estado half-open
+	ResetTimeout     time.Duration `yaml:"reset_timeout"`       // Timeout para reset automático
 }
 
 // Breaker implementa o padrão Circuit Breaker
@@ -66,28 +66,28 @@ func NewBreaker(config BreakerConfig, logger *logrus.Logger) *Breaker {
 	}
 
 	return &Breaker{
-		config:        config,
-		logger:        logger,
-		state:         types.CircuitBreakerClosed,
-		maxHalfOpen:   config.HalfOpenMaxCalls,
+		config:      config,
+		logger:      logger,
+		state:       types.CircuitBreakerClosed,
+		maxHalfOpen: config.HalfOpenMaxCalls,
 	}
 }
 
-// Execute executa uma função com proteção do circuit breaker
+// Execute executa uma função com proteção do circuit breaker.
+// O método é dividido em 3 fases para evitar manter o lock durante execução:
+// 1. Pré-verificação (com lock): valida estado e permite entrada
+// 2. Execução (SEM lock): executa fn() em paralelo
+// 3. Pós-registro (com lock): atualiza contadores, estado e verifica trip
 func (b *Breaker) Execute(fn func() error) error {
+	// FASE 1: Pré-verificação (COM LOCK)
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	b.requests++
 
-	// Verificar se deve abrir o circuit
-	if b.shouldTrip() {
-		b.trip()
-	}
-
-	// Verificar se pode tentar novamente
+	// Verificar se pode tentar novamente (circuit open?)
 	if b.state == types.CircuitBreakerOpen {
 		if time.Now().Before(b.nextRetryTime) {
+			b.mu.Unlock()
 			return fmt.Errorf("circuit breaker %s is open", b.config.Name)
 		}
 		// Transição para half-open
@@ -104,25 +104,41 @@ func (b *Breaker) Execute(fn func() error) error {
 		if time.Since(b.halfOpenStartTime) > halfOpenTimeout {
 			b.logger.WithField("breaker", b.config.Name).Warn("Circuit breaker half-open timeout, reopening")
 			b.trip()
+			b.mu.Unlock()
 			return fmt.Errorf("circuit breaker %s half-open timeout", b.config.Name)
 		}
 
 		if b.halfOpenCalls >= b.maxHalfOpen {
+			b.mu.Unlock()
 			return fmt.Errorf("circuit breaker %s is half-open (max calls reached)", b.config.Name)
 		}
 		b.halfOpenCalls++
 	}
 
-	// Executar função
+	b.mu.Unlock()
+	// FIM FASE 1
+
+	// FASE 2: Execução (SEM LOCK) - permite paralelismo
 	err := fn()
+	// FIM FASE 2
+
+	// FASE 3: Pós-registro (COM LOCK)
+	b.mu.Lock()
 
 	if err != nil {
 		b.onExecutionFailure(err)
+		// Verificar se deve abrir o circuit APÓS registrar falha
+		if b.shouldTrip() {
+			b.trip()
+		}
+		b.mu.Unlock()
 		return err
 	}
 
 	b.onExecutionSuccess()
+	b.mu.Unlock()
 	return nil
+	// FIM FASE 3
 }
 
 // shouldTrip verifica se o circuit deve ser aberto
@@ -217,11 +233,11 @@ func (b *Breaker) setState(newState types.CircuitBreakerState) {
 	}
 
 	b.logger.WithFields(logrus.Fields{
-		"breaker":    b.config.Name,
-		"old_state":  oldState,
-		"new_state":  newState,
-		"failures":   b.failures,
-		"successes":  b.successes,
+		"breaker":   b.config.Name,
+		"old_state": oldState,
+		"new_state": newState,
+		"failures":  b.failures,
+		"successes": b.successes,
 	}).Info("Circuit breaker state changed")
 }
 
@@ -264,7 +280,7 @@ func (b *Breaker) GetStats() types.CircuitBreakerStats {
 	}
 }
 
-// SetStateChangeCallback define callback para mudanças de estado
+// SetStateChangeCallback define callback para mudanças de estadoo
 func (b *Breaker) SetStateChangeCallback(fn func(from, to types.CircuitBreakerState)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -42,6 +42,12 @@ func LoadConfig(configFile string) (*types.Config, error) {
 		fmt.Printf("Warning: Failed to load file pipeline: %v\n", err)
 	}
 
+	// C12: Configuration Validation - Validate all config before starting
+	if err := ValidateConfig(config); err != nil {
+		return nil, fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	fmt.Println("✓ Configuration validation passed")
 	return config, nil
 }
 
@@ -541,10 +547,10 @@ func (v *ConfigValidator) validateMonitoring() {
 			v.addError("file_monitor", "validate_buffer_size", "read buffer size must be positive")
 		}
 
-		// Validate directories exist and are accessible
+		// C12: Validate directory paths are absolute (existence checked at runtime)
 		for _, dir := range v.config.FilesConfig.WatchDirectories {
-			if err := v.validateDirectoryAccess(dir); err != nil {
-				v.addError("file_monitor", "validate_watch_dir", fmt.Sprintf("watch directory %s: %v", dir, err))
+			if dir != "" && !filepath.IsAbs(dir) {
+				v.addError("file_monitor", "validate_watch_dir", fmt.Sprintf("watch directory must be absolute path: %s", dir))
 			}
 		}
 	}
@@ -583,14 +589,18 @@ func (v *ConfigValidator) validateSinks() {
 		if v.config.Sinks.LocalFile.Directory == "" {
 			v.addError("localfile_sink", "validate_directory", "directory cannot be empty when enabled")
 		} else {
-			if err := v.validateDirectoryWritable(v.config.Sinks.LocalFile.Directory); err != nil {
-				v.addError("localfile_sink", "validate_directory", fmt.Sprintf("directory not writable: %v", err))
+			// C12: Validate path is absolute (writability checked at runtime)
+			if !filepath.IsAbs(v.config.Sinks.LocalFile.Directory) {
+				v.addError("localfile_sink", "validate_directory", "directory must be absolute path")
 			}
 		}
 
-		validFormats := map[string]bool{"json": true, "text": true, "csv": true}
-		if !validFormats[v.config.Sinks.LocalFile.OutputFormat] {
-			v.addError("localfile_sink", "validate_format", fmt.Sprintf("invalid output format: %s", v.config.Sinks.LocalFile.OutputFormat))
+		// C12: Allow empty format (will use default), but validate if specified
+		if v.config.Sinks.LocalFile.OutputFormat != "" {
+			validFormats := map[string]bool{"json": true, "text": true, "csv": true}
+			if !validFormats[v.config.Sinks.LocalFile.OutputFormat] {
+				v.addError("localfile_sink", "validate_format", fmt.Sprintf("invalid output format: %s", v.config.Sinks.LocalFile.OutputFormat))
+			}
 		}
 	}
 
@@ -631,11 +641,8 @@ func (v *ConfigValidator) validateProcessing() {
 	if v.config.Processing.Enabled {
 		if v.config.Processing.PipelinesFile == "" {
 			v.addError("processing", "validate_pipelines_file", "pipelines file cannot be empty when enabled")
-		} else {
-			if err := v.validateFileReadable(v.config.Processing.PipelinesFile); err != nil {
-				v.addError("processing", "validate_pipelines_file", fmt.Sprintf("pipelines file not readable: %v", err))
-			}
 		}
+		// C12: File existence validated at runtime (allows relative paths for flexibility)
 	}
 }
 

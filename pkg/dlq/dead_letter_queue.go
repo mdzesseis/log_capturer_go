@@ -331,9 +331,9 @@ func (dlq *DeadLetterQueue) Stop() error {
 }
 
 // AddEntry adiciona entrada à DLQ
-func (dlq *DeadLetterQueue) AddEntry(originalEntry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int, context map[string]string) {
+func (dlq *DeadLetterQueue) AddEntry(originalEntry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int, context map[string]string) error {
 	if !dlq.config.Enabled {
-		return
+		return nil
 	}
 
 	now := time.Now()
@@ -361,12 +361,14 @@ func (dlq *DeadLetterQueue) AddEntry(originalEntry types.LogEntry, errorMsg, err
 		dlq.mutex.Lock()
 		dlq.stats.TotalEntries++
 		dlq.mutex.Unlock()
+		return nil
 	default:
 		// Fila cheia - log warning e descarta
 		dlq.logger.Warn("DLQ queue full, dropping entry")
 		dlq.mutex.Lock()
 		dlq.stats.WriteErrors++
 		dlq.mutex.Unlock()
+		return fmt.Errorf("DLQ queue is full (capacity: %d), entry dropped", cap(dlq.queue))
 	}
 }
 

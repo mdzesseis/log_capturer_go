@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +47,13 @@ type LokiSink struct {
 	cancel       context.CancelFunc
 	isRunning    bool
 	mutex        sync.RWMutex
+
+	// C6: Goroutine Leak Fix - Track goroutines for proper shutdown
+	loopWg sync.WaitGroup // Tracks main loop goroutines (processLoop, flushLoop, adaptiveBatchLoop)
+	sendWg sync.WaitGroup // Tracks sendBatch goroutines
+
+	// C11: HTTP Client Timeout - Request-specific timeout for cancellable requests
+	requestTimeout time.Duration
 
 	// Métricas de backpressure
 	backpressureCount int64
@@ -126,6 +136,7 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 		batch:           make([]types.LogEntry, 0, config.BatchSize),
 		ctx:             ctx,
 		cancel:          cancel,
+		requestTimeout:  timeout, // C11: Store timeout for request-specific contexts
 	}
 
 	// Configurar adaptive batcher se habilitado
@@ -194,14 +205,20 @@ func (ls *LokiSink) Start(ctx context.Context) error {
 	ls.isRunning = true
 	ls.logger.WithField("url", ls.config.URL).Info("Starting Loki sink")
 
+	// Definir como healthy no início
+	metrics.SetComponentHealth("sink", "loki", true)
+
+	// C6: Track loop goroutines for proper shutdown
 	// Iniciar adaptive batcher se habilitado
 	if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
 		if err := ls.adaptiveBatcher.Start(); err != nil {
 			return fmt.Errorf("failed to start adaptive batcher: %w", err)
 		}
+		ls.loopWg.Add(1)
 		go ls.adaptiveBatchLoop()
 	} else {
 		// Usar batching tradicional
+		ls.loopWg.Add(2) // processLoop + flushLoop
 		go ls.processLoop()
 		go ls.flushLoop()
 	}
@@ -212,17 +229,34 @@ func (ls *LokiSink) Start(ctx context.Context) error {
 // Stop para o sink
 func (ls *LokiSink) Stop() error {
 	ls.mutex.Lock()
-	defer ls.mutex.Unlock()
-
 	if !ls.isRunning {
+		ls.mutex.Unlock()
 		return nil
 	}
 
 	ls.logger.Info("Stopping Loki sink")
 	ls.isRunning = false
+	ls.mutex.Unlock() // Unlock early to allow goroutines to finish
 
-	// Cancelar contexto
+	// Definir como unhealthy ao parar
+	metrics.SetComponentHealth("sink", "loki", false)
+
+	// C6: Cancel context to signal all goroutines to stop
 	ls.cancel()
+
+	// C6: Wait for main loop goroutines to finish
+	loopDone := make(chan struct{})
+	go func() {
+		ls.loopWg.Wait()
+		close(loopDone)
+	}()
+
+	select {
+	case <-loopDone:
+		ls.logger.Info("All loop goroutines stopped")
+	case <-time.After(5 * time.Second):
+		ls.logger.Warn("Timeout waiting for loop goroutines to stop")
+	}
 
 	// Parar adaptive batcher se habilitado
 	if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
@@ -231,9 +265,24 @@ func (ls *LokiSink) Stop() error {
 		}
 	}
 
-	// Flush final
+	// Flush final batch
 	ls.flushBatch()
 
+	// C6: Wait for sendBatch goroutines to finish
+	sendDone := make(chan struct{})
+	go func() {
+		ls.sendWg.Wait()
+		close(sendDone)
+	}()
+
+	select {
+	case <-sendDone:
+		ls.logger.Info("All sendBatch goroutines stopped")
+	case <-time.After(10 * time.Second):
+		ls.logger.Warn("Timeout waiting for sendBatch goroutines to stop")
+	}
+
+	ls.logger.Info("Loki sink stopped")
 	return nil
 }
 
@@ -311,6 +360,7 @@ func (ls *LokiSink) GetQueueUtilization() float64 {
 
 // processLoop loop principal de processamento
 func (ls *LokiSink) processLoop() {
+	defer ls.loopWg.Done() // C6: Signal completion when loop exits
 	for {
 		select {
 		case <-ls.ctx.Done():
@@ -323,6 +373,8 @@ func (ls *LokiSink) processLoop() {
 
 // flushLoop flush por tempo
 func (ls *LokiSink) flushLoop() {
+	defer ls.loopWg.Done() // C6: Signal completion when loop exits
+
 	batchTimeout := 10 * time.Second
 	if ls.config.BatchTimeout != "" {
 		if t, err := time.ParseDuration(ls.config.BatchTimeout); err == nil {
@@ -375,12 +427,16 @@ func (ls *LokiSink) flushBatchUnsafe() {
 	// Limpar batch
 	ls.batch = ls.batch[:0]
 
+	// C6: Track sendBatch goroutine for proper shutdown
+	ls.sendWg.Add(1)
 	// Enviar de forma assíncrona
 	go ls.sendBatch(entries)
 }
 
 // sendBatch envia um batch para o Loki
 func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
+	defer ls.sendWg.Done() // C6: Signal completion when sendBatch finishes
+
 	startTime := time.Now()
 
 	err := ls.breaker.Execute(func() error {
@@ -402,7 +458,11 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 	} else {
 		ls.logger.WithField("entries", len(entries)).Debug("Batch sent to Loki successfully")
 		metrics.RecordLogSent("loki", "success")
+
+		// Update lastSent with mutex protection (concurrent sendBatch goroutines)
+		ls.batchMutex.Lock()
 		ls.lastSent = time.Now()
+		ls.batchMutex.Unlock()
 	}
 
 	// Atualizar métricas de utilização da fila
@@ -411,6 +471,14 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 
 // sendToLoki envia dados para o Loki
 func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
+	// C11: Check if context is already cancelled before starting HTTP request
+	select {
+	case <-ls.ctx.Done():
+		return fmt.Errorf("sink context cancelled, aborting request: %w", ls.ctx.Err())
+	default:
+		// Continue with request
+	}
+
 	// Agrupar entradas por stream (combinação de labels)
 	streams := ls.groupByStream(entries)
 
@@ -463,8 +531,13 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 		url += "/loki/api/v1/push"
 	}
 
+	// C11: Create request-specific context with timeout
+	// This ensures the request respects both the sink's context AND has a timeout
+	reqCtx, reqCancel := context.WithTimeout(ls.ctx, ls.requestTimeout)
+	defer reqCancel()
+
 	body := bytes.NewReader(compressionResult.Data)
-	req, err := http.NewRequestWithContext(ls.ctx, "POST", url, body)
+	req, err := http.NewRequestWithContext(reqCtx, "POST", url, body)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -503,6 +576,13 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 	// Enviar request
 	resp, err := ls.httpClient.Do(req)
 	if err != nil {
+		// C11: Differentiate timeout from cancellation errors
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("request timeout after %v: %w", ls.requestTimeout, err)
+		}
+		if errors.Is(err, context.Canceled) {
+			return fmt.Errorf("request cancelled (sink shutting down): %w", err)
+		}
 		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -573,15 +653,38 @@ func (ls *LokiSink) groupByStream(entries []types.LogEntry) []LokiStream {
 
 // createStreamKey cria chave única para o stream
 func (ls *LokiSink) createStreamKey(labels map[string]string) string {
-	// Fazer cópia do map para evitar concurrent access durante JSON marshal
-	labelsCopy := make(map[string]string, len(labels))
-	for k, v := range labels {
-		labelsCopy[k] = v
+	// C7: Unsafe JSON Marshal Fix - Use deterministic key generation
+	// JSON marshal has undefined map key order, causing duplicate streams!
+
+	if len(labels) == 0 {
+		return "{}"
 	}
 
-	// Usar JSON para criar chave determinística
-	data, _ := json.Marshal(labelsCopy)
-	return string(data)
+	// Extract and sort keys for deterministic ordering
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Build key with sorted keys using strings.Builder for performance
+	var sb strings.Builder
+	sb.WriteString("{")
+
+	for i, k := range keys {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		// Use JSON-like format for compatibility
+		sb.WriteString(`"`)
+		sb.WriteString(k)
+		sb.WriteString(`":"`)
+		sb.WriteString(labels[k])
+		sb.WriteString(`"`)
+	}
+
+	sb.WriteString("}")
+	return sb.String()
 }
 
 // prepareLokiLabels prepara labels para o Loki
@@ -694,11 +797,25 @@ func (ls *LokiSink) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedS
 			"loki_url":         ls.config.URL,
 		}
 
-		ls.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context)
+		if err := ls.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context); err != nil {
+			ls.logger.WithFields(logrus.Fields{
+				"error_type":    errorType,
+				"error":         errorMsg,
+				"failed_sink":   failedSink,
+				"retry_count":   retryCount,
+				"source_type":   entry.SourceType,
+				"source_id":     entry.SourceID,
+				"dlq_error":     err.Error(),
+			}).Error("Failed to send entry to DLQ")
+			metrics.RecordError("loki_sink", "dlq_write_failed")
+			return
+		}
+
 		metrics.RecordError("loki_sink", "dlq_entry")
 
 		ls.logger.WithFields(logrus.Fields{
 			"error_type":    errorType,
+			"error":         errorMsg,
 			"failed_sink":   failedSink,
 			"retry_count":   retryCount,
 			"source_type":   entry.SourceType,
@@ -707,7 +824,7 @@ func (ls *LokiSink) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedS
 	} else {
 		// Se não tiver DLQ, pelo menos registrar o erro
 		ls.logger.WithFields(logrus.Fields{
-			"error_msg":     errorMsg,
+			"error":         errorMsg,
 			"error_type":    errorType,
 			"failed_sink":   failedSink,
 			"retry_count":   retryCount,
@@ -728,6 +845,8 @@ func (ls *LokiSink) GetBackpressureStats() map[string]interface{} {
 
 // adaptiveBatchLoop loop principal para adaptive batching
 func (ls *LokiSink) adaptiveBatchLoop() {
+	defer ls.loopWg.Done() // C6: Signal completion when loop exits
+
 	for {
 		select {
 		case <-ls.ctx.Done():
@@ -744,7 +863,8 @@ func (ls *LokiSink) adaptiveBatchLoop() {
 			}
 
 			if len(batch) > 0 {
-				// Enviar batch
+				// C6: Track sendBatch goroutine for proper shutdown
+				ls.sendWg.Add(1)
 				go ls.sendBatch(batch)
 
 				// Log básico de métricas do adaptive batcher

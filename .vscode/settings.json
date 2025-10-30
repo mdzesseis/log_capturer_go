@@ -1,0 +1,8 @@
+{
+    "chat.mcp.discovery.enabled": {
+        "cursor-workspace": true,
+        "cursor-global": true,
+        "windsurf": true,
+        "claude-desktop": true
+    }
+}

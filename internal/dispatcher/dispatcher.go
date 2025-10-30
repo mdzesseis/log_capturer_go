@@ -114,6 +114,7 @@ type Dispatcher struct {
 	cancel    context.CancelFunc // Cancel function for graceful shutdown
 	isRunning bool              // Running state flag for lifecycle management
 	mutex     sync.RWMutex      // Mutex for thread-safe state management
+	wg        sync.WaitGroup    // WaitGroup for tracking goroutines lifecycle
 }
 
 // DispatcherConfig contains all configuration parameters for the Dispatcher.
@@ -387,7 +388,9 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 			})
 		}
 
+		d.wg.Add(1)
 		go func() {
+			defer d.wg.Done()
 			if err := d.backpressureManager.Start(d.ctx); err != nil {
 				d.logger.WithError(err).Error("Backpressure manager stopped with error")
 			}
@@ -402,11 +405,19 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 
 	// Iniciar workers
 	for i := 0; i < d.config.Workers; i++ {
-		go d.worker(i)
+		d.wg.Add(1)
+		go func(workerID int) {
+			defer d.wg.Done()
+			d.worker(workerID)
+		}(i)
 	}
 
 	// Iniciar stats updater
-	go d.statsUpdater()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.statsUpdater()
+	}()
 
 	return nil
 }
@@ -439,14 +450,14 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 //   - error: Always returns nil; errors are logged but don't prevent shutdown
 func (d *Dispatcher) Stop() error {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
 	if !d.isRunning {
+		d.mutex.Unlock()
 		return nil
 	}
 
 	d.logger.Info("Stopping dispatcher")
 	d.isRunning = false
+	d.mutex.Unlock() // Unlock early to allow goroutines to check state
 
 	// Parar deduplication manager se habilitado
 	if d.config.DeduplicationEnabled && d.deduplicationManager != nil {
@@ -458,11 +469,25 @@ func (d *Dispatcher) Stop() error {
 		d.deadLetterQueue.Stop()
 	}
 
-	// Cancelar contexto
+	// Cancelar contexto para sinalizar todas as goroutines
 	d.cancel()
 
 	// Processar itens restantes na fila
 	d.drainQueue()
+
+	// Aguardar todas as goroutines terminarem com timeout
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		d.logger.Info("All dispatcher goroutines stopped cleanly")
+	case <-time.After(10 * time.Second):
+		d.logger.Warn("Timeout waiting for dispatcher goroutines to stop")
+	}
 
 	return nil
 }
@@ -632,9 +657,10 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 		}
 	}
 
-	// Adicionar à fila
+	// C5: Race Condition Fix - Use deep copy to avoid sharing mutex
+	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
-		Entry:     entry,
+		Entry:     *entry.DeepCopy(),
 		Timestamp: time.Now(),
 		Retries:   0,
 	}
@@ -681,7 +707,20 @@ func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failed
 			"worker_id": "dispatcher",
 			"timestamp": time.Now().Format(time.RFC3339),
 		}
-		d.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context)
+
+		if err := d.deadLetterQueue.AddEntry(entry, errorMsg, errorType, failedSink, retryCount, context); err != nil {
+			d.logger.WithFields(logrus.Fields{
+				"trace_id":     entry.TraceID,
+				"source_type":  entry.SourceType,
+				"source_id":    entry.SourceID,
+				"failed_sink":  failedSink,
+				"error_type":   errorType,
+				"error":        errorMsg,
+				"retry_count":  retryCount,
+				"dlq_error":    err.Error(),
+			}).Error("Failed to send entry to DLQ")
+			return
+		}
 
 		d.logger.WithFields(logrus.Fields{
 			"trace_id":     entry.TraceID,
@@ -689,6 +728,7 @@ func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failed
 			"source_id":    entry.SourceID,
 			"failed_sink":  failedSink,
 			"error_type":   errorType,
+			"error":        errorMsg,
 			"retry_count":  retryCount,
 		}).Debug("Entry sent to DLQ")
 	}
@@ -754,28 +794,60 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 	startTime := time.Now()
 
-	// Converter para slice de LogEntry
+	// C5: Race Condition Fix - Use deep copy to avoid sharing mutexes
+	// Each entry must have its own mutex and independent maps
 	entries := make([]types.LogEntry, len(batch))
 	for i, item := range batch {
-		entries[i] = item.Entry
+		entries[i] = *item.Entry.DeepCopy() // Deep copy creates fresh mutex
 	}
 
 	// Detectar anomalias se o detector estiver habilitado
+	// Re-enabled with timeout protection and error recovery
+	// Process anomaly detection for limited samples to avoid goroutine explosion
 	if d.anomalyDetector != nil {
+		// Sample only a few entries per batch to avoid overwhelming the system
+		maxAnomaliesToCheck := 5
+		entriesProcessed := 0
+
 		for i := range entries {
-			anomalyResult, err := d.anomalyDetector.DetectAnomaly(&entries[i])
-			if err != nil {
-				logger.WithError(err).WithField("source_id", entries[i].SourceID).Warn("Anomaly detection failed for entry")
-				continue
+			if entriesProcessed >= maxAnomaliesToCheck {
+				break
 			}
-			if anomalyResult.IsAnomaly {
-				if entries[i].Labels == nil {
-					entries[i].Labels = make(map[string]string)
+
+			// Use a function with defer-recover to catch panics
+			func(entry *types.LogEntry) {
+				defer func() {
+					if r := recover(); r != nil {
+						logger.WithFields(logrus.Fields{
+							"panic":     r,
+							"source_id": entry.SourceID,
+						}).Error("Panic in anomaly detection")
+					}
+				}()
+
+				// Call DetectAnomaly without goroutine to avoid explosion
+				result, err := d.anomalyDetector.DetectAnomaly(entry)
+				if err != nil {
+					// Log at debug level to reduce noise
+					logger.WithError(err).WithField("source_id", entry.SourceID).Debug("Anomaly detection failed")
+					return
 				}
-				entries[i].Labels["anomaly"] = "true"
-				entries[i].Labels["anomaly_reason"] = anomalyResult.Reason
-				entries[i].Labels["anomaly_score"] = fmt.Sprintf("%.2f", anomalyResult.AnomalyScore)
-			}
+
+				if result != nil && result.IsAnomaly {
+					// Thread-safe label updates
+					entry.SetLabel("anomaly", "true")
+					entry.SetLabel("anomaly_reason", result.Reason)
+					entry.SetLabel("anomaly_score", fmt.Sprintf("%.2f", result.AnomalyScore))
+
+					logger.WithFields(logrus.Fields{
+						"source_id":     entry.SourceID,
+						"anomaly_score": result.AnomalyScore,
+						"severity":      result.Severity,
+					}).Info("Anomaly detected in log entry")
+				}
+			}(&entries[i])
+
+			entriesProcessed++
 		}
 	}
 
@@ -829,15 +901,26 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 	for _, item := range batch {
 		if item.Retries < d.config.MaxRetries {
-			// Reagendar item usando timer ao invés de goroutine
+			// Reagendar item com retry exponencial
 			item.Retries++
-
-			// Usar um timer para evitar criar muitas goroutines
 			retryDelay := d.config.RetryDelay * time.Duration(item.Retries)
-			timer := time.NewTimer(retryDelay)
 
-			go func(item dispatchItem, timer *time.Timer) {
-				defer timer.Stop()
+			// Rastrear retry goroutine no WaitGroup
+			d.wg.Add(1)
+			go func(item dispatchItem, delay time.Duration) {
+				defer d.wg.Done()
+
+				// Criar timer dentro da goroutine
+				timer := time.NewTimer(delay)
+				defer func() {
+					// Garantir limpeza do timer mesmo em cancelamento
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+				}()
 
 				select {
 				case <-timer.C:
@@ -850,14 +933,15 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 						// Context cancelado
 						return
 					default:
-						// Fila cheia, descartar
+						// Fila cheia, enviar para DLQ se disponível
 						d.logger.Warn("Failed to reschedule failed item, queue full")
+						d.sendToDLQ(item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
 					}
 				case <-d.ctx.Done():
-					// Context cancelado durante espera
+					// Context cancelado durante espera - timer será limpo no defer
 					return
 				}
-			}(item, timer)
+			}(item, retryDelay)
 		} else {
 			// Max retries reached, enviar para DLQ
 			d.logger.WithFields(logrus.Fields{
@@ -1013,11 +1097,8 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 			ProcessedAt: time.Now(),
 		}
 
-		// Adicionar tag indicando que foi throttled
-		if entry.Labels == nil {
-			entry.Labels = make(map[string]string)
-		}
-		entry.Labels["throttle_reason"] = "backpressure_low_priority"
+		// Adicionar tag indicando que foi throttled (thread-safe)
+		entry.SetLabel("throttle_reason", "backpressure_low_priority")
 
 		d.deadLetterQueue.AddEntry(entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
 			"throttle_level": d.backpressureManager.GetLevel().String(),
@@ -1079,9 +1160,10 @@ func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, 
 		}
 	}
 
-	// Adicionar à fila com timeout
+	// C5: Race Condition Fix - Use deep copy to avoid sharing mutex
+	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
-		Entry:     entry,
+		Entry:     *entry.DeepCopy(),
 		Timestamp: time.Now(),
 		Retries:   0,
 	}

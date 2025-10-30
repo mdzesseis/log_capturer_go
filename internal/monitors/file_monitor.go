@@ -41,6 +41,7 @@ type FileMonitor struct {
 	lastQuietLogTime map[string]time.Time  // Rate limiting for quiet file logs
 	specificFiles   map[string]bool // Arquivos específicos do pipeline (precedência)
 	mutex           sync.RWMutex
+	wg              sync.WaitGroup // Rastreia goroutines de descoberta
 
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -139,14 +140,16 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	}
 
 	// Iniciar descoberta automática de arquivos em background após 2 segundos
+	fm.wg.Add(1)
 	go func() {
+		defer fm.wg.Done()
 		fm.logger.Info("Starting file discovery goroutine")
 
 		// Aguardar 2 segundos ou até o contexto ser cancelado
 		select {
 		case <-time.After(2 * time.Second):
 			// Continuar com a descoberta
-		case <-ctx.Done():
+		case <-fm.ctx.Done():
 			fm.logger.Info("File discovery goroutine cancelled during startup delay")
 			return
 		}
@@ -172,17 +175,31 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 // Stop para o monitor de arquivos
 func (fm *FileMonitor) Stop() error {
 	fm.mutex.Lock()
-	defer fm.mutex.Unlock()
-
 	if !fm.isRunning {
+		fm.mutex.Unlock()
 		return nil
 	}
 
 	fm.logger.Info("Stopping file monitor")
 	fm.isRunning = false
+	fm.mutex.Unlock() // Unlock early to allow goroutines to finish
 
 	// Cancelar contexto
 	fm.cancel()
+
+	// Aguardar goroutines terminarem com timeout
+	done := make(chan struct{})
+	go func() {
+		fm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fm.logger.Info("All file monitor goroutines stopped cleanly")
+	case <-time.After(10 * time.Second):
+		fm.logger.Warn("Timeout waiting for file monitor goroutines to stop")
+	}
 
 	// Parar tasks
 	fm.taskManager.StopTask("file_monitor")
@@ -271,6 +288,9 @@ func (fm *FileMonitor) AddFile(filePath string, labels map[string]string) error 
 	sourceID := fm.getSourceID(filePath)
 	metrics.SetFileMonitored(filePath, "file", true)
 
+	// Atualizar total de arquivos monitorados
+	metrics.UpdateTotalFilesMonitored(len(fm.files))
+
 	fm.logger.WithFields(logrus.Fields{
 		"path":      filePath,
 		"source_id": sourceID,
@@ -303,6 +323,9 @@ func (fm *FileMonitor) RemoveFile(filePath string) error {
 
 	// Atualizar métrica
 	metrics.SetFileMonitored(filePath, "file", false)
+
+	// Atualizar total de arquivos monitorados
+	metrics.UpdateTotalFilesMonitored(len(fm.files))
 
 	fm.logger.WithField("path", filePath).Info("File removed from monitoring")
 	return nil

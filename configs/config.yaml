@@ -230,7 +230,8 @@ sinks:
     sync_interval: "60s"
     file_permissions: "0644"
     dir_permissions: "0755"
-    queue_size: 15000
+    queue_size: 25000                # Increased queue size to handle higher throughput
+    worker_count: 4                  # Number of concurrent workers processing the queue
 
   elasticsearch:
     enabled: false

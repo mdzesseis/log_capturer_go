@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -198,6 +199,7 @@ func (te *TextFeatureExtractor) calculateRepetitionScore(text string) float64 {
 type StatisticalFeatureExtractor struct {
 	window []time.Time
 	counts map[string]int
+	mu     sync.RWMutex // Protect concurrent access to window and counts
 }
 
 func NewStatisticalFeatureExtractor() *StatisticalFeatureExtractor {
@@ -223,6 +225,10 @@ func (se *StatisticalFeatureExtractor) Extract(entry *types.LogEntry) (map[strin
 		features["day_of_month"] = float64(entry.Timestamp.Day())
 		features["month"] = float64(entry.Timestamp.Month())
 	}
+
+	// Lock for concurrent access to window and counts
+	se.mu.Lock()
+	defer se.mu.Unlock()
 
 	// Update sliding window for frequency analysis
 	se.updateWindow(now)
@@ -306,6 +312,7 @@ func (se *StatisticalFeatureExtractor) calculateEventsPerHour() float64 {
 type TemporalFeatureExtractor struct {
 	timestamps []time.Time
 	intervals  []float64
+	mu         sync.Mutex // Protect concurrent access to timestamps and intervals
 }
 
 func NewTemporalFeatureExtractor() *TemporalFeatureExtractor {
@@ -323,6 +330,10 @@ func (te *TemporalFeatureExtractor) Extract(entry *types.LogEntry) (map[string]f
 	if entry.Timestamp.IsZero() {
 		return features, nil
 	}
+
+	// Lock for concurrent access to timestamps and intervals
+	te.mu.Lock()
+	defer te.mu.Unlock()
 
 	// Add current timestamp
 	te.timestamps = append(te.timestamps, entry.Timestamp)

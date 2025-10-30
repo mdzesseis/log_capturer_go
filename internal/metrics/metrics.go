@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"runtime"
 	"sync"
@@ -183,6 +184,89 @@ var (
 			Help: "Number of goroutines",
 		},
 	)
+
+	// Gauge para file descriptors abertos
+	FileDescriptors = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "file_descriptors_open",
+			Help: "Number of open file descriptors",
+		},
+	)
+
+	// Histogram para pausas de GC
+	GCPauseDuration = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "gc_pause_duration_seconds",
+			Help:    "GC pause duration in seconds",
+			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0},
+		},
+	)
+
+	// Gauge para total de arquivos monitorados (agregado)
+	TotalFilesMonitored = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "total_files_monitored",
+			Help: "Total number of files being monitored across all sources",
+		},
+	)
+
+	// Gauge para total de containers monitorados (agregado)
+	TotalContainersMonitored = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "total_containers_monitored",
+			Help: "Total number of containers being monitored",
+		},
+	)
+
+	// Enhanced metrics - Advanced monitoring metrics
+	DiskUsageBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "disk_usage_bytes",
+			Help: "Disk usage in bytes by mount point",
+		},
+		[]string{"mount_point", "device"},
+	)
+
+	ResponseTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "response_time_seconds",
+			Help:    "Response time in seconds",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"endpoint", "method"},
+	)
+
+	ConnectionPoolStats = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "connection_pool_stats",
+			Help: "Connection pool statistics",
+		},
+		[]string{"pool_name", "stat_type"},
+	)
+
+	CompressionRatio = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "compression_ratio",
+			Help: "Compression ratio for different components",
+		},
+		[]string{"component", "algorithm"},
+	)
+
+	BatchingStats = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "batching_stats",
+			Help: "Batching statistics",
+		},
+		[]string{"component", "stat_type"},
+	)
+
+	LeakDetection = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "leak_detection",
+			Help: "Resource leak detection metrics",
+		},
+		[]string{"resource_type", "component"},
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -233,6 +317,17 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(CPUUsage)
 		safeRegister(GCRuns)
 		safeRegister(Goroutines)
+		safeRegister(FileDescriptors)
+		safeRegister(GCPauseDuration)
+		safeRegister(TotalFilesMonitored)
+		safeRegister(TotalContainersMonitored)
+		// Enhanced metrics
+		safeRegister(DiskUsageBytes)
+		safeRegister(ResponseTimeSeconds)
+		safeRegister(ConnectionPoolStats)
+		safeRegister(CompressionRatio)
+		safeRegister(BatchingStats)
+		safeRegister(LeakDetection)
 	})
 
 	mux := http.NewServeMux()
@@ -355,14 +450,6 @@ func SetActiveTasks(taskType, state string, count int) {
 type EnhancedMetrics struct {
 	logger *logrus.Logger
 
-	// Advanced metrics
-	diskUsage            *prometheus.GaugeVec
-	responseTime         *prometheus.HistogramVec
-	connectionPoolStats  *prometheus.GaugeVec
-	compressionRatio     *prometheus.GaugeVec
-	batchingStats        *prometheus.GaugeVec
-	leakDetection        *prometheus.GaugeVec
-
 	// Custom metrics registry
 	customMetrics map[string]prometheus.Metric
 	customMutex   sync.RWMutex
@@ -380,55 +467,8 @@ func NewEnhancedMetrics(logger *logrus.Logger) *EnhancedMetrics {
 		startTime:     time.Now(),
 	}
 
-	// Initialize advanced metrics
-	em.diskUsage = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "disk_usage_bytes",
-			Help: "Disk usage in bytes by mount point",
-		},
-		[]string{"mount_point", "device"},
-	)
-
-	em.responseTime = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "response_time_seconds",
-			Help:    "Response time in seconds",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"endpoint", "method"},
-	)
-
-	em.connectionPoolStats = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "connection_pool_stats",
-			Help: "Connection pool statistics",
-		},
-		[]string{"pool_name", "stat_type"},
-	)
-
-	em.compressionRatio = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "compression_ratio",
-			Help: "Compression ratio for different components",
-		},
-		[]string{"component", "algorithm"},
-	)
-
-	em.batchingStats = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "batching_stats",
-			Help: "Batching statistics",
-		},
-		[]string{"component", "stat_type"},
-	)
-
-	em.leakDetection = promauto.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "leak_detection",
-			Help: "Resource leak detection metrics",
-		},
-		[]string{"resource_type", "component"},
-	)
+	// Note: Advanced metrics (diskUsage, responseTime, etc.) are now global variables
+	// registered in NewMetricsServer, so we don't need to initialize them here
 
 	return em
 }
@@ -449,36 +489,48 @@ func (em *EnhancedMetrics) UpdateSystemMetrics() {
 
 	// Update GC metrics
 	GCRuns.Add(float64(m.NumGC))
+
+	// Update GC pause duration (last pause in nanoseconds converted to seconds)
+	if m.NumGC > 0 {
+		// Get the most recent GC pause time
+		lastPauseNs := m.PauseNs[(m.NumGC+255)%256]
+		GCPauseDuration.Observe(float64(lastPauseNs) / 1e9)
+	}
+
+	// Update file descriptors (attempt to read from /proc/self/fd on Linux)
+	if fds := getOpenFileDescriptors(); fds >= 0 {
+		FileDescriptors.Set(float64(fds))
+	}
 }
 
 // RecordDiskUsage records disk usage metrics
 func (em *EnhancedMetrics) RecordDiskUsage(mountPoint, device string, usage int64) {
-	em.diskUsage.WithLabelValues(mountPoint, device).Set(float64(usage))
+	DiskUsageBytes.WithLabelValues(mountPoint, device).Set(float64(usage))
 }
 
 // RecordResponseTime records HTTP response time
 func (em *EnhancedMetrics) RecordResponseTime(endpoint, method string, duration time.Duration) {
-	em.responseTime.WithLabelValues(endpoint, method).Observe(duration.Seconds())
+	ResponseTimeSeconds.WithLabelValues(endpoint, method).Observe(duration.Seconds())
 }
 
 // RecordConnectionPoolStats records connection pool statistics
 func (em *EnhancedMetrics) RecordConnectionPoolStats(poolName, statType string, value float64) {
-	em.connectionPoolStats.WithLabelValues(poolName, statType).Set(value)
+	ConnectionPoolStats.WithLabelValues(poolName, statType).Set(value)
 }
 
 // RecordCompressionRatio records compression ratio
 func (em *EnhancedMetrics) RecordCompressionRatio(component, algorithm string, ratio float64) {
-	em.compressionRatio.WithLabelValues(component, algorithm).Set(ratio)
+	CompressionRatio.WithLabelValues(component, algorithm).Set(ratio)
 }
 
 // RecordBatchingStats records batching statistics
 func (em *EnhancedMetrics) RecordBatchingStats(component, statType string, value float64) {
-	em.batchingStats.WithLabelValues(component, statType).Set(value)
+	BatchingStats.WithLabelValues(component, statType).Set(value)
 }
 
 // RecordLeakDetection records resource leak detection metrics
 func (em *EnhancedMetrics) RecordLeakDetection(resourceType, component string, count float64) {
-	em.leakDetection.WithLabelValues(resourceType, component).Set(count)
+	LeakDetection.WithLabelValues(resourceType, component).Set(count)
 }
 
 // Start begins the enhanced metrics collection
@@ -519,4 +571,25 @@ func (em *EnhancedMetrics) systemMetricsLoop() {
 			em.UpdateSystemMetrics()
 		}
 	}
+}
+
+// getOpenFileDescriptors counts the number of open file descriptors
+// Works on Linux by reading /proc/self/fd directory
+func getOpenFileDescriptors() int {
+	files, err := ioutil.ReadDir("/proc/self/fd")
+	if err != nil {
+		// Not on Linux or unable to read, return -1 to skip metric update
+		return -1
+	}
+	return len(files)
+}
+
+// UpdateTotalFilesMonitored updates the total count of monitored files
+func UpdateTotalFilesMonitored(count int) {
+	TotalFilesMonitored.Set(float64(count))
+}
+
+// UpdateTotalContainersMonitored updates the total count of monitored containers
+func UpdateTotalContainersMonitored(count int) {
+	TotalContainersMonitored.Set(float64(count))
 }

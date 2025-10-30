@@ -267,8 +267,8 @@ func (tm *TenantManager) GetTenantForLogEntry(entry *types.LogEntry) string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	// Verificar labels da entrada de log
-	if tenantID, exists := entry.Labels["tenant"]; exists {
+	// Verificar labels da entrada de log (thread-safe)
+	if tenantID, exists := entry.GetLabel("tenant"); exists {
 		if _, tenantExists := tm.tenants[tenantID]; tenantExists {
 			return tenantID
 		}

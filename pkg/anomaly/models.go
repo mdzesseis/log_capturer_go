@@ -576,12 +576,44 @@ func (sm *StatisticalModel) Save(path string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Save model metadata
+	// Sanitize means and stdDevs to remove Inf/NaN values that can't be marshaled to JSON
+	cleanMeans := make(map[string]float64)
+	for k, v := range sm.means {
+		if !math.IsInf(v, 0) && !math.IsNaN(v) {
+			cleanMeans[k] = v
+		} else {
+			cleanMeans[k] = 0.0 // Replace Inf/NaN with 0
+		}
+	}
+
+	cleanStdDevs := make(map[string]float64)
+	for k, v := range sm.stdDevs {
+		if !math.IsInf(v, 0) && !math.IsNaN(v) {
+			cleanStdDevs[k] = v
+		} else {
+			cleanStdDevs[k] = 0.0 // Replace Inf/NaN with 0
+		}
+	}
+
+	// Clean percentiles
+	cleanPercentiles := make(map[string]map[int]float64)
+	for feature, pcts := range sm.percentiles {
+		cleanPercentiles[feature] = make(map[int]float64)
+		for pct, val := range pcts {
+			if !math.IsInf(val, 0) && !math.IsNaN(val) {
+				cleanPercentiles[feature][pct] = val
+			} else {
+				cleanPercentiles[feature][pct] = 0.0
+			}
+		}
+	}
+
+	// Save model metadata with cleaned values
 	metadata := map[string]interface{}{
 		"type":        "statistical",
-		"means":       sm.means,
-		"stdDevs":     sm.stdDevs,
-		"percentiles": sm.percentiles,
+		"means":       cleanMeans,
+		"stdDevs":     cleanStdDevs,
+		"percentiles": cleanPercentiles,
 		"trained":     sm.trained,
 		"accuracy":    sm.accuracy,
 	}

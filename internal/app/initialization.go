@@ -844,6 +844,9 @@ func (app *App) initMetricsServer() {
 	}
 	addr := fmt.Sprintf(":%d", app.config.Metrics.Port)
 	app.metricsServer = metrics.NewMetricsServer(addr, app.logger)
+
+	// Criar EnhancedMetrics para métricas avançadas
+	app.enhancedMetrics = metrics.NewEnhancedMetrics(app.logger)
 }
 
 // ensureDirectoryExists creates a directory path if it doesn't already exist.

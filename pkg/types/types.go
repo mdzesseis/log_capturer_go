@@ -23,6 +23,7 @@
 package types
 
 import (
+	"sync"
 	"time"
 )
 
@@ -103,6 +104,10 @@ type LogEntry struct {
 	// Enterprise observability and SLO tracking
 	Metrics map[string]float64 `json:"metrics,omitempty"` // Custom metrics associated with this log entry
 	SLOs    map[string]float64 `json:"slos,omitempty"`    // SLO measurements and error budget tracking
+
+	// Thread-safety for concurrent access to maps
+	// This mutex protects: Labels, Fields, Metrics, SLOs
+	mu sync.RWMutex `json:"-"`
 }
 
 // DeepCopy creates a deep copy of the LogEntry for safe concurrent access.
@@ -128,7 +133,13 @@ type LogEntry struct {
 // Returns:
 //   - *LogEntry: A complete deep copy of the original log entry
 func (e *LogEntry) DeepCopy() *LogEntry {
+	// Protect read access to maps during copy
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
 	newEntry := *e
+	// Reset mutex for the new entry (don't copy lock state)
+	newEntry.mu = sync.RWMutex{}
 
 	// Deep copy slices
 	if e.Tags != nil {
@@ -146,7 +157,7 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 		copy(newEntry.ProcessingSteps, e.ProcessingSteps)
 	}
 
-	// Deep copy maps
+	// Deep copy maps (protected by RLock above)
 	if e.Labels != nil {
 		newEntry.Labels = make(map[string]string, len(e.Labels))
 		for k, v := range e.Labels {
@@ -176,6 +187,130 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 	}
 
 	return &newEntry
+}
+
+// Thread-safe methods for Labels access
+//
+// These methods provide safe concurrent access to the Labels map.
+// Direct access to entry.Labels should be avoided in concurrent contexts.
+
+// GetLabel retrieves a label value safely.
+//
+// Parameters:
+//   - key: The label key to retrieve
+//
+// Returns:
+//   - value: The label value if found
+//   - ok: true if the key exists, false otherwise
+//
+// Thread-safety: Safe for concurrent reads
+func (e *LogEntry) GetLabel(key string) (string, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	val, ok := e.Labels[key]
+	return val, ok
+}
+
+// SetLabel sets a label value safely.
+//
+// Parameters:
+//   - key: The label key to set
+//   - value: The label value
+//
+// Thread-safety: Safe for concurrent writes
+func (e *LogEntry) SetLabel(key, value string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.Labels == nil {
+		e.Labels = make(map[string]string)
+	}
+	e.Labels[key] = value
+}
+
+// CopyLabels returns a thread-safe copy of all labels.
+//
+// This method creates a new map with all label key-value pairs,
+// protecting against concurrent modification during iteration.
+//
+// Returns:
+//   - A new map containing all labels
+//
+// Thread-safety: Safe for concurrent access
+//
+// Usage:
+//   labelsCopy := entry.CopyLabels()
+//   for k, v := range labelsCopy {
+//       // Safe to iterate over copy
+//   }
+func (e *LogEntry) CopyLabels() map[string]string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.Labels == nil {
+		return make(map[string]string)
+	}
+
+	copy := make(map[string]string, len(e.Labels))
+	for k, v := range e.Labels {
+		copy[k] = v
+	}
+	return copy
+}
+
+// Thread-safe methods for Fields access
+
+// GetField retrieves a field value safely.
+func (e *LogEntry) GetField(key string) (interface{}, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	val, ok := e.Fields[key]
+	return val, ok
+}
+
+// SetField sets a field value safely.
+func (e *LogEntry) SetField(key string, value interface{}) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.Fields == nil {
+		e.Fields = make(map[string]interface{})
+	}
+	e.Fields[key] = value
+}
+
+// CopyFields returns a thread-safe copy of all fields.
+func (e *LogEntry) CopyFields() map[string]interface{} {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.Fields == nil {
+		return make(map[string]interface{})
+	}
+
+	copy := make(map[string]interface{}, len(e.Fields))
+	for k, v := range e.Fields {
+		copy[k] = v
+	}
+	return copy
+}
+
+// Thread-safe methods for Metrics access
+
+// GetMetric retrieves a metric value safely.
+func (e *LogEntry) GetMetric(key string) (float64, bool) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	val, ok := e.Metrics[key]
+	return val, ok
+}
+
+// SetMetric sets a metric value safely.
+func (e *LogEntry) SetMetric(key string, value float64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.Metrics == nil {
+		e.Metrics = make(map[string]float64)
+	}
+	e.Metrics[key] = value
 }
 
 // ProcessingStep represents a single step in the log processing pipeline.

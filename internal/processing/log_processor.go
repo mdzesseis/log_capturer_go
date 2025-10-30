@@ -227,7 +227,8 @@ func (lp *LogProcessor) matchesSource(entry *types.LogEntry, pattern string) boo
 		return true
 	}
 
-	if containerName, exists := entry.Labels["container_name"]; exists {
+	// Thread-safe label access
+	if containerName, exists := entry.GetLabel("container_name"); exists {
 		if strings.Contains(pattern, containerName) {
 			return true
 		}
@@ -414,7 +415,7 @@ func (tpp *TimestampParseProcessor) Process(ctx context.Context, entry *types.Lo
 	var value string
 	if tpp.Field == "message" {
 		value = entry.Message
-	} else if labelValue, exists := entry.Labels[tpp.Field]; exists {
+	} else if labelValue, exists := entry.GetLabel(tpp.Field); exists {
 		value = labelValue
 	} else {
 		return entry, nil

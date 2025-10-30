@@ -26,6 +26,7 @@ type taskManager struct {
 	logger    *logrus.Logger
 	ctx       context.Context
 	cancel    context.CancelFunc
+	wg        sync.WaitGroup // Rastreia goroutine de cleanup
 }
 
 // task representa uma tarefa em execução
@@ -64,8 +65,12 @@ func New(config Config, logger *logrus.Logger) types.TaskManager {
 		cancel: cancel,
 	}
 
-	// Iniciar goroutine de limpeza
-	go tm.cleanupLoop()
+	// Iniciar goroutine de limpeza com rastreamento
+	tm.wg.Add(1)
+	go func() {
+		defer tm.wg.Done()
+		tm.cleanupLoop()
+	}()
 
 	return tm
 }
@@ -109,27 +114,20 @@ func (tm *taskManager) StartTask(ctx context.Context, taskID string, fn func(con
 	return nil
 }
 
-// runTask executa uma tarefa
+// runTask executa uma tarefa de forma thread-safe sem nested locks
 func (tm *taskManager) runTask(t *task) {
 	defer close(t.Done)
 
-	// Função auxiliar para atualizar estado de forma atômica
-	updateTaskState := func(state string, errorCount int64, lastError string) {
-		tm.mutex.Lock()
-		t.State = state
-		t.ErrorCount = errorCount
-		t.LastError = lastError
-		tm.mutex.Unlock()
-	}
-
+	// Panic recovery sem nested locks
 	defer func() {
 		if r := recover(); r != nil {
-			// Incrementar error count de forma thread-safe
+			// Atualizar estado em uma única operação atômica
 			tm.mutex.Lock()
-			currentErrorCount := t.ErrorCount + 1
+			t.State = "failed"
+			t.ErrorCount++
+			t.LastError = fmt.Sprintf("panic: %v", r)
 			tm.mutex.Unlock()
 
-			updateTaskState("failed", currentErrorCount, fmt.Sprintf("panic: %v", r))
 			tm.logger.WithFields(logrus.Fields{
 				"task_id": t.ID,
 				"error":   r,
@@ -137,14 +135,17 @@ func (tm *taskManager) runTask(t *task) {
 		}
 	}()
 
-	// Executar função da tarefa
-	if err := t.Fn(t.Context); err != nil {
-		// Incrementar error count de forma thread-safe
-		tm.mutex.Lock()
-		currentErrorCount := t.ErrorCount + 1
+	// Executar função da tarefa (sem lock)
+	err := t.Fn(t.Context)
+
+	// Atualizar estado baseado no resultado (com lock)
+	tm.mutex.Lock()
+	if err != nil {
+		t.State = "failed"
+		t.ErrorCount++
+		t.LastError = err.Error()
 		tm.mutex.Unlock()
 
-		updateTaskState("failed", currentErrorCount, err.Error())
 		tm.logger.WithFields(logrus.Fields{
 			"task_id": t.ID,
 			"error":   err,
@@ -152,12 +153,11 @@ func (tm *taskManager) runTask(t *task) {
 		return
 	}
 
-	// Obter error count atual para manter consistência
-	tm.mutex.Lock()
-	currentErrorCount := t.ErrorCount
+	// Sucesso
+	t.State = "completed"
+	t.LastError = ""
 	tm.mutex.Unlock()
 
-	updateTaskState("completed", currentErrorCount, "")
 	tm.logger.WithField("task_id", t.ID).Info("Task completed")
 }
 
@@ -297,12 +297,29 @@ func (tm *taskManager) cleanupTasks() {
 // Cleanup limpa todos os recursos
 func (tm *taskManager) Cleanup() {
 	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
 
 	// Cancelar contexto principal
 	tm.cancel()
+	tm.mutex.Unlock() // Unlock to allow cleanup loop to finish
+
+	// Aguardar cleanup loop terminar com timeout
+	done := make(chan struct{})
+	go func() {
+		tm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		tm.logger.Info("All task manager goroutines stopped cleanly")
+	case <-time.After(10 * time.Second):
+		tm.logger.Warn("Timeout waiting for task manager goroutines to stop")
+	}
 
 	// Parar todas as tarefas em execução
+	tm.mutex.Lock()
+	defer tm.mutex.Unlock()
+
 	for id, task := range tm.tasks {
 		if task.State == "running" {
 			task.Cancel()

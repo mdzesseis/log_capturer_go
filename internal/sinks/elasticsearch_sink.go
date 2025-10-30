@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/compression"
 	"ssw-logs-capture/pkg/types"
 )
@@ -320,6 +321,9 @@ func (es *ElasticsearchSink) createIndexTemplate() error {
 func (es *ElasticsearchSink) Start(ctx context.Context) error {
 	es.logger.Info("Starting Elasticsearch sink")
 
+	// Definir como healthy no início
+	metrics.SetComponentHealth("sink", "elasticsearch", true)
+
 	go es.processBatches()
 	go es.flushWorker()
 
@@ -337,6 +341,9 @@ func (es *ElasticsearchSink) Stop() error {
 	es.stopMutex.Unlock()
 
 	es.logger.Info("Stopping Elasticsearch sink")
+
+	// Definir como unhealthy ao parar
+	metrics.SetComponentHealth("sink", "elasticsearch", false)
 
 	// Signal shutdown
 	es.cancel()
@@ -647,11 +654,8 @@ func (es *ElasticsearchSink) createDocument(entry types.LogEntry) ElasticsearchD
 		doc.Labels[k] = v
 	}
 
-	// Fazer cópia do map para evitar concurrent access durante iteração
-	labelsCopy := make(map[string]string, len(entry.Labels))
-	for k, v := range entry.Labels {
-		labelsCopy[k] = v
-	}
+	// Thread-safe copy of labels
+	labelsCopy := entry.CopyLabels()
 	for k, v := range labelsCopy {
 		doc.Labels[k] = v
 	}
@@ -664,8 +668,9 @@ func (es *ElasticsearchSink) createDocument(entry types.LogEntry) ElasticsearchD
 		doc.Service = service
 	}
 
-	// Copy fields
-	for k, v := range entry.Fields {
+	// Thread-safe copy of fields
+	fieldsCopy := entry.CopyFields()
+	for k, v := range fieldsCopy {
 		doc.Fields[k] = v
 	}
 
@@ -805,14 +810,21 @@ func (es *ElasticsearchSink) shouldRetry(err error) bool {
 
 // sendToDLQ sends failed entries to Dead Letter Queue
 func (es *ElasticsearchSink) sendToDLQ(entries []types.LogEntry, reason string) {
-	es.logger.WithField("reason", reason).Info("Sending batch to DLQ")
+	es.logger.WithFields(logrus.Fields{
+		"error":         reason,
+		"entries_count": len(entries),
+	}).Info("Sending batch to DLQ")
 
 	// Convert entries to DLQ format and send
 	for _, entry := range entries {
 		// Send to DLQ channel if available (would need DLQ integration)
+		// TODO: Integrate with actual DLQ implementation
 		es.logger.WithFields(logrus.Fields{
 			"original_source": entry.SourceID,
-			"reason":         reason,
+			"source_type":     entry.SourceType,
+			"error":           reason,
+			"error_type":      "elasticsearch_batch_failed",
+			"failed_sink":     "elasticsearch",
 		}).Warn("Entry sent to DLQ due to repeated failures")
 	}
 }
