@@ -77,6 +77,7 @@ import (
 type App struct {
 	config    *types.Config
 	logger    *logrus.Logger
+	startTime time.Time // Application start time for uptime calculation
 
 	// Core components - fundamental services for log capture and processing
 	taskManager      types.TaskManager                  // Manages background tasks and provides heartbeat monitoring
@@ -166,6 +167,7 @@ func New(configFile string) (*App, error) {
 	app := &App{
 		config:     cfg,
 		logger:     logger,
+		startTime:  time.Now(),
 		ctx:        ctx,
 		cancel:     cancel,
 		configFile: configFile,

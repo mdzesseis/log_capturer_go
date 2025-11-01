@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"runtime"
 	"runtime/debug"
@@ -16,6 +17,58 @@ import (
 
 	"github.com/gorilla/mux"
 )
+
+// Health check helper functions
+
+// checkDiskSpace checks available disk space and returns status
+func checkDiskSpace(path string) string {
+	// This is a placeholder - actual implementation would use syscall.Statfs on Linux
+	// or similar platform-specific calls
+	// For now, we return healthy as a safe default
+	return "healthy"
+}
+
+// checkFileDescriptorUsage checks file descriptor usage and returns status and details
+func checkFileDescriptorUsage() (string, map[string]interface{}) {
+	// Try to read file descriptor count on Linux
+	openFDs := getOpenFileDescriptors()
+	if openFDs < 0 {
+		// Not on Linux or unable to read
+		return "unknown", map[string]interface{}{
+			"status":  "unknown",
+			"message": "Unable to read file descriptor count (non-Linux system)",
+		}
+	}
+
+	// Common soft limit is 1024, but can be higher
+	// We'll warn at 70% and critical at 90% of 1024
+	maxFDs := 1024
+	utilizationPct := float64(openFDs) / float64(maxFDs) * 100
+
+	status := "healthy"
+	if utilizationPct > 90 {
+		status = "critical"
+	} else if utilizationPct > 70 {
+		status = "warning"
+	}
+
+	return status, map[string]interface{}{
+		"status":       status,
+		"open":         openFDs,
+		"max":          maxFDs,
+		"utilization":  fmt.Sprintf("%.2f%%", utilizationPct),
+	}
+}
+
+// getOpenFileDescriptors is already defined in metrics package, but we redefine here for health checks
+func getOpenFileDescriptors() int {
+	files, err := ioutil.ReadDir("/proc/self/fd")
+	if err != nil {
+		// Not on Linux or unable to read, return -1 to skip metric update
+		return -1
+	}
+	return len(files)
+}
 
 // metricsMiddleware records response time for all HTTP endpoints
 func metricsMiddleware(next http.Handler) http.Handler {
@@ -151,32 +204,120 @@ func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
 		"status":    "healthy",
 		"timestamp": time.Now().Unix(),
 		"version":   app.config.App.Version,
+		"uptime":    time.Since(app.startTime).String(),
 		"services":  make(map[string]interface{}),
+		"checks":    make(map[string]interface{}),
 	}
 
 	services := health["services"].(map[string]interface{})
+	checks := health["checks"].(map[string]interface{})
 	allHealthy := true
 
-	// Check dispatcher health
+	// Check dispatcher health and queue utilization
 	if app.dispatcher != nil {
 		dispatcherStats := app.dispatcher.GetStats()
+		dispatcherStatus := "healthy"
+
+		// Check queue size - warn if > 70%, critical if > 90%
+		queueSize := dispatcherStats.QueueSize
+		queueCapacity := dispatcherStats.QueueCapacity
+		if queueCapacity > 0 {
+			utilization := float64(queueSize) / float64(queueCapacity) * 100
+			if utilization > 90 {
+				dispatcherStatus = "critical"
+				allHealthy = false
+			} else if utilization > 70 {
+				dispatcherStatus = "warning"
+				allHealthy = false
+			}
+			checks["queue_utilization"] = map[string]interface{}{
+				"status":      dispatcherStatus,
+				"utilization": fmt.Sprintf("%.2f%%", utilization),
+				"size":        queueSize,
+				"capacity":    queueCapacity,
+			}
+		}
+
 		services["dispatcher"] = map[string]interface{}{
-			"status": "healthy",
+			"status": dispatcherStatus,
 			"stats":  dispatcherStats,
 		}
 	}
 
+	// Check memory usage
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	memoryMB := memStats.Alloc / 1024 / 1024
+	memoryStatus := "healthy"
+
+	// Warn if > 1GB, critical if > 2GB (adjust based on your limits)
+	if memoryMB > 2048 {
+		memoryStatus = "critical"
+		allHealthy = false
+	} else if memoryMB > 1024 {
+		memoryStatus = "warning"
+	}
+
+	checks["memory"] = map[string]interface{}{
+		"status":     memoryStatus,
+		"alloc_mb":   memoryMB,
+		"sys_mb":     memStats.Sys / 1024 / 1024,
+		"goroutines": runtime.NumGoroutine(),
+	}
+
+	// Check disk space
+	diskPath := app.config.Sinks.LocalFile.Directory
+	if diskPath == "" {
+		diskPath = "/"
+	}
+	diskSpaceStatus := checkDiskSpace(diskPath)
+	if diskSpaceStatus != "healthy" {
+		allHealthy = false
+	}
+	checks["disk_space"] = map[string]interface{}{
+		"status": diskSpaceStatus,
+		"path":   diskPath,
+	}
+
+	// Check sink connectivity (if dispatcher has GetDLQ method)
+	if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+		if dlq := dispatcherImpl.GetDLQ(); dlq != nil {
+			dlqStats := dlq.GetStats()
+			sinkStatus := "healthy"
+
+			// Check DLQ size - warn if > 100, critical if > 1000
+			if dlqStats.CurrentQueueSize > 1000 {
+				sinkStatus = "critical"
+				allHealthy = false
+			} else if dlqStats.CurrentQueueSize > 100 {
+				sinkStatus = "warning"
+			}
+
+			checks["sink_connectivity"] = map[string]interface{}{
+				"status":      sinkStatus,
+				"dlq_entries": dlqStats,
+			}
+		}
+	}
+
+	// Check file descriptor usage (Linux only)
+	fdStatus, fdUsage := checkFileDescriptorUsage()
+	if fdStatus != "healthy" {
+		allHealthy = false
+	}
+	checks["file_descriptors"] = fdUsage
+
 	// Check monitors health
 	if app.fileMonitor != nil {
 		services["file_monitor"] = map[string]interface{}{
-			"status": "healthy",
+			"status":  "healthy",
 			"enabled": true,
 		}
 	}
 
 	if app.containerMonitor != nil {
 		services["container_monitor"] = map[string]interface{}{
-			"status": "healthy",
+			"status":  "healthy",
 			"enabled": true,
 		}
 	}

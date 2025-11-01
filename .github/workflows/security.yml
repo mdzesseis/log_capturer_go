@@ -1,0 +1,220 @@
+name: Security Scanning
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    # Run security scans weekly on Monday at 9am UTC
+    - cron: '0 9 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Install govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Run govulncheck
+      id: govulncheck
+      run: |
+        govulncheck ./... > govulncheck_results.txt 2>&1 || echo "VULNS_FOUND=true" >> $GITHUB_OUTPUT
+        cat govulncheck_results.txt
+
+    - name: Upload vulnerability scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: govulncheck-results
+        path: govulncheck_results.txt
+        retention-days: 30
+
+    - name: Comment PR with results
+      if: github.event_name == 'pull_request' && steps.govulncheck.outputs.VULNS_FOUND == 'true'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const vulnResults = fs.readFileSync('govulncheck_results.txt', 'utf8');
+
+          const commentBody = `## 🔒 Security Vulnerability Scan Results
+
+          \`\`\`
+          ${vulnResults}
+          \`\`\`
+
+          ⚠️ **Action Required**: Vulnerabilities detected in dependencies. Please review and update affected packages.
+
+          ### Remediation Steps:
+          1. Review the vulnerabilities listed above
+          2. Update affected dependencies: \`go get -u <package>\`
+          3. Run \`go mod tidy\` to clean up
+          4. Re-run tests to ensure compatibility
+          `;
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: commentBody
+          });
+
+    - name: Fail on vulnerabilities
+      if: steps.govulncheck.outputs.VULNS_FOUND == 'true'
+      run: |
+        echo "❌ Vulnerabilities found! Please fix before merging."
+        exit 1
+
+  gosec:
+    name: Security Code Scan (Gosec)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Run Gosec Security Scanner
+      uses: securego/gosec@master
+      with:
+        args: '-no-fail -fmt sarif -out gosec-results.sarif ./...'
+
+    - name: Upload SARIF file
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: gosec-results.sarif
+
+    - name: Upload gosec results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gosec-results
+        path: gosec-results.sarif
+        retention-days: 30
+
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: moderate
+        deny-licenses: GPL-2.0, GPL-3.0
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for better detection
+
+    - name: TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+        extra_args: --debug --only-verified
+
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed for SonarQube
+
+    - name: Configurar Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Run go vet
+      run: go vet ./...
+
+    - name: Run staticcheck
+      run: |
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        staticcheck ./...
+
+    - name: Check for common issues
+      run: |
+        # Check for TODO/FIXME comments in security-critical files
+        echo "Checking for unresolved security TODOs..."
+        grep -r "TODO.*security\|FIXME.*security" pkg/ internal/ || echo "No security TODOs found"
+
+        # Check for hardcoded credentials patterns
+        echo "Checking for potential hardcoded secrets..."
+        grep -r "password\s*=\s*[\"'][^\"']*[\"']\|api.*key\s*=\s*[\"'][^\"']*[\"']" . --exclude-dir=".git" --exclude="*.md" || echo "No hardcoded secrets pattern found"
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [govulncheck, gosec, code-quality]
+    if: always()
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create security summary
+      run: |
+        echo "# 🔒 Security Scan Summary" > security_summary.md
+        echo "" >> security_summary.md
+        echo "**Scan Date**: $(date)" >> security_summary.md
+        echo "**Repository**: ${{ github.repository }}" >> security_summary.md
+        echo "**Branch**: ${{ github.ref_name }}" >> security_summary.md
+        echo "" >> security_summary.md
+
+        echo "## Scan Results" >> security_summary.md
+        echo "" >> security_summary.md
+
+        if [ -f "govulncheck-results/govulncheck_results.txt" ]; then
+          echo "### Vulnerability Scan (govulncheck)" >> security_summary.md
+          echo "\`\`\`" >> security_summary.md
+          cat govulncheck-results/govulncheck_results.txt >> security_summary.md
+          echo "\`\`\`" >> security_summary.md
+        fi
+
+        echo "" >> security_summary.md
+        echo "---" >> security_summary.md
+        echo "For detailed results, check the artifacts in this workflow run." >> security_summary.md
+
+    - name: Upload security summary
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-summary
+        path: security_summary.md
+        retention-days: 90

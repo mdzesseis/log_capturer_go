@@ -1,0 +1,86 @@
+# Prometheus Alert Manager Configuration
+# This file configures how alerts from rules.yml are routed and delivered
+
+apiVersion: 1
+
+# Alert manager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Rule files to load
+rule_files:
+  - '/etc/prometheus/alerts/rules.yml'
+
+# Global configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'log-capturer-production'
+    environment: 'production'
+
+# Alertmanager configuration
+route:
+  group_by: ['alertname', 'severity', 'component']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: 'default'
+
+  routes:
+    # Critical alerts - immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts - throttled notifications
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 30s
+      repeat_interval: 4h
+
+# Receivers configuration
+receivers:
+  - name: 'default'
+    # Default receiver for unmatched alerts
+
+  - name: 'critical'
+    # Configure your critical alert channels here
+    # Examples:
+    # slack_configs:
+    #   - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+    #     channel: '#critical-alerts'
+    #     title: 'Critical Alert: {{ .GroupLabels.alertname }}'
+    #     text: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+    # email_configs:
+    #   - to: 'oncall@example.com'
+    #     from: 'prometheus@example.com'
+    #     smarthost: 'smtp.example.com:587'
+
+  - name: 'warning'
+    # Configure your warning alert channels here
+    # slack_configs:
+    #   - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+    #     channel: '#warning-alerts'
+
+# Inhibition rules - prevent notification spam
+inhibit_rules:
+  # Inhibit warning alerts if critical alert is firing for the same component
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['component', 'alertname']
+
+  # Inhibit lower-level alerts when service is down
+  - source_match:
+      alertname: 'LogCapturerDown'
+    target_match_re:
+      alertname: '.*'
+    equal: ['job']

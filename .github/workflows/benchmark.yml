@@ -1,0 +1,202 @@
+name: Benchmark Comparison
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for comparison
+
+    - name: Configurar Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Baixar dependências
+      run: go mod download
+
+    - name: Executar benchmarks no branch atual
+      run: |
+        go test -bench=. -benchmem -run=^$ ./... > current_bench.txt 2>&1 || true
+        cat current_bench.txt
+
+    - name: Checkout branch main para comparação
+      if: github.event_name == 'pull_request'
+      run: |
+        git fetch origin main
+        git checkout origin/main
+
+    - name: Executar benchmarks no branch main
+      if: github.event_name == 'pull_request'
+      run: |
+        go test -bench=. -benchmem -run=^$ ./... > main_bench.txt 2>&1 || true
+        cat main_bench.txt
+
+    - name: Checkout de volta para o branch do PR
+      if: github.event_name == 'pull_request'
+      run: |
+        git checkout -
+
+    - name: Instalar benchstat
+      run: go install golang.org/x/perf/cmd/benchstat@latest
+
+    - name: Comparar benchmarks
+      if: github.event_name == 'pull_request'
+      id: compare
+      run: |
+        echo "## 📊 Benchmark Comparison" > benchmark_comment.md
+        echo "" >> benchmark_comment.md
+
+        if [ -f main_bench.txt ] && [ -f current_bench.txt ]; then
+          echo "### Comparação com branch main:" >> benchmark_comment.md
+          echo '```' >> benchmark_comment.md
+          benchstat main_bench.txt current_bench.txt >> benchmark_comment.md 2>&1 || echo "Benchstat comparison failed or no significant difference" >> benchmark_comment.md
+          echo '```' >> benchmark_comment.md
+          echo "" >> benchmark_comment.md
+
+          # Análise de regressão
+          echo "### 🔍 Análise de Regressão:" >> benchmark_comment.md
+
+          # Verificar se houve degradação significativa (>10%)
+          REGRESSION=$(benchstat -alpha 0.05 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[0-9]+\.[0-9]+%' | grep -v '\+[0-5]\.' || true)
+
+          if [ -n "$REGRESSION" ]; then
+            echo "⚠️ **ATENÇÃO**: Possíveis regressões de performance detectadas:" >> benchmark_comment.md
+            echo '```' >> benchmark_comment.md
+            echo "$REGRESSION" >> benchmark_comment.md
+            echo '```' >> benchmark_comment.md
+            echo "" >> benchmark_comment.md
+            echo "Por favor, revise as mudanças que podem ter impactado a performance." >> benchmark_comment.md
+          else
+            echo "✅ Nenhuma regressão significativa de performance detectada." >> benchmark_comment.md
+          fi
+        else
+          echo "❌ Não foi possível comparar benchmarks (arquivos não encontrados)" >> benchmark_comment.md
+        fi
+
+        echo "" >> benchmark_comment.md
+        echo "### 📈 Benchmarks Atuais:" >> benchmark_comment.md
+        echo '```' >> benchmark_comment.md
+        cat current_bench.txt >> benchmark_comment.md 2>&1 || echo "No benchmarks found" >> benchmark_comment.md
+        echo '```' >> benchmark_comment.md
+
+        cat benchmark_comment.md
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-results
+        path: |
+          current_bench.txt
+          main_bench.txt
+          benchmark_comment.md
+        retention-days: 30
+
+    - name: Comment PR com resultados
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const commentBody = fs.readFileSync('benchmark_comment.md', 'utf8');
+
+          // Buscar comentários existentes do bot
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const botComment = comments.find(comment =>
+            comment.user.type === 'Bot' &&
+            comment.body.includes('📊 Benchmark Comparison')
+          );
+
+          if (botComment) {
+            // Atualizar comentário existente
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: commentBody
+            });
+          } else {
+            // Criar novo comentário
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: commentBody
+            });
+          }
+
+    - name: Verificar regressões críticas
+      if: github.event_name == 'pull_request'
+      run: |
+        # Falhar o job se houver regressões críticas (>20%)
+        if [ -f main_bench.txt ] && [ -f current_bench.txt ]; then
+          CRITICAL_REGRESSION=$(benchstat -alpha 0.01 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[2-9][0-9]\.[0-9]+%|\+[0-9]{3,}\.[0-9]+%' || true)
+
+          if [ -n "$CRITICAL_REGRESSION" ]; then
+            echo "❌ CRITICAL: Regressão de performance >20% detectada!"
+            echo "$CRITICAL_REGRESSION"
+            echo "Por favor, corrija antes de mergear."
+            exit 1
+          fi
+        fi
+
+  benchmark-continuous:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+
+    - name: Configurar Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        cache: true
+
+    - name: Executar benchmarks completos
+      run: |
+        mkdir -p benchmarks/results
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        go test -bench=. -benchmem -benchtime=10s -run=^$ ./... | tee "benchmarks/results/bench_${TIMESTAMP}.txt"
+
+    - name: Upload benchmark baseline
+      uses: actions/upload-artifact@v4
+      with:
+        name: benchmark-baseline-${{ github.sha }}
+        path: benchmarks/results/
+        retention-days: 90
+
+    - name: Commit resultados ao repositório (opcional)
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+
+        if [ -d benchmarks/results ]; then
+          git add benchmarks/results/ || true
+          git diff --staged --quiet || git commit -m "chore: add benchmark results from ${{ github.sha }}" || true
+          # Descomente a linha abaixo se quiser fazer push automático dos resultados
+          # git push || true
+        fi

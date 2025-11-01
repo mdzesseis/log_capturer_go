@@ -1,0 +1,295 @@
+groups:
+  - name: log_capturer_critical
+    interval: 30s
+    rules:
+      # High Goroutine Count Alert
+      - alert: HighGoroutineCount
+        expr: go_goroutines{job="log-capturer"} > 8000
+        for: 5m
+        labels:
+          severity: critical
+          component: runtime
+        annotations:
+          summary: "High goroutine count detected"
+          description: "Goroutine count is {{ $value }}, which exceeds the threshold of 8000. Possible goroutine leak."
+
+      # Goroutine Warning
+      - alert: GoroutineCountWarning
+        expr: go_goroutines{job="log-capturer"} > 5000
+        for: 5m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "Elevated goroutine count"
+          description: "Goroutine count is {{ $value }}, approaching critical threshold."
+
+      # High Memory Usage Alert
+      - alert: HighMemoryUsage
+        expr: (process_resident_memory_bytes{job="log-capturer"} / node_memory_MemTotal_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: critical
+          component: runtime
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}%, exceeding 80% threshold."
+
+      # Memory Warning
+      - alert: MemoryUsageWarning
+        expr: (process_resident_memory_bytes{job="log-capturer"} / node_memory_MemTotal_bytes) * 100 > 70
+        for: 5m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "Elevated memory usage"
+          description: "Memory usage is {{ $value }}%, approaching critical threshold."
+
+      # High File Descriptor Usage
+      - alert: HighFileDescriptorUsage
+        expr: (process_open_fds{job="log-capturer"} / process_max_fds{job="log-capturer"}) * 100 > 80
+        for: 5m
+        labels:
+          severity: critical
+          component: runtime
+        annotations:
+          summary: "High file descriptor usage"
+          description: "File descriptor usage is {{ $value }}%, exceeding 80% threshold. May run out of file descriptors."
+
+      # File Descriptor Warning
+      - alert: FileDescriptorWarning
+        expr: (process_open_fds{job="log-capturer"} / process_max_fds{job="log-capturer"}) * 100 > 70
+        for: 5m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "Elevated file descriptor usage"
+          description: "File descriptor usage is {{ $value }}%, approaching critical threshold."
+
+      # Low Disk Space
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{job="node",mountpoint="/"} / node_filesystem_size_bytes{job="node",mountpoint="/"}) * 100 < 20
+        for: 5m
+        labels:
+          severity: critical
+          component: disk
+        annotations:
+          summary: "Low disk space"
+          description: "Available disk space is {{ $value }}%, below 20% threshold. Immediate action required."
+
+      # Disk Space Warning
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{job="node",mountpoint="/"} / node_filesystem_size_bytes{job="node",mountpoint="/"}) * 100 < 30
+        for: 5m
+        labels:
+          severity: warning
+          component: disk
+        annotations:
+          summary: "Disk space running low"
+          description: "Available disk space is {{ $value }}%, approaching critical threshold."
+
+      # Circuit Breaker Open
+      - alert: CircuitBreakerOpen
+        expr: sum(circuit_breaker_state{job="log-capturer",state="open"}) by (sink) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit breaker open for {{ $labels.sink }}"
+          description: "Circuit breaker for sink {{ $labels.sink }} has been open for 2 minutes. Check sink connectivity."
+
+      # Circuit Breaker Stuck Open
+      - alert: CircuitBreakerStuckOpen
+        expr: sum(circuit_breaker_state{job="log-capturer",state="open"}) by (sink) > 0
+        for: 15m
+        labels:
+          severity: critical
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit breaker stuck open for {{ $labels.sink }}"
+          description: "Circuit breaker for sink {{ $labels.sink }} has been open for 15+ minutes. Service degradation likely."
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: (rate(logs_errors_total{job="log-capturer"}[5m]) / rate(logs_processed_total{job="log-capturer"}[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: processing
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }}, exceeding 1% threshold."
+
+      # Elevated Error Rate
+      - alert: ElevatedErrorRate
+        expr: (rate(logs_errors_total{job="log-capturer"}[5m]) / rate(logs_processed_total{job="log-capturer"}[5m])) > 0.005
+        for: 5m
+        labels:
+          severity: warning
+          component: processing
+        annotations:
+          summary: "Elevated error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}, approaching critical threshold."
+
+      # High Queue Utilization
+      - alert: HighQueueUtilization
+        expr: (dispatcher_queue_size{job="log-capturer"} / dispatcher_queue_capacity{job="log-capturer"}) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: dispatcher
+        annotations:
+          summary: "Dispatcher queue nearly full"
+          description: "Queue utilization is {{ $value }}%, exceeding 90% threshold. Risk of dropping logs."
+
+      # Queue Utilization Warning
+      - alert: QueueUtilizationWarning
+        expr: (dispatcher_queue_size{job="log-capturer"} / dispatcher_queue_capacity{job="log-capturer"}) * 100 > 70
+        for: 5m
+        labels:
+          severity: warning
+          component: dispatcher
+        annotations:
+          summary: "High dispatcher queue utilization"
+          description: "Queue utilization is {{ $value }}%, approaching critical threshold."
+
+      # Service Down
+      - alert: LogCapturerDown
+        expr: up{job="log-capturer"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Log Capturer service is down"
+          description: "Log Capturer has been down for more than 1 minute."
+
+      # No Logs Being Processed
+      - alert: NoLogsProcessed
+        expr: rate(logs_processed_total{job="log-capturer"}[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: processing
+        annotations:
+          summary: "No logs being processed"
+          description: "No logs have been processed in the last 10 minutes. Check monitors and sources."
+
+      # Low Throughput
+      - alert: LowThroughput
+        expr: rate(logs_processed_total{job="log-capturer"}[1m]) < 10
+        for: 10m
+        labels:
+          severity: warning
+          component: processing
+        annotations:
+          summary: "Low log processing throughput"
+          description: "Throughput is {{ $value | humanize }} logs/sec, which is unusually low. Check system health."
+
+      # DLQ Growing
+      - alert: DLQGrowing
+        expr: increase(dlq_entries_total{job="log-capturer"}[10m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "Dead Letter Queue is growing"
+          description: "DLQ has grown by {{ $value }} entries in the last 10 minutes. Check sink connectivity."
+
+      # DLQ Critical
+      - alert: DLQCritical
+        expr: dlq_entries_total{job="log-capturer"} > 10000
+        for: 5m
+        labels:
+          severity: critical
+          component: dlq
+        annotations:
+          summary: "Dead Letter Queue has too many entries"
+          description: "DLQ contains {{ $value }} entries. Urgent investigation required."
+
+  - name: log_capturer_performance
+    interval: 60s
+    rules:
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: cpu_usage_percent{job="log-capturer"} > 80
+        for: 10m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%, exceeding 80% for 10+ minutes."
+
+      # High GC Pause Time
+      - alert: HighGCPauseTime
+        expr: rate(gc_pause_duration_seconds_sum{job="log-capturer"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: runtime
+        annotations:
+          summary: "High GC pause time"
+          description: "GC pause time rate is {{ $value }}s, indicating memory pressure."
+
+      # Sink Latency High
+      - alert: SinkLatencyHigh
+        expr: histogram_quantile(0.99, rate(sink_send_duration_seconds_bucket{job="log-capturer"}[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: sink
+        annotations:
+          summary: "High sink latency for {{ $labels.sink_type }}"
+          description: "P99 latency for {{ $labels.sink_type }} is {{ $value }}s, exceeding 5s threshold."
+
+      # Processing Latency High
+      - alert: ProcessingLatencyHigh
+        expr: histogram_quantile(0.99, rate(processing_duration_seconds_bucket{job="log-capturer"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: processing
+        annotations:
+          summary: "High processing latency"
+          description: "P99 processing latency is {{ $value }}s, exceeding 1s threshold."
+
+  - name: log_capturer_resource_leaks
+    interval: 120s
+    rules:
+      # Goroutine Leak Detected
+      - alert: GoroutineLeakSuspected
+        expr: deriv(go_goroutines{job="log-capturer"}[30m]) > 10
+        for: 15m
+        labels:
+          severity: warning
+          component: leak_detection
+        annotations:
+          summary: "Possible goroutine leak"
+          description: "Goroutine count is increasing at {{ $value }}/minute over the last 30 minutes."
+
+      # Memory Leak Detected
+      - alert: MemoryLeakSuspected
+        expr: deriv(process_resident_memory_bytes{job="log-capturer"}[30m]) > 10485760
+        for: 15m
+        labels:
+          severity: warning
+          component: leak_detection
+        annotations:
+          summary: "Possible memory leak"
+          description: "Memory usage is increasing at {{ $value | humanize }}B/minute over the last 30 minutes."
+
+      # File Descriptor Leak
+      - alert: FileDescriptorLeakSuspected
+        expr: deriv(process_open_fds{job="log-capturer"}[30m]) > 5
+        for: 15m
+        labels:
+          severity: warning
+          component: leak_detection
+        annotations:
+          summary: "Possible file descriptor leak"
+          description: "File descriptor count is increasing at {{ $value }}/minute over the last 30 minutes."

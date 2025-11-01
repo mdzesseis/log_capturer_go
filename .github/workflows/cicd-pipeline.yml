@@ -23,11 +23,33 @@ jobs:
     - name: Baixar dependências
       run: go mod download
 
-    - name: Executar testes
-      run: go test -v ./... --coverprofile=coverage.out
+    - name: Executar testes com race detector
+      run: go test -race -short -v ./...
+
+    - name: Executar testes com coverage
+      run: go test -v ./... -coverprofile=coverage.out -covermode=atomic
+
+    - name: Verificar threshold de coverage (70%)
+      run: |
+        COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+        echo "Coverage atual: ${COVERAGE}%"
+        if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+          echo "❌ Coverage de ${COVERAGE}% está abaixo do threshold de 70%"
+          exit 1
+        else
+          echo "✅ Coverage de ${COVERAGE}% está acima do threshold de 70%"
+        fi
 
     - name: Gerar relatório de cobertura
       run: go tool cover -html=coverage.out -o coverage.html
+
+    - name: Upload coverage para artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report
+        path: |
+          coverage.out
+          coverage.html
 
     - name: Build da aplicação
       run: go build -o bin/app .
