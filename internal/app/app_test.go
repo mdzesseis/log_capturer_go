@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"ssw-logs-capture/pkg/types"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -265,80 +263,6 @@ func TestEnterpriseFeatures(t *testing.T) {
 }
 
 // Helper functions
-
-func createMinimalConfig(t *testing.T, tmpDir string) string {
-	configContent := `
-app:
-  name: "test-app"
-  version: "v1.0.0"
-  log_level: "info"
-  log_format: "json"
-
-server:
-  enabled: false
-
-metrics:
-  enabled: false
-
-dispatcher:
-  queue_size: 1000
-  worker_count: 2
-  batch_size: 10
-  batch_timeout: "1s"
-  max_retries: 1
-  retry_base_delay: "100ms"
-
-file_monitor_service:
-  enabled: false
-
-container_monitor:
-  enabled: false
-
-sinks:
-  loki:
-    enabled: false
-  local_file:
-    enabled: false
-
-positions:
-  enabled: false
-
-processing:
-  enabled: false
-
-security:
-  enabled: false
-
-tracing:
-  enabled: false
-
-slo:
-  enabled: false
-
-goroutine_tracking:
-  enabled: false
-
-resource_monitoring:
-  enabled: false
-
-disk_cleanup:
-  enabled: false
-
-disk_buffer:
-  enabled: false
-
-anomaly_detection:
-  enabled: false
-
-hot_reload:
-  enabled: false
-`
-
-	configFile := filepath.Join(tmpDir, "config.yaml")
-	err := os.WriteFile(configFile, []byte(configContent), 0644)
-	require.NoError(t, err)
-	return configFile
-}
 
 func createSecurityConfig(t *testing.T, tmpDir string) string {
 	configContent := `

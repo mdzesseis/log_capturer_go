@@ -1,8 +1,18 @@
 {
     "chat.mcp.discovery.enabled": {
-        "cursor-workspace": true,
-        "cursor-global": true,
-        "windsurf": true,
-        "claude-desktop": true
+      "cursor-workspace": true,
+      "cursor-global": true,
+      "windsurf": true,
+      "claude-desktop": true
+    },
+
+    "go.languageServerFlags": [
+      "-mcp.listen=localhost:8092"
+    ],
+    "mcp.servers": {
+      "gopls": {
+        "url": "http://localhost:8092",
+      "type": "http"
     }
+  }
 }

@@ -91,8 +91,37 @@ func loadFilePipeline(config *types.Config) error {
 	return nil
 }
 
+// shouldApplyDefaults determina se devemos aplicar valores default
+// Retorna true se default_configs está habilitado (true ou não especificado)
+func shouldApplyDefaults(config *types.Config) bool {
+	// Primeiro verifica variável de ambiente
+	if envValue := os.Getenv("SSW_DEFAULT_CONFIGS"); envValue != "" {
+		if enabled, err := strconv.ParseBool(envValue); err == nil {
+			return enabled
+		}
+	}
+
+	// Se DefaultConfigs for nil (não especificado no YAML), retorna true (comportamento padrão)
+	if config.App.DefaultConfigs == nil {
+		return true
+	}
+
+	// Caso contrário, usa o valor especificado no YAML
+	return *config.App.DefaultConfigs
+}
+
 // applyDefaults aplica valores padrão à configuração
 func applyDefaults(config *types.Config) {
+	// Determina se devemos aplicar defaults
+	applyDefaultValues := shouldApplyDefaults(config)
+
+	if !applyDefaultValues {
+		fmt.Println("⚙ Default configurations disabled - using only explicitly configured values")
+		return
+	}
+
+	fmt.Println("⚙ Default configurations enabled - applying defaults for missing values")
+
 	// App defaults
 	if config.App.Name == "" {
 		config.App.Name = "ssw-logs-capture"
@@ -128,17 +157,23 @@ func applyDefaults(config *types.Config) {
 	config.Metrics.Enabled = true // Default enabled
 
 	// Files Config defaults (padrões de arquivos)
-	if len(config.FilesConfig.WatchDirectories) == 0 {
+	// IMPORTANTE: Apenas aplica defaults se WatchDirectories e IncludePatterns forem nil
+	// Se forem slices vazios (não nil), significa que foram definidos explicitamente como vazios
+	// e NÃO devemos aplicar defaults (usuário não quer monitorar nada)
+	if config.FilesConfig.WatchDirectories == nil {
 		config.FilesConfig.WatchDirectories = []string{"/var/log"}
 	}
-	if len(config.FilesConfig.IncludePatterns) == 0 {
+	if config.FilesConfig.IncludePatterns == nil {
 		config.FilesConfig.IncludePatterns = []string{"*.log", "*.txt"}
 	}
+
+	// Exclude patterns sempre tem defaults se não especificados (segurança)
+	// Mesmo que o usuário não queira monitorar nada, é seguro ter exclusões padrão
 	if len(config.FilesConfig.ExcludePatterns) == 0 {
 		config.FilesConfig.ExcludePatterns = []string{"*.gz", "*.zip"}
 	}
 	if len(config.FilesConfig.ExcludeDirectories) == 0 {
-		config.FilesConfig.ExcludeDirectories = []string{"/var/log/monitoring_data", "/app/logs"}
+		config.FilesConfig.ExcludeDirectories = []string{"/var/log/monitoring_data_suite", "/app/logs"}
 	}
 
 	// File Monitor Service defaults
@@ -337,7 +372,31 @@ func loadConfigFile(filename string, config *types.Config) error {
 		return fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// Marcar que a configuração foi carregada de arquivo
+	// Isso permite distinguir entre "não configurado" e "configurado como vazio"
+	markConfigAsLoaded(config, data)
+
 	return nil
+}
+
+// markConfigAsLoaded analisa o YAML raw para marcar quais seções foram explicitamente definidas
+func markConfigAsLoaded(config *types.Config, yamlData []byte) {
+	yamlStr := string(yamlData)
+
+	// Verifica se files_config está presente no YAML (mesmo que comentado ou vazio)
+	// Se estiver presente, significa que o usuário quis configurá-lo explicitamente
+	if strings.Contains(yamlStr, "files_config:") {
+		// Marca internamente que files_config foi definido
+		// Usamos um marcador especial: se watch_directories estiver nil mas files_config existir,
+		// inicializamos como slice vazio para indicar "definido mas vazio"
+		if config.FilesConfig.WatchDirectories == nil {
+			config.FilesConfig.WatchDirectories = []string{}
+		}
+		if config.FilesConfig.IncludePatterns == nil {
+			config.FilesConfig.IncludePatterns = []string{}
+		}
+		// Nota: ExcludePatterns e ExcludeDirectories sempre terão defaults por segurança
+	}
 }
 
 // Funções auxiliares para variáveis de ambiente

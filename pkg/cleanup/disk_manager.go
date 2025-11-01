@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"ssw-logs-capture/internal/metrics"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -109,6 +111,27 @@ func (dsm *DiskSpaceManager) performCleanup() {
 
 	// Verificar espaço em disco geral
 	dsm.checkDiskSpace()
+
+	// Atualizar métricas de uso de disco
+	dsm.updateDiskMetrics()
+}
+
+// updateDiskMetrics atualiza as métricas de uso de disco
+func (dsm *DiskSpaceManager) updateDiskMetrics() {
+	for _, dirConfig := range dsm.config.Directories {
+		usage, err := dsm.getDiskUsage(dirConfig.Path)
+		if err != nil {
+			dsm.logger.WithError(err).WithField("path", dirConfig.Path).
+				Warn("Failed to get disk usage for metrics")
+			continue
+		}
+
+		// Extract device name from path (simplified - just use path as device identifier)
+		device := filepath.Base(dirConfig.Path)
+
+		// Update Prometheus metrics
+		metrics.DiskUsageBytes.WithLabelValues(dirConfig.Path, device).Set(float64(usage.Used))
+	}
 }
 
 // cleanupDirectory limpa um diretório específico

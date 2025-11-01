@@ -7,6 +7,7 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -387,12 +388,51 @@ func (ad *AnomalyDetector) DetectAnomaly(entry *types.LogEntry) (*AnomalyResult,
 		ad.stats.AnomaliesDetected++
 		ad.stats.LastAnomalyTime = time.Now()
 
-		ad.logger.WithFields(logrus.Fields{
+		// Get top 3 anomalous features for detailed logging
+		topFeatures := ad.getTopAnomalousFeatures(features, 3)
+
+		// Build comprehensive log entry
+		logFields := logrus.Fields{
 			"anomaly_score": finalScore,
+			"confidence":    result.Confidence,
+			"severity":      result.Severity,
 			"source_type":   entry.SourceType,
 			"source_id":     entry.SourceID,
-			"severity":      result.Severity,
-		}).Warn("Anomaly detected")
+			"model_used":    bestModel,
+			"reason":        result.Reason,
+		}
+
+		// Add top features that triggered the anomaly
+		for i, tf := range topFeatures {
+			logFields[fmt.Sprintf("trigger_feature_%d", i+1)] = fmt.Sprintf("%s=%.2f", tf.name, tf.value)
+		}
+
+		// Add recommendations if any
+		if len(result.Recommendations) > 0 {
+			logFields["recommendation"] = result.Recommendations[0]
+			if len(result.Recommendations) > 1 {
+				logFields["recommendations_count"] = len(result.Recommendations)
+			}
+		}
+
+		// Add message preview (truncated for readability)
+		messagePreview := entry.Message
+		if len(messagePreview) > 100 {
+			messagePreview = messagePreview[:100] + "..."
+		}
+		logFields["message_preview"] = messagePreview
+
+		// Log level based on severity
+		switch result.Severity {
+		case "critical":
+			ad.logger.WithFields(logFields).Error("CRITICAL ANOMALY DETECTED")
+		case "high":
+			ad.logger.WithFields(logFields).Warn("HIGH SEVERITY ANOMALY DETECTED")
+		case "medium":
+			ad.logger.WithFields(logFields).Warn("MEDIUM SEVERITY ANOMALY DETECTED")
+		default:
+			ad.logger.WithFields(logFields).Info("Low severity anomaly detected")
+		}
 	}
 
 	return result, nil
@@ -523,18 +563,13 @@ func (ad *AnomalyDetector) calculateSeverity(score float64) string {
 	}
 }
 
-// generateReason gera uma explicação para o resultado
+// generateReason gera uma explicação detalhada e acionável para o resultado
 func (ad *AnomalyDetector) generateReason(score float64, features map[string]float64) string {
 	if score < ad.config.AlertThreshold {
 		return "normal behavior detected"
 	}
 
-	// Find the most anomalous features
-	type featureScore struct {
-		name  string
-		value float64
-	}
-
+	// Find the most anomalous features (top 3)
 	var scores []featureScore
 	for name, value := range features {
 		scores = append(scores, featureScore{name, value})
@@ -544,11 +579,156 @@ func (ad *AnomalyDetector) generateReason(score float64, features map[string]flo
 		return scores[i].value > scores[j].value
 	})
 
+	// Generate detailed explanation
+	var reasons []string
+
+	// Analyze top 3 features
+	for i := 0; i < 3 && i < len(scores); i++ {
+		featureName := scores[i].name
+		featureValue := scores[i].value
+
+		explanation := ad.explainFeature(featureName, featureValue)
+		if explanation != "" {
+			reasons = append(reasons, explanation)
+		}
+	}
+
+	if len(reasons) > 0 {
+		return strings.Join(reasons, "; ")
+	}
+
 	if len(scores) > 0 {
-		return fmt.Sprintf("anomalous patterns detected, primary factor: %s (%.2f)", scores[0].name, scores[0].value)
+		return fmt.Sprintf("anomalous patterns detected in %s (value: %.2f)", scores[0].name, scores[0].value)
 	}
 
 	return "anomalous behavior detected"
+}
+
+// featureScore representa uma feature com seu valor
+type featureScore struct {
+	name  string
+	value float64
+}
+
+// getTopAnomalousFeatures retorna as N features com maiores valores
+func (ad *AnomalyDetector) getTopAnomalousFeatures(features map[string]float64, n int) []featureScore {
+	var scores []featureScore
+	for name, value := range features {
+		scores = append(scores, featureScore{name, value})
+	}
+
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].value > scores[j].value
+	})
+
+	// Return top N
+	if len(scores) > n {
+		scores = scores[:n]
+	}
+
+	return scores
+}
+
+// explainFeature gera explicação específica para cada tipo de feature
+func (ad *AnomalyDetector) explainFeature(featureName string, value float64) string {
+	// Text features
+	if strings.Contains(featureName, "text_message_length") {
+		if value > 1000 {
+			return fmt.Sprintf("unusually long message (%.0f chars, expected <1000)", value)
+		} else if value > 500 {
+			return fmt.Sprintf("abnormally long message (%.0f chars)", value)
+		}
+	}
+
+	if strings.Contains(featureName, "text_entropy") {
+		if value > 4.5 {
+			return fmt.Sprintf("high entropy text detected (%.2f), possible encrypted/random data", value)
+		} else if value < 2.0 {
+			return fmt.Sprintf("low entropy text (%.2f), highly repetitive content", value)
+		}
+	}
+
+	if strings.Contains(featureName, "text_digit_ratio") {
+		if value > 0.5 {
+			return fmt.Sprintf("excessive numeric content (%.0f%% digits)", value*100)
+		}
+	}
+
+	if strings.Contains(featureName, "text_special_ratio") {
+		if value > 0.3 {
+			return fmt.Sprintf("unusual character distribution (%.0f%% special chars)", value*100)
+		}
+	}
+
+	// Statistical features
+	if strings.Contains(featureName, "statistical_events_per_minute") {
+		if value > 100 {
+			return fmt.Sprintf("extreme event rate spike (%.0f events/min)", value)
+		} else if value > 50 {
+			return fmt.Sprintf("high event frequency (%.0f events/min)", value)
+		}
+	}
+
+	if strings.Contains(featureName, "statistical_message_duplicate_count") {
+		if value > 10 {
+			return fmt.Sprintf("excessive message repetition (%.0f duplicates)", value)
+		} else if value > 5 {
+			return fmt.Sprintf("repeated messages detected (%.0f times)", value)
+		}
+	}
+
+	// Temporal features
+	if strings.Contains(featureName, "temporal_current_interval") {
+		if value < 0.1 {
+			return fmt.Sprintf("burst activity detected (%.3fs between events)", value)
+		} else if value > 60 {
+			return fmt.Sprintf("unusual gap in activity (%.0fs since last event)", value)
+		}
+	}
+
+	if strings.Contains(featureName, "temporal_regularity_score") {
+		if value < 0.3 {
+			return fmt.Sprintf("irregular timing pattern (regularity: %.2f)", value)
+		}
+	}
+
+	// Pattern features
+	if strings.Contains(featureName, "pattern_error_pattern_score") {
+		if value >= 3 {
+			return fmt.Sprintf("multiple error indicators found (%.0f patterns matched)", value)
+		} else if value >= 1 {
+			return fmt.Sprintf("error pattern detected in message")
+		}
+	}
+
+	if strings.Contains(featureName, "pattern_security_pattern_score") {
+		if value >= 2 {
+			return fmt.Sprintf("security-related keywords detected (%.0f patterns)", value)
+		} else if value >= 1 {
+			return fmt.Sprintf("potential security event (auth/access related)")
+		}
+	}
+
+	if strings.Contains(featureName, "pattern_level_severity") {
+		if value >= 5 {
+			return "ERROR/FATAL level log detected"
+		} else if value >= 4 {
+			return "WARNING level anomaly"
+		}
+	}
+
+	if strings.Contains(featureName, "pattern_performance_pattern_score") {
+		if value >= 3 {
+			return fmt.Sprintf("performance metrics anomaly (%.0f indicators)", value)
+		}
+	}
+
+	// Generic high value
+	if value > 10 {
+		return fmt.Sprintf("%s shows unusual high value (%.2f)", featureName, value)
+	}
+
+	return ""
 }
 
 // generateRecommendations gera recomendações

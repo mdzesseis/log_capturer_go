@@ -321,7 +321,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "🏥 **O que mostra**: Status de saúde dos componentes do sistema (1 = saudável/ativo, 0 = não saudável/inativo).\n\n✅ **Valores desejáveis**: Todos os componentes devem estar em 1 (verde - saudável).\n\n⚠️ **Atenção**: Qualquer componente em 0 (vermelho) indica problema crítico que requer investigação imediata.\n\n💡 **Componentes**: dispatcher = distribuidor de logs, file_monitor = monitor de arquivos, container_monitor = monitor de containers, sinks = destinos de logs (Loki, arquivo, etc.).\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "🏥 **O que mostra**: Status de saúde dos componentes do sistema (1 = saudável/ativo, 0 = não saudável/inativo).\n\n✅ **Valores desejáveis**: Todos os componentes devem estar em 1 (verde - saudável).\n\n⚠️ **Atenção**: Qualquer componente em 0 (vermelho) indica problema crítico que requer investigação imediata.\n\n💡 **Componentes**: dispatcher = distribuidor de logs, file_monitor = monitor de arquivos, container_monitor = monitor de containers, sinks = destinos de logs (Loki, arquivo, etc.).",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -398,7 +398,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "❌ **O que mostra**: Taxa de erros por segundo por componente e tipo de erro.\n\n✅ **Valores desejáveis**: Próximo de zero. Erros esporádicos (< 1 erro/minuto) são aceitáveis.\n\n⚠️ **Atenção**: Taxa crescente ou > 10 erros/segundo indica problema grave. Investigue logs imediatamente.\n\n💡 **Tipos de erro**: timeout = timeout em operações, connection_failed = falha de conexão, parse_error = erro ao processar log, send_failed = falha ao enviar para sink.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "❌ **O que mostra**: Taxa de erros por segundo por componente e tipo de erro.\n\n✅ **Valores desejáveis**: Próximo de zero. Erros esporádicos (< 1 erro/minuto) são aceitáveis.\n\n⚠️ **Atenção**: Taxa crescente ou > 10 erros/segundo indica problema grave. Investigue logs imediatamente.\n\n💡 **Tipos de erro**: timeout = timeout em operações, connection_failed = falha de conexão, parse_error = erro ao processar log, send_failed = falha ao enviar para sink.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -492,7 +492,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "💚 **O que mostra**: Saúde específica dos destinos de logs (sinks) - Loki, arquivo local, Elasticsearch, etc.\n\n✅ **Valores desejáveis**: Todos em 1 (100% healthy).\n\n⚠️ **Atenção**: Sink com valor 0 significa que logs não estão sendo enviados para aquele destino. Verifique conectividade e configuração.\n\n💡 **Sinks**: loki = Grafana Loki, local_file = arquivo local, elasticsearch = Elasticsearch, splunk = Splunk.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "💚 **O que mostra**: Saúde específica dos destinos de logs (sinks) - Loki, arquivo local, Elasticsearch, etc.\n\n✅ **Valores desejáveis**: Todos em 1 (100% healthy).\n\n⚠️ **Atenção**: Sink com valor 0 significa que logs não estão sendo enviados para aquele destino. Verifique conectividade e configuração.\n\n💡 **Sinks**: loki = Grafana Loki, local_file = arquivo local, elasticsearch = Elasticsearch, splunk = Splunk.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -799,7 +799,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "📊 **O que mostra**: Contadores simples do número total de containers e arquivos sendo monitorados.\n\n✅ **Valores desejáveis**: Deve ser estável. Mudanças bruscas indicam containers/arquivos sendo adicionados ou removidos.\n\n⚠️ **Atenção**: Queda para zero significa que nenhum recurso está sendo monitorado (problema crítico).\n\n💡 **Uso**: Visão rápida da cobertura de monitoramento.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "📊 **O que mostra**: Contadores simples do número total de containers e arquivos sendo monitorados.\n\n✅ **Valores desejáveis**: Deve ser estável. Mudanças bruscas indicam containers/arquivos sendo adicionados ou removidos.\n\n⚠️ **Atenção**: Queda para zero significa que nenhum recurso está sendo monitorado (problema crítico).\n\n💡 **Uso**: Visão rápida da cobertura de monitoramento.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1136,7 +1136,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "⏲️ **O que mostra**: Tempo de resposta para várias operações do sistema (leitura, escrita, API calls, etc.).\n\n✅ **Valores desejáveis**: P99 < 100ms para operações locais, < 1s para operações de rede.\n\n⚠️ **Atenção**: Tempos crescentes indicam degradação de performance. Identifique operação lenta e investigue.\n\n💡 **Operações**: read = leitura de logs, write = escrita, api = chamadas API, db = operações de banco, etc.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "⏲️ **O que mostra**: Tempo de resposta para várias operações do sistema (leitura, escrita, API calls, etc.).\n\n✅ **Valores desejáveis**: P99 < 100ms para operações locais, < 1s para operações de rede.\n\n⚠️ **Atenção**: Tempos crescentes indicam degradação de performance. Identifique operação lenta e investigue.\n\n💡 **Operações**: read = leitura de logs, write = escrita, api = chamadas API, db = operações de banco, etc.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1606,7 +1606,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "💓 **O que mostra**: Taxa de heartbeats (sinais de vida) das tarefas por segundo. Cada tarefa envia heartbeat periodicamente para indicar que está viva.\n\n✅ **Valores desejáveis**: Taxa constante e positiva. Cada worker geralmente envia 1 heartbeat a cada 30-60 segundos.\n\n⚠️ **Atenção**: Heartbeat parando para uma tarefa indica que ela travou ou crashou. Heartbeat muito frequente pode indicar loop infinito.\n\n💡 **Uso**: Mecanismo de detecção de workers travados ou mortos.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "💓 **O que mostra**: Taxa de heartbeats (sinais de vida) das tarefas por segundo. Cada tarefa envia heartbeat periodicamente para indicar que está viva.\n\n✅ **Valores desejáveis**: Taxa constante e positiva. Cada worker geralmente envia 1 heartbeat a cada 30-60 segundos.\n\n⚠️ **Atenção**: Heartbeat parando para uma tarefa indica que ela travou ou crashou. Heartbeat muito frequente pode indicar loop infinito.\n\n💡 **Uso**: Mecanismo de detecção de workers travados ou mortos.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1996,7 +1996,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "📁 **O que mostra**: Número de file descriptors (arquivos abertos) pelo sistema operacional.\n\n✅ **Valores desejáveis**: Estável e < 1000 para sistema típico. Cada arquivo/socket/pipe usa 1 FD.\n\n⚠️ **Atenção**: Crescimento contínuo indica vazamento de FD (arquivos não fechados). Sistema tem limite (geralmente 1024 ou 65536).\n\n💡 **Causas comuns**: Arquivos de log não fechados, conexões HTTP não finalizadas, sockets Docker não liberados.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "📁 **O que mostra**: Número de file descriptors (arquivos abertos) pelo sistema operacional.\n\n✅ **Valores desejáveis**: Estável e < 1000 para sistema típico. Cada arquivo/socket/pipe usa 1 FD.\n\n⚠️ **Atenção**: Crescimento contínuo indica vazamento de FD (arquivos não fechados). Sistema tem limite (geralmente 1024 ou 65536).\n\n💡 **Causas comuns**: Arquivos de log não fechados, conexões HTTP não finalizadas, sockets Docker não liberados.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2095,7 +2095,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "💿 **O que mostra**: Uso de disco em bytes por caminho e tipo.\n\n✅ **Valores desejáveis**: Crescimento lento e controlado. Deve ter pelo menos 10% de espaço livre.\n\n⚠️ **Atenção**: Disco cheio (> 95%) causa falhas. Sistema tem limpeza automática configurada.\n\n💡 **Paths**: /app/logs = logs de saída, /app/dlq = dead letter queue, /app/buffer = buffer persistente, /app/data = dados de estado.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "💿 **O que mostra**: Uso de disco em bytes por caminho e tipo.\n\n✅ **Valores desejáveis**: Crescimento lento e controlado. Deve ter pelo menos 10% de espaço livre.\n\n⚠️ **Atenção**: Disco cheio (> 95%) causa falhas. Sistema tem limpeza automática configurada.\n\n💡 **Paths**: /app/logs = logs de saída, /app/dlq = dead letter queue, /app/buffer = buffer persistente, /app/data = dados de estado.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2287,7 +2287,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "⏱️ **O que mostra**: Duração das pausas de GC em percentis (P50, P95, P99).\n\n✅ **Valores desejáveis**: P99 < 10ms é excelente, < 50ms é bom, < 100ms é aceitável.\n\n⚠️ **Atenção**: P99 > 100ms pode causar latência perceptível em processamento. > 1s indica problema sério.\n\n💡 **Impacto**: Durante GC pause, aplicação para completamente. Pausas longas afetam throughput e latência.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "⏱️ **O que mostra**: Duração das pausas de GC em percentis (P50, P95, P99).\n\n✅ **Valores desejáveis**: P99 < 10ms é excelente, < 50ms é bom, < 100ms é aceitável.\n\n⚠️ **Atenção**: P99 > 100ms pode causar latência perceptível em processamento. > 1s indica problema sério.\n\n💡 **Impacto**: Durante GC pause, aplicação para completamente. Pausas longas afetam throughput e latência.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2511,7 +2511,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "📊 **O que mostra**: Estatísticas do pool de conexões (HTTP, Docker, banco de dados).\n\n✅ **Valores desejáveis**: idle > 0 (tem conexões disponíveis), active < max (não saturado), wait_time < 100ms.\n\n⚠️ **Atenção**: idle = 0 + active = max significa pool esgotado. wait_time alto indica gargalo em conexões.\n\n💡 **Métricas**: active = conexões em uso, idle = conexões ociosas prontas, max = limite configurado, wait_time = tempo esperando por conexão.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "📊 **O que mostra**: Estatísticas do pool de conexões (HTTP, Docker, banco de dados).\n\n✅ **Valores desejáveis**: idle > 0 (tem conexões disponíveis), active < max (não saturado), wait_time < 100ms.\n\n⚠️ **Atenção**: idle = 0 + active = max significa pool esgotado. wait_time alto indica gargalo em conexões.\n\n💡 **Métricas**: active = conexões em uso, idle = conexões ociosas prontas, max = limite configurado, wait_time = tempo esperando por conexão.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2612,7 +2612,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "🗜️ **O que mostra**: Taxa de compressão alcançada por algoritmo e destino (1.0 = sem compressão, 2.0 = 50% de redução, 10.0 = 90% de redução).\n\n✅ **Valores desejáveis**: > 2.0 (50%) é bom para logs de texto, > 5.0 (80%) é excelente.\n\n⚠️ **Atenção**: Ratio < 1.5 (33%) pode indicar logs já comprimidos ou binários. Ratio muito alto pode usar muita CPU.\n\n💡 **Algoritmos**: gzip = padrão, balanço entre CPU e compressão; zstd = mais rápido, menos compressão; snappy = muito rápido, compressão moderada.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "🗜️ **O que mostra**: Taxa de compressão alcançada por algoritmo e destino (1.0 = sem compressão, 2.0 = 50% de redução, 10.0 = 90% de redução).\n\n✅ **Valores desejáveis**: > 2.0 (50%) é bom para logs de texto, > 5.0 (80%) é excelente.\n\n⚠️ **Atenção**: Ratio < 1.5 (33%) pode indicar logs já comprimidos ou binários. Ratio muito alto pode usar muita CPU.\n\n💡 **Algoritmos**: gzip = padrão, balanço entre CPU e compressão; zstd = mais rápido, menos compressão; snappy = muito rápido, compressão moderada.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2697,7 +2697,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "📦 **O que mostra**: Estatísticas do sistema de batching (agrupamento de logs antes de enviar).\n\n✅ **Valores desejáveis**: batch_size próximo do configurado (default 500), batch_fill_rate > 0.7 (70% cheio), flush_time < batch_timeout.\n\n⚠️ **Atenção**: batch_size muito baixo desperdiça chamadas. batch_fill_rate < 0.3 indica batches parcialmente vazios (ineficiente).\n\n💡 **Batching**: Agrupa logs para enviar em lote, reduzindo chamadas de rede. batch_timeout força envio mesmo se não atingir tamanho máximo.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "📦 **O que mostra**: Estatísticas do sistema de batching (agrupamento de logs antes de enviar).\n\n✅ **Valores desejáveis**: batch_size próximo do configurado (default 500), batch_fill_rate > 0.7 (70% cheio), flush_time < batch_timeout.\n\n⚠️ **Atenção**: batch_size muito baixo desperdiça chamadas. batch_fill_rate < 0.3 indica batches parcialmente vazios (ineficiente).\n\n💡 **Batching**: Agrupa logs para enviar em lote, reduzindo chamadas de rede. batch_timeout força envio mesmo se não atingir tamanho máximo.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2810,7 +2810,7 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
-      "description": "🔍 **O que mostra**: Métricas de detecção de vazamentos de recursos (file descriptors, goroutines, memória).\n\n✅ **Valores desejáveis**: Todos próximos de zero. Sistema monitora e alerta sobre vazamentos.\n\n⚠️ **Atenção**: Valor > 0 significa vazamento detectado! Verifique logs para detalhes. Vazamentos não corrigidos podem crashar aplicação.\n\n💡 **Tipos**: fd_leak = file descriptors vazando, goroutine_leak = goroutines não finalizadas, memory_leak = memória não liberada.\n\n🛠️ **Limiares**: FD > 20, Goroutines > 20, Memória > 50MB disparam alertas.\n\n⚠️ NOTA: Este painel não tem métricas disponíveis no momento. As métricas necessárias ainda não foram implementadas.",
+      "description": "🔍 **O que mostra**: Métricas de detecção de vazamentos de recursos (file descriptors, goroutines, memória).\n\n✅ **Valores desejáveis**: Todos próximos de zero. Sistema monitora e alerta sobre vazamentos.\n\n⚠️ **Atenção**: Valor > 0 significa vazamento detectado! Verifique logs para detalhes. Vazamentos não corrigidos podem crashar aplicação.\n\n💡 **Tipos**: fd_leak = file descriptors vazando, goroutine_leak = goroutines não finalizadas, memory_leak = memória não liberada.\n\n🛠️ **Limiares**: FD > 20, Goroutines > 20, Memória > 50MB disparam alertas.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2944,7 +2944,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Log Capturer Go - Dashboard COMPLETO (Todas as Métricas)",
+  "title": "Log Capturer Go - Dashboard COMPLETO",
   "uid": "log-capturer-go-complete-v2",
   "version": 1,
   "weekStart": ""

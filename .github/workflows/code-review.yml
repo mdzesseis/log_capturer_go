@@ -44,7 +44,7 @@ jobs:
     - name: Executar gosec para análise de segurança
       id: gosec
       run: |
-        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        go install github.com/securego/gosec/v2/cmd/gosec@latest
         gosec -fmt=text -out=gosec_report.txt ./... || true
         if [ -s gosec_report.txt ]; then
           echo "security-issues=true" >> $GITHUB_OUTPUT

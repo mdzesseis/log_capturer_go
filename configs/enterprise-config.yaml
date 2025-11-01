@@ -365,18 +365,18 @@ file_monitor_service:
 
 files_config:
   watch_directories:
-    - "/var/log"
-    - "/app/logs"
+    # - "/var/log"
+    # - "/app/logs"
   include_patterns:
-    - "*.log"
-    - "*.txt"
-    - "*.json"
+    # - "*.log"
+    # - "*.txt"
+    # - "*.json"
   exclude_patterns:
-    - "*.gz"
-    - "*.zip"
-    - "*.tmp"
+    # - "*.gz"
+    # - "*.zip"
+    # - "*.tmp"
   exclude_directories:
-    - "/var/log/monitoring_data"
+    - "/var/log/monitoring_data_suite"
     - "/app/logs/output"
 
 # -----------------------------------------------------------------------------
@@ -391,17 +391,17 @@ container_monitor:
   include_stdout: true
   include_stderr: true
   follow: true
-  include_labels:
-    - "com.docker.compose.service"
-    - "app.environment"
-  exclude_labels:
-    - "internal.monitoring"
-  include_names:
-    - "web-*"
-    - "api-*"
-  exclude_names:
-    - "*-test"
-    - "*-debug"
+  # include_labels:
+  #   - "com.docker.compose.service"
+  #   - "app.environment"
+  # exclude_labels:
+  #   - "internal.monitoring"
+  # include_names:
+  #   - "web-*"
+  #   - "api-*"
+  # exclude_names:
+  #   - "*-test"
+  #   - "*-debug"
 
 # -----------------------------------------------------------------------------
 # LOG PROCESSING
@@ -456,30 +456,30 @@ dispatcher:
 # -----------------------------------------------------------------------------
 # SINKS CONFIGURATION
 # -----------------------------------------------------------------------------
-sinks:
-  loki:
-    enabled: true
-    url: "http://loki:3100"
-    push_endpoint: "/loki/api/v1/push"
-    batch_size: 1000
-    batch_timeout: "10s"
-    timeout: "30s"
-    max_retries: 3
-    retry_delay: "1s"
-    compression_enabled: true
-    compression_algorithm: "gzip"
-    compression_level: 6
+# sinks:
+#   loki:
+#     enabled: true
+#     url: "http://loki:3100"
+#     push_endpoint: "/loki/api/v1/push"
+#     batch_size: 1000
+#     batch_timeout: "10s"
+#     timeout: "30s"
+#     max_retries: 3
+#     retry_delay: "1s"
+#     compression_enabled: true
+#     compression_algorithm: "gzip"
+#     compression_level: 6
 
-  local_file:
-    enabled: true
-    directory: "/app/logs/output"
-    filename_pattern: "logs-{date}-{hour}.log"
-    output_format: "json"
-    max_file_size_mb: 100
-    max_files: 100
-    compress_rotated: true
-    file_mode: "0644"
-    create_directories: true
+#   local_file:
+#     enabled: true
+#     directory: "/app/logs/output"
+#     filename_pattern: "logs-{date}-{hour}.log"
+#     output_format: "json"
+#     max_file_size_mb: 100
+#     max_files: 100
+#     compress_rotated: true
+#     file_mode: "0644"
+#     create_directories: true
 
 # -----------------------------------------------------------------------------
 # POSITIONS MANAGEMENT

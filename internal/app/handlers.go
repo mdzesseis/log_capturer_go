@@ -11,10 +11,25 @@ import (
 	"time"
 
 	"ssw-logs-capture/internal/dispatcher"
+	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/tracing"
 
 	"github.com/gorilla/mux"
 )
+
+// metricsMiddleware records response time for all HTTP endpoints
+func metricsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Call next handler
+		next.ServeHTTP(w, r)
+
+		// Record response time metric
+		duration := time.Since(start)
+		metrics.ResponseTimeSeconds.WithLabelValues(r.URL.Path, r.Method).Observe(duration.Seconds())
+	})
+}
 
 // registerHandlers configures HTTP routes and applies middleware to the router.
 //
@@ -46,20 +61,26 @@ import (
 // All endpoints return JSON responses with appropriate HTTP status
 // codes and error handling.
 func (app *App) registerHandlers(router *mux.Router) {
-	// Apply security middleware if security is enabled
+	// Apply metrics middleware first (innermost)
 	var middleware func(http.Handler) http.Handler
+	middleware = metricsMiddleware
+
+	// Apply security middleware if security is enabled
 	if app.securityManager != nil {
-		middleware = app.securityManager.AuthMiddleware("api", "read")
-	} else {
-		middleware = func(h http.Handler) http.Handler { return h }
+		securityMW := app.securityManager.AuthMiddleware("api", "read")
+		prevMiddleware := middleware
+		middleware = func(h http.Handler) http.Handler {
+			return securityMW(prevMiddleware(h))
+		}
 	}
 
-	// Apply tracing middleware if tracing is enabled
+	// Apply tracing middleware if tracing is enabled (outermost)
 	if app.tracingManager != nil {
 		tracer := app.tracingManager.GetTracer()
 		traceMiddleware := tracing.TraceHandler(tracer, "http_request")
+		prevMiddleware := middleware
 		middleware = func(h http.Handler) http.Handler {
-			return middleware(traceMiddleware(h))
+			return traceMiddleware(prevMiddleware(h))
 		}
 	}
 

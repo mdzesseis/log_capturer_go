@@ -33,6 +33,7 @@ type LokiSink struct {
 	breaker      *circuit.Breaker
 	compressor   *compression.HTTPCompressor
 	deadLetterQueue *dlq.DeadLetterQueue
+	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection
 
 	queue        chan types.LogEntry
 	batch        []types.LogEntry
@@ -72,7 +73,7 @@ type LokiStream struct {
 }
 
 // NewLokiSink cria um novo sink para Loki
-func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue *dlq.DeadLetterQueue) *LokiSink {
+func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue *dlq.DeadLetterQueue, enhancedMetrics *metrics.EnhancedMetrics) *LokiSink {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Parse timeout from string
@@ -132,6 +133,7 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 		breaker:         breaker,
 		compressor:      compressor,
 		deadLetterQueue: deadLetterQueue,
+		enhancedMetrics: enhancedMetrics,
 		queue:           make(chan types.LogEntry, queueSize),
 		batch:           make([]types.LogEntry, 0, config.BatchSize),
 		ctx:             ctx,
@@ -521,6 +523,11 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 	compressionResult, err := ls.compressor.Compress(data, compression.AlgorithmAuto, "loki")
 	if err != nil {
 		return fmt.Errorf("failed to compress data: %w", err)
+	}
+
+	// Record compression ratio metrics
+	if ls.enhancedMetrics != nil {
+		ls.enhancedMetrics.RecordCompressionRatio("loki_sink", string(compressionResult.Algorithm), compressionResult.Ratio)
 	}
 
 	// Construir URL com push endpoint

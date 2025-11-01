@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"ssw-logs-capture/internal/metrics"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -107,8 +108,12 @@ func (tm *taskManager) StartTask(ctx context.Context, taskID string, fn func(con
 
 	tm.tasks[taskID] = newTask
 
-	// Iniciar tarefa em goroutine
-	go tm.runTask(newTask)
+	// Goroutine Leak Fix - Track task goroutine in WaitGroup
+	tm.wg.Add(1)
+	go func() {
+		defer tm.wg.Done() // Ensure WaitGroup is decremented when task completes
+		tm.runTask(newTask)
+	}()
 
 	tm.logger.WithField("task_id", taskID).Info("Task started")
 	return nil
@@ -203,6 +208,24 @@ func (tm *taskManager) Heartbeat(taskID string) error {
 	}
 
 	task.LastHeartbeat = time.Now()
+
+	// Record heartbeat metric
+	// Extract task type from task ID (format: "type_uniqueid")
+	taskType := "unknown"
+	if len(taskID) > 0 {
+		// Simple heuristic: if ID contains underscore, use first part as type
+		for i, c := range taskID {
+			if c == '_' {
+				taskType = taskID[:i]
+				break
+			}
+		}
+		if taskType == "unknown" {
+			taskType = taskID // Use full ID if no underscore
+		}
+	}
+	metrics.RecordTaskHeartbeat(taskID, taskType)
+
 	return nil
 }
 

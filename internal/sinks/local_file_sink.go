@@ -26,6 +26,7 @@ type LocalFileSink struct {
 	config    types.LocalFileConfig
 	logger    *logrus.Logger
 	compressor *compression.HTTPCompressor
+	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection
 
 	queue     chan types.LogEntry
 	files     map[string]*logFile
@@ -55,10 +56,11 @@ type logFile struct {
 	mutex        sync.Mutex
 	useCompression bool
 	compressor   *compression.HTTPCompressor
+	enhancedMetrics *metrics.EnhancedMetrics // Reference to enhanced metrics
 }
 
 // NewLocalFileSink cria um novo sink para arquivos locais
-func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *LocalFileSink {
+func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics) *LocalFileSink {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Valores padrão para novos campos
@@ -128,6 +130,7 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger) *Loca
 		config:        config,
 		logger:        logger,
 		compressor:    compressor,
+		enhancedMetrics: enhancedMetrics,
 		queue:         make(chan types.LogEntry, queueSize),
 		files:         make(map[string]*logFile),
 		ctx:           ctx,
@@ -518,6 +521,7 @@ func (lfs *LocalFileSink) getOrCreateLogFile(filename string) (*logFile, error) 
 		lastWrite:      time.Now(),
 		useCompression: lfs.config.Compress, // Use rotation compress setting for real-time compression too
 		compressor:     lfs.compressor,
+		enhancedMetrics: lfs.enhancedMetrics, // Pass reference to enhanced metrics
 	}
 
 	lfs.files[filename] = lf
@@ -707,7 +711,10 @@ func (lf *logFile) writeEntry(entry types.LogEntry, config types.LocalFileConfig
 			// Usar dados comprimidos
 			dataToWrite = compressionResult.Data
 
-			// Compression applied successfully - ratio info available in compressionResult
+			// Record compression ratio metrics
+			if lf.enhancedMetrics != nil {
+				lf.enhancedMetrics.RecordCompressionRatio("local_file_sink", string(compressionResult.Algorithm), compressionResult.Ratio)
+			}
 		}
 	} else {
 		dataToWrite = []byte(line)

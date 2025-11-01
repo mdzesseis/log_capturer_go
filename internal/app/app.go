@@ -370,94 +370,108 @@ func (app *App) Stop() error {
 	app.logger.Info("Stopping SSW Logs Capture Go")
 	app.cancel()
 
-	if app.httpServer != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		app.httpServer.Shutdown(ctx)
-	}
+	// C24: Graceful shutdown with timeout - use channel to wait with timeout
+	shutdownComplete := make(chan struct{})
 
-	if app.fileMonitor != nil {
-		app.fileMonitor.Stop()
-	}
-	if app.containerMonitor != nil {
-		app.containerMonitor.Stop()
-	}
-	if app.diskManager != nil {
-		if err := app.diskManager.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop disk manager")
-		}
-	}
-	if app.resourceMonitor != nil {
-		if err := app.resourceMonitor.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop resource monitor")
-		}
-	}
-	if app.enhancedMetrics != nil {
-		if err := app.enhancedMetrics.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop enhanced metrics")
-		}
-	}
-	if app.anomalyDetector != nil {
-		if err := app.anomalyDetector.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop anomaly detector")
-		}
-	}
-	if app.reloader != nil {
-		if err := app.reloader.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop config reloader")
-		}
-	}
+	go func() {
+		defer close(shutdownComplete)
 
-	// Stop enterprise features
-	if app.goroutineTracker != nil {
-		if err := app.goroutineTracker.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop goroutine tracker")
+		if app.httpServer != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			app.httpServer.Shutdown(ctx)
 		}
-	}
-	if app.sloManager != nil {
-		if err := app.sloManager.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop SLO manager")
+
+		if app.fileMonitor != nil {
+			app.fileMonitor.Stop()
 		}
-	}
-	if app.serviceDiscovery != nil {
-		if err := app.serviceDiscovery.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop service discovery")
+		if app.containerMonitor != nil {
+			app.containerMonitor.Stop()
 		}
-	}
-	if app.tracingManager != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := app.tracingManager.Shutdown(ctx); err != nil {
-			app.logger.WithError(err).Error("Failed to shutdown tracing manager")
+		if app.diskManager != nil {
+			if err := app.diskManager.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop disk manager")
+			}
 		}
-	}
-
-	if app.diskBuffer != nil {
-		if err := app.diskBuffer.Close(); err != nil {
-			app.logger.WithError(err).Error("Failed to close disk buffer")
+		if app.resourceMonitor != nil {
+			if err := app.resourceMonitor.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop resource monitor")
+			}
 		}
-	}
-	if app.positionManager != nil {
-		if err := app.positionManager.Stop(); err != nil {
-			app.logger.WithError(err).Error("Failed to stop position manager")
+		if app.enhancedMetrics != nil {
+			if err := app.enhancedMetrics.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop enhanced metrics")
+			}
 		}
+		if app.anomalyDetector != nil {
+			if err := app.anomalyDetector.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop anomaly detector")
+			}
+		}
+		if app.reloader != nil {
+			if err := app.reloader.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop config reloader")
+			}
+		}
+
+		// Stop enterprise features
+		if app.goroutineTracker != nil {
+			if err := app.goroutineTracker.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop goroutine tracker")
+			}
+		}
+		if app.sloManager != nil {
+			if err := app.sloManager.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop SLO manager")
+			}
+		}
+		if app.serviceDiscovery != nil {
+			if err := app.serviceDiscovery.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop service discovery")
+			}
+		}
+		if app.tracingManager != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := app.tracingManager.Shutdown(ctx); err != nil {
+				app.logger.WithError(err).Error("Failed to shutdown tracing manager")
+			}
+		}
+
+		if app.diskBuffer != nil {
+			if err := app.diskBuffer.Close(); err != nil {
+				app.logger.WithError(err).Error("Failed to close disk buffer")
+			}
+		}
+		if app.positionManager != nil {
+			if err := app.positionManager.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop position manager")
+			}
+		}
+
+		app.dispatcher.Stop()
+
+		for _, sink := range app.sinks {
+			sink.Stop()
+		}
+
+		if app.metricsServer != nil {
+			app.metricsServer.Stop()
+		}
+
+		app.taskManager.Cleanup()
+		app.wg.Wait()
+	}()
+
+	// C24: Wait for shutdown with 60s timeout
+	select {
+	case <-shutdownComplete:
+		app.logger.Info("SSW Logs Capture Go stopped gracefully")
+		return nil
+	case <-time.After(60 * time.Second):
+		app.logger.Warn("Shutdown timeout reached (60s) - forcing exit")
+		return fmt.Errorf("graceful shutdown timeout")
 	}
-
-	app.dispatcher.Stop()
-
-	for _, sink := range app.sinks {
-		sink.Stop()
-	}
-
-	if app.metricsServer != nil {
-		app.metricsServer.Stop()
-	}
-
-	app.taskManager.Cleanup()
-	app.wg.Wait()
-
-	app.logger.Info("SSW Logs Capture Go stopped")
-	return nil
 }
 
 // Run starts the application and blocks until a shutdown signal is received.

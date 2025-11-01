@@ -102,6 +102,7 @@ type Dispatcher struct {
 	degradationManager   *degradation.Manager                // Implements graceful degradation
 	rateLimiter          *ratelimit.AdaptiveRateLimiter      // Adaptive rate limiting for sink protection
 	anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies
+	enhancedMetrics      *metrics.EnhancedMetrics         // Advanced metrics collection and reporting
 
 	// Core operational components
 	sinks       []types.Sink          // Collection of configured output destinations
@@ -115,6 +116,10 @@ type Dispatcher struct {
 	isRunning bool              // Running state flag for lifecycle management
 	mutex     sync.RWMutex      // Mutex for thread-safe state management
 	wg        sync.WaitGroup    // WaitGroup for tracking goroutines lifecycle
+
+	// Goroutine Leak Fix - Semaphore to limit concurrent retry goroutines
+	retrySemaphore chan struct{} // Limits concurrent retry goroutines to prevent unbounded growth
+	maxConcurrentRetries int     // Maximum number of concurrent retry goroutines allowed
 }
 
 // DispatcherConfig contains all configuration parameters for the Dispatcher.
@@ -209,7 +214,7 @@ type dispatchItem struct {
 //
 // Returns:
 //   - *Dispatcher: Fully configured dispatcher ready to start
-func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, logger *logrus.Logger) *Dispatcher {
+func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics) *Dispatcher {
 	// Valores padrão
 	if config.QueueSize == 0 {
 		config.QueueSize = 50000
@@ -271,7 +276,15 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 
 	
 
-		return &Dispatcher{
+		// Goroutine Leak Fix - Initialize retry semaphore to limit concurrent retries
+	// Default to 100 concurrent retries if not configured
+	maxConcurrentRetries := 100
+	if config.Workers > 0 {
+		// Scale with workers: allow 25 retries per worker
+		maxConcurrentRetries = config.Workers * 25
+	}
+
+	return &Dispatcher{
 		config:               config,
 		logger:               logger,
 		processor:            processor,
@@ -281,13 +294,16 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		degradationManager:   degradationManager,
 		rateLimiter:          rateLimiter,
 		// anomalyDetector:      anomalyDetector, // Temporarily disabled
+		enhancedMetrics:      enhancedMetrics,
 		sinks:                make([]types.Sink, 0),
 		queue:                make(chan dispatchItem, config.QueueSize),
 		stats: types.DispatcherStats{
 			SinkDistribution: make(map[string]int64),
 		},
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:                  ctx,
+		cancel:               cancel,
+		retrySemaphore:       make(chan struct{}, maxConcurrentRetries),
+		maxConcurrentRetries: maxConcurrentRetries,
 	}
 }
 
@@ -700,6 +716,20 @@ func (d *Dispatcher) GetStats() types.DispatcherStats {
 	return stats
 }
 
+// GetRetryQueueStats returns statistics about the retry queue
+// This helps monitor goroutine leak prevention - shows how many retry slots are in use
+func (d *Dispatcher) GetRetryQueueStats() map[string]interface{} {
+	currentRetries := len(d.retrySemaphore)
+	utilization := float64(currentRetries) / float64(d.maxConcurrentRetries)
+
+	return map[string]interface{}{
+		"current_retries":       currentRetries,
+		"max_concurrent_retries": d.maxConcurrentRetries,
+		"utilization":           utilization,
+		"available_slots":       d.maxConcurrentRetries - currentRetries,
+	}
+}
+
 // sendToDLQ envia entrada para Dead Letter Queue
 func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
 	if d.config.DLQEnabled && d.deadLetterQueue != nil {
@@ -890,6 +920,22 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 	duration := time.Since(startTime)
 	metrics.RecordProcessingDuration("dispatcher", "batch_processing", duration)
 
+	// Record enhanced metrics for batching statistics
+	if d.enhancedMetrics != nil {
+		// Batch size
+		d.enhancedMetrics.RecordBatchingStats("dispatcher", "batch_size", float64(len(batch)))
+
+		// Batch fill rate (percentage of max batch size)
+		fillRate := (float64(len(batch)) / float64(d.config.BatchSize)) * 100.0
+		d.enhancedMetrics.RecordBatchingStats("dispatcher", "batch_fill_rate", fillRate)
+
+		// Flush time in milliseconds
+		d.enhancedMetrics.RecordBatchingStats("dispatcher", "flush_time", float64(duration.Milliseconds()))
+
+		// Note: batches_per_second requires tracking across multiple batches
+		// This is already tracked by the metrics collector loop
+	}
+
 	logger.WithFields(logrus.Fields{
 		"batch_size":     len(batch),
 		"success_count":  successCount,
@@ -905,43 +951,60 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 			item.Retries++
 			retryDelay := d.config.RetryDelay * time.Duration(item.Retries)
 
-			// Rastrear retry goroutine no WaitGroup
-			d.wg.Add(1)
-			go func(item dispatchItem, delay time.Duration) {
-				defer d.wg.Done()
+			// Goroutine Leak Fix - Try to acquire retry semaphore before creating goroutine
+			select {
+			case d.retrySemaphore <- struct{}{}:
+				// Successfully acquired semaphore slot - create retry goroutine
+				d.wg.Add(1)
+				go func(item dispatchItem, delay time.Duration) {
+					defer d.wg.Done()
+					defer func() { <-d.retrySemaphore }() // Release semaphore slot when done
 
-				// Criar timer dentro da goroutine
-				timer := time.NewTimer(delay)
-				defer func() {
-					// Garantir limpeza do timer mesmo em cancelamento
-					if !timer.Stop() {
-						select {
-						case <-timer.C:
-						default:
+					// Criar timer dentro da goroutine
+					timer := time.NewTimer(delay)
+					defer func() {
+						// Garantir limpeza do timer mesmo em cancelamento
+						if !timer.Stop() {
+							select {
+							case <-timer.C:
+							default:
+							}
 						}
-					}
-				}()
+					}()
 
-				select {
-				case <-timer.C:
-					// Tentar reagendar com context
 					select {
-					case d.queue <- item:
-						// Reagendado com sucesso
-						d.logger.WithField("retries", item.Retries).Debug("Item rescheduled successfully")
+					case <-timer.C:
+						// Tentar reagendar com context
+						select {
+						case d.queue <- item:
+							// Reagendado com sucesso
+							d.logger.WithField("retries", item.Retries).Debug("Item rescheduled successfully")
+						case <-d.ctx.Done():
+							// Context cancelado
+							return
+						default:
+							// Fila cheia, enviar para DLQ se disponível
+							d.logger.Warn("Failed to reschedule failed item, queue full")
+							d.sendToDLQ(item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
+						}
 					case <-d.ctx.Done():
-						// Context cancelado
+						// Context cancelado durante espera - timer será limpo no defer
 						return
-					default:
-						// Fila cheia, enviar para DLQ se disponível
-						d.logger.Warn("Failed to reschedule failed item, queue full")
-						d.sendToDLQ(item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
 					}
-				case <-d.ctx.Done():
-					// Context cancelado durante espera - timer será limpo no defer
-					return
-				}
-			}(item, retryDelay)
+				}(item, retryDelay)
+
+			default:
+				// Semaphore full - too many concurrent retries
+				// Send directly to DLQ to prevent unbounded goroutine growth
+				d.logger.WithFields(logrus.Fields{
+					"retries":                item.Retries,
+					"max_concurrent_retries": d.maxConcurrentRetries,
+					"source_type":            item.Entry.SourceType,
+					"source_id":              item.Entry.SourceID,
+				}).Warn("Retry queue full - sending directly to DLQ to prevent goroutine explosion")
+				d.sendToDLQ(item.Entry, "retry_queue_full", "max_concurrent_retries_exceeded", "all_sinks", item.Retries)
+				metrics.RecordError("dispatcher", "retry_queue_full")
+			}
 		} else {
 			// Max retries reached, enviar para DLQ
 			d.logger.WithFields(logrus.Fields{
@@ -1023,6 +1086,22 @@ func (d *Dispatcher) statsUpdater() {
 			queueUtilization := float64(d.stats.QueueSize) / float64(d.config.QueueSize)
 			metrics.DispatcherQueueUtilization.Set(queueUtilization)
 			metrics.SetQueueSize("dispatcher", "main", d.stats.QueueSize)
+
+			// Goroutine Leak Fix - Monitor retry queue utilization
+			retryQueueStats := d.GetRetryQueueStats()
+			currentRetries := retryQueueStats["current_retries"].(int)
+			retryUtilization := retryQueueStats["utilization"].(float64)
+
+			metrics.SetQueueSize("dispatcher", "retry", currentRetries)
+
+			// Log warning if retry queue is getting full (>80%)
+			if retryUtilization > 0.8 {
+				d.logger.WithFields(logrus.Fields{
+					"current_retries":        currentRetries,
+					"max_concurrent_retries": d.maxConcurrentRetries,
+					"utilization":            retryUtilization,
+				}).Warn("Retry queue utilization high - potential goroutine leak risk")
+			}
 		}
 	}
 }
@@ -1088,12 +1167,18 @@ func (d *Dispatcher) updateBackpressureMetrics() {
 func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
 	// Em vez de descartar, envia para Dead Letter Queue se disponível
 	if d.config.DLQEnabled && d.deadLetterQueue != nil {
+		// C1: Race Condition Fix - Create safe copy of labels map
+		labelsCopy := make(map[string]string, len(labels))
+		for k, v := range labels {
+			labelsCopy[k] = v
+		}
+
 		entry := types.LogEntry{
 			Timestamp:   time.Now(),
 			Message:     message,
 			SourceType:  sourceType,
 			SourceID:    sourceID,
-			Labels:      labels,
+			Labels:      labelsCopy,
 			ProcessedAt: time.Now(),
 		}
 

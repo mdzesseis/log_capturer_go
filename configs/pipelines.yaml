@@ -372,9 +372,9 @@ source_mapping:
     - "file_path:/var/log/syslog"
     - "source_type:file"
 
-  kernel:
-    - "file_path:/var/log/kern.log"
-    - "file_path:/var/log/dmesg"
+  # kernel:
+  #   - "file_path:/var/log/kern.log"
+  #   - "file_path:/var/log/dmesg"
 
   file_monitoring:
     - "file_path:/var/log/auth.log"

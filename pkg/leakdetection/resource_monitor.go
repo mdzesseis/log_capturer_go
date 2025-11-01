@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"ssw-logs-capture/internal/metrics"
+
 	"github.com/sirupsen/logrus"
 )
 
@@ -252,6 +254,12 @@ func (rm *ResourceMonitor) checkForLeaks(fds, goroutines, memory int64) {
 		rm.statsMutex.Lock()
 		rm.stats.FDLeaks++
 		rm.statsMutex.Unlock()
+
+		// Record leak detection metric
+		metrics.LeakDetection.WithLabelValues("fd_leak", "resource_monitor").Set(1)
+	} else {
+		// No leak detected
+		metrics.LeakDetection.WithLabelValues("fd_leak", "resource_monitor").Set(0)
 	}
 
 	// Check goroutine leaks
@@ -263,10 +271,16 @@ func (rm *ResourceMonitor) checkForLeaks(fds, goroutines, memory int64) {
 		rm.stats.GoroutineLeaks++
 		rm.statsMutex.Unlock()
 
+		// Record leak detection metric
+		metrics.LeakDetection.WithLabelValues("goroutine_leak", "resource_monitor").Set(1)
+
 		// Log goroutine stack traces for debugging
 		if rm.config.EnableMemoryProfiling {
 			rm.logGoroutineStacks()
 		}
+	} else {
+		// No leak detected
+		metrics.LeakDetection.WithLabelValues("goroutine_leak", "resource_monitor").Set(0)
 	}
 
 	// Check memory leaks (simplified - based on heap size growth)
@@ -278,6 +292,13 @@ func (rm *ResourceMonitor) checkForLeaks(fds, goroutines, memory int64) {
 		rm.statsMutex.Lock()
 		rm.stats.MemoryLeaks++
 		rm.statsMutex.Unlock()
+
+		// Record leak detection metric - report leak size in MB
+		leakSizeMB := float64(memStats.HeapInuse) / (1024 * 1024)
+		metrics.LeakDetection.WithLabelValues("memory_leak", "resource_monitor").Set(leakSizeMB)
+	} else {
+		// No leak detected
+		metrics.LeakDetection.WithLabelValues("memory_leak", "resource_monitor").Set(0)
 	}
 }
 

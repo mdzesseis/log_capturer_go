@@ -36,12 +36,13 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./configs:/app/configs:ro
-      - /var/log/monitoring_data/logs:/logs
+      - /var/log/monitoring_data_suite/logs:/app/logs
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/log/monitoring_data/data:/app/data
-      - /var/log/monitoring_data/dlq:/app/dlq
-      - /var/log/monitoring_data/batch_persistence:/app/batch_persistence
-      - /var/log/monitoring_data/debug:/app/debug
+      - /var/log/monitoring_data_suite/data:/app/data
+      - /var/log/monitoring_data_suite/buffer:/app/buffer 
+      - /var/log/monitoring_data_suite/dlq:/app/dlq
+      - /var/log/monitoring_data_suite/batch_persistence:/app/batch_persistence
+      - /var/log/monitoring_data_suite/debug:/app/debug
       - /var/log:/var/log:ro
     depends_on:
       loki:
@@ -49,7 +50,7 @@ services:
     # networks:
     #   - logs-network
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8401/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/health"]
       interval: 30s
       timeout: 10s
       retries: 3

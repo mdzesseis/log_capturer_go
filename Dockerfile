@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates
@@ -46,9 +46,9 @@ RUN mkdir -p /app /logs \
     /app/dlq \
     /app/buffer \
     /app/logs/output \
-    /var/log/monitoring_data && \
-    chown -R appuser:appuser /app /logs /var/log/monitoring_data && \
-    chmod 755 /var/log/monitoring_data
+    /var/log/monitoring_data_suite && \
+    chown -R appuser:appuser /app /logs /var/log/monitoring_data_suite && \
+    chmod 755 /var/log/monitoring_data_suite
 
 # Copy binary from builder
 COPY --from=builder /build/ssw-logs-capture /app/

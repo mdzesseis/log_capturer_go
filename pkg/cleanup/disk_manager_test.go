@@ -14,8 +14,7 @@ import (
 
 func TestDiskSpaceManager_NewDiskSpaceManager(t *testing.T) {
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 30 * time.Second,
+		CheckInterval: 30 * time.Second,
 		Directories: []DirectoryConfig{
 			{
 				Path:         "/tmp/test",
@@ -30,7 +29,7 @@ func TestDiskSpaceManager_NewDiskSpaceManager(t *testing.T) {
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	assert.NotNil(t, manager)
 	assert.Equal(t, config, manager.config)
@@ -63,8 +62,7 @@ func TestDiskSpaceManager_CleanupByAge(t *testing.T) {
 	f2.Close()
 
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 1 * time.Second,
+		CheckInterval: 1 * time.Second,
 		Directories: []DirectoryConfig{
 			{
 				Path:         testDir,
@@ -79,7 +77,7 @@ func TestDiskSpaceManager_CleanupByAge(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Run cleanup
 	err = manager.cleanupByAge(config.Directories[0])
@@ -115,8 +113,7 @@ func TestDiskSpaceManager_CleanupByCount(t *testing.T) {
 	}
 
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 1 * time.Second,
+		CheckInterval: 1 * time.Second,
 		Directories: []DirectoryConfig{
 			{
 				Path:         testDir,
@@ -129,7 +126,7 @@ func TestDiskSpaceManager_CleanupByCount(t *testing.T) {
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Run cleanup
 	err = manager.cleanupByCount(config.Directories[0])
@@ -179,8 +176,7 @@ func TestDiskSpaceManager_CleanupBySize(t *testing.T) {
 	}
 
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 1 * time.Second,
+		CheckInterval: 1 * time.Second,
 		Directories: []DirectoryConfig{
 			{
 				Path:         testDir,
@@ -193,7 +189,7 @@ func TestDiskSpaceManager_CleanupBySize(t *testing.T) {
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Run cleanup
 	err = manager.cleanupBySize(config.Directories[0])
@@ -215,14 +211,13 @@ func TestDiskSpaceManager_CleanupBySize(t *testing.T) {
 
 func TestDiskSpaceManager_GetDiskSpace(t *testing.T) {
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 1 * time.Second,
+		CheckInterval: 1 * time.Second,
 	}
 
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Test with a valid path
 	freeBytes, totalBytes, err := manager.getDiskSpace("/tmp")
@@ -241,7 +236,7 @@ func TestDiskSpaceManager_MatchesPattern(t *testing.T) {
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	testCases := []struct {
 		filename string
@@ -269,8 +264,7 @@ func TestDiskSpaceManager_Start_Stop(t *testing.T) {
 	defer os.RemoveAll(testDir)
 
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 100 * time.Millisecond, // Fast cleanup for testing
+		CheckInterval: 100 * time.Millisecond, // Fast cleanup for testing
 		Directories: []DirectoryConfig{
 			{
 				Path:         testDir,
@@ -284,7 +278,7 @@ func TestDiskSpaceManager_Start_Stop(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Start manager
 	go manager.Start()
@@ -322,13 +316,13 @@ func TestDiskSpaceManager_Start_Stop(t *testing.T) {
 
 func TestDiskSpaceManager_DisabledConfig(t *testing.T) {
 	config := Config{
-		Enabled: false, // Disabled
+		CheckInterval: 1 * time.Second,
 	}
 
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Should not panic or error when disabled
 	go manager.Start()
@@ -342,15 +336,14 @@ func TestDiskSpaceManager_DisabledConfig(t *testing.T) {
 
 func TestDiskSpaceManager_EmptyDirectories(t *testing.T) {
 	config := Config{
-		Enabled: true,
-		CleanupInterval: 1 * time.Second,
+		CheckInterval: 1 * time.Second,
 		Directories: []DirectoryConfig{}, // Empty directories
 	}
 
 	logger := logrus.New()
 	ctx := context.Background()
 
-	manager := NewDiskSpaceManager(config, logger, ctx)
+	manager := NewDiskSpaceManager(config, logger)
 
 	// Should not panic with empty directories
 	go manager.Start()

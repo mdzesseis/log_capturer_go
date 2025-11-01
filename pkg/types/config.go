@@ -56,15 +56,16 @@ type Config struct {
 
 // AppConfig contains core application settings.
 type AppConfig struct {
-	Name        string `yaml:"name"`        // Application name for identification
-	Version     string `yaml:"version"`     // Application version
-	Environment string `yaml:"environment"` // Deployment environment (dev, staging, prod)
-	LogLevel    string `yaml:"log_level"`   // Logging level (trace, debug, info, warn, error)
-	LogFormat   string `yaml:"log_format"`  // Log output format (json, text)
-	Level       string `yaml:"level"`       // Alias for LogLevel
-	Format      string `yaml:"format"`      // Alias for LogFormat
-	DataDir     string `yaml:"data_dir"`    // Base directory for application data
-	ConfigDir   string `yaml:"config_dir"`  // Configuration files directory
+	Name           string `yaml:"name"`            // Application name for identification
+	Version        string `yaml:"version"`         // Application version
+	Environment    string `yaml:"environment"`     // Deployment environment (dev, staging, prod)
+	LogLevel       string `yaml:"log_level"`       // Logging level (trace, debug, info, warn, error)
+	LogFormat      string `yaml:"log_format"`      // Log output format (json, text)
+	Level          string `yaml:"level"`           // Alias for LogLevel
+	Format         string `yaml:"format"`          // Alias for LogFormat
+	DataDir        string `yaml:"data_dir"`        // Base directory for application data
+	ConfigDir      string `yaml:"config_dir"`      // Configuration files directory
+	DefaultConfigs *bool  `yaml:"default_configs"` // Enable/disable automatic default values (nil = use env or true)
 }
 
 // ServerConfig contains HTTP server settings.

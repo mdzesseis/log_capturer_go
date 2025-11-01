@@ -35,7 +35,7 @@ func TestLokiSinkStopNoGoroutineLeak(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -91,7 +91,7 @@ func TestLokiSinkStopWithPendingBatches(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -147,7 +147,7 @@ func TestLokiSinkStopTimeout(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -193,7 +193,7 @@ func TestLokiSinkMultipleStartStop(t *testing.T) {
 		t.Logf("Cycle %d: Creating sink", cycle+1)
 
 		dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-		sink := NewLokiSink(config, logger, dlqInstance)
+		sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 		ctx := context.Background()
 		err := sink.Start(ctx)
@@ -230,7 +230,7 @@ func TestLokiSinkConcurrentStops(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -275,7 +275,7 @@ func TestCreateStreamKeyDeterministic(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	// Test same labels in different order produce same key
 	labels1 := map[string]string{
@@ -328,7 +328,7 @@ func TestCreateStreamKeyMultipleIterations(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	labels := map[string]string{
 		"host":    "server1",
@@ -364,7 +364,7 @@ func TestCreateStreamKeyEdgeCases(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	// Empty labels
 	emptyKey := sink.createStreamKey(map[string]string{})
@@ -403,7 +403,7 @@ func BenchmarkCreateStreamKey(b *testing.B) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	labels := map[string]string{
 		"app":       "myapp",
@@ -435,7 +435,7 @@ func TestLokiSinkRequestTimeout(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -481,7 +481,7 @@ func TestLokiSinkContextCancellation(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)
@@ -551,7 +551,7 @@ func TestLokiSinkRequestTimeoutConfiguration(t *testing.T) {
 			}
 
 			dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-			sink := NewLokiSink(config, logger, dlqInstance)
+			sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 			if sink.requestTimeout != tc.expectedTimeout {
 				t.Errorf("Expected timeout %v, got %v", tc.expectedTimeout, sink.requestTimeout)
@@ -576,7 +576,7 @@ func TestLokiSinkConcurrentRequestsCancellation(t *testing.T) {
 	}
 
 	dlqInstance := dlq.NewDeadLetterQueue(dlq.Config{Enabled: false}, logger)
-	sink := NewLokiSink(config, logger, dlqInstance)
+	sink := NewLokiSink(config, logger, dlqInstance, nil)
 
 	ctx := context.Background()
 	err := sink.Start(ctx)

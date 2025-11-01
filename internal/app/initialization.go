@@ -72,7 +72,7 @@ func (app *App) initCoreServices() error {
 		RetryDelay:   parseDurationSafe(app.config.Dispatcher.RetryBaseDelay, 1*time.Second),
 		DLQEnabled:   app.config.Dispatcher.DLQEnabled,
 	}
-	app.dispatcher = dispatcher.NewDispatcher(dispatcherConfig, processor, app.logger)
+	app.dispatcher = dispatcher.NewDispatcher(dispatcherConfig, processor, app.logger, app.enhancedMetrics)
 
 	return nil
 }
@@ -106,7 +106,7 @@ func (app *App) initSinks() error {
 		if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
 			deadLetterQueue = dispatcherImpl.GetDLQ()
 		}
-		lokiSink := sinks.NewLokiSink(app.config.Sinks.Loki, app.logger, deadLetterQueue)
+		lokiSink := sinks.NewLokiSink(app.config.Sinks.Loki, app.logger, deadLetterQueue, app.enhancedMetrics)
 		app.sinks = append(app.sinks, lokiSink)
 		app.dispatcher.AddSink(lokiSink)
 		app.logger.Info("Loki sink initialized")
@@ -129,7 +129,7 @@ func (app *App) initSinks() error {
 			TextFormat:                app.config.Sinks.LocalFile.TextFormat,
 			QueueSize:                 app.config.Sinks.LocalFile.QueueSize,
 		}
-		localFileSink := sinks.NewLocalFileSink(localFileConfig, app.logger)
+		localFileSink := sinks.NewLocalFileSink(localFileConfig, app.logger, app.enhancedMetrics)
 		app.sinks = append(app.sinks, localFileSink)
 		app.dispatcher.AddSink(localFileSink)
 		app.logger.Info("Local file sink initialized")

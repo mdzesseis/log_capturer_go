@@ -16,6 +16,20 @@ app:
   log_file: ""
   operation_timeout: "1h"
 
+  # default_configs: Controla se valores padrão devem ser aplicados automaticamente
+  # true  = Aplica valores padrão para configurações não especificadas (comportamento padrão)
+  # false = NÃO aplica valores padrão, usa apenas valores explicitamente configurados
+  #
+  # Quando true: Se você não especificar uma configuração, o sistema usará um valor padrão
+  # Quando false: Se você não especificar uma configuração, ela permanecerá vazia/desabilitada
+  #
+  # IMPORTANTE: Se você deixar campos comentados ou vazios com default_configs: true,
+  # o sistema NÃO aplicará defaults (respeita sua intenção de deixar vazio).
+  # Apenas campos completamente não mencionados receberão defaults.
+  #
+  # Pode ser sobrescrito pela variável de ambiente: SSW_DEFAULT_CONFIGS=true/false
+  default_configs: true
+
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DO SERVIDOR HTTP
 # -----------------------------------------------------------------------------
@@ -44,14 +58,14 @@ metrics:
 # 2. Não existe file_pipeline.yml OU o recurso não está configurado no pipeline
 files_config:
   watch_directories:
-    - "/var/log"
+    # - "/var/log"
   include_patterns:
-    - "*.log"
-    - "*.txt"
-    - "syslog"
-    - "dmesg"
-    - "kern.log"
-    - "messages"
+    # - "*.log"
+    # - "*.txt"
+    # - "syslog"
+    # - "dmesg"
+    # - "kern.log"
+    # - "messages"
   exclude_patterns:
     - "*.gz"
     - "*.zip"
@@ -59,7 +73,7 @@ files_config:
     - "*.bak"
     - "*~"
   exclude_directories:
-    - "/var/log/monitoring_data"
+    - "/var/log/monitoring_data_suite"
     - "/app/logs"
 
 # -----------------------------------------------------------------------------
@@ -165,11 +179,11 @@ sinks:
     batch_timeout: "15s"
     max_request_size: 2097152
     queue_size: 25000
-    default_labels:
-      service: "ssw-log-capturer"
-    headers:
-      "User-Agent": "ssw-logs-capture/v0.0.2"
-      "Content-Type": "application/json"
+    # default_labels:
+    #   service: "ssw-log-capturer"
+    # headers:
+    #   "User-Agent": "ssw-logs-capture/v0.0.2"
+    #   "Content-Type": "application/json"
     auth:
       type: "none"
       username: ""
@@ -195,7 +209,7 @@ sinks:
       send_on_error: true              # Enviar para DLQ em erro de envio
     # Configurações de batching adaptativo
     adaptive_batching:
-      enabled: false                   # Desabilitado por padrão
+      enabled: true                   # Desabilitado por padrão
       min_batch_size: 10
       max_batch_size: 1000
       initial_batch_size: 100
@@ -211,8 +225,8 @@ sinks:
     enabled: true
     directory: "/app/logs/output"
     filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
-    filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
-    filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
+    #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
+    #filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
     output_format: "text"
     text_format:
       include_timestamp: false       # Não incluir timestamp adicional
@@ -280,15 +294,15 @@ timestamp_validation:
 # CONFIGURAÇÕES DE SERVICE DISCOVERY
 # -----------------------------------------------------------------------------
 service_discovery:
-  enabled: true
+  enabled: false
   update_interval: "30s"          # Intervalo de atualização
-  docker_enabled: true            # Descoberta de containers Docker
+  docker_enabled: false            # Descoberta de containers Docker
   file_enabled: false            # Descoberta baseada em arquivos
   kubernetes_enabled: false      # Descoberta Kubernetes (futuro)
 
   # Configuração Docker Discovery
-  docker:
-    socket_path: "unix:///var/run/docker.sock"
+  # docker:
+  #   socket_path: "unix:///var/run/docker.sock"
     # require_label: "logs.capture"              # Label obrigatória
     # pipeline_label: "logs.pipeline"            # Label para pipeline
     # component_label: "logs.component"          # Label para componente
@@ -299,16 +313,16 @@ service_discovery:
     #   logs.exclude: "true"
 
   # Configuração File Discovery
-  file:
-    watch_paths:
-      - "/etc/log-services"
-      - "/app/service-configs"
-    config_files:
-      - "/etc/log-services/*.yaml"
-      - "/app/service-configs/*.json"
-    auto_detect_logs: true
-    required_labels:
-      service_type: "logs"
+  # file:
+  #   watch_paths:
+  #     - "/etc/log-services"
+  #     - "/app/service-configs"
+  #   config_files:
+  #     - "/etc/log-services/*.yaml"
+  #     - "/app/service-configs/*.json"
+  #   auto_detect_logs: true
+  #   required_labels:
+  #     service_type: "logs"
 
   # Configuração Kubernetes (futuro)
   # kubernetes:
@@ -376,9 +390,9 @@ cleanup:
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE DETECÇÃO DE VAZAMENTOS
 # -----------------------------------------------------------------------------
-leak_detection:
+resource_monitoring:
   enabled: true
-  monitoring_interval: "15s"        # Reduzido de 30s para 15s - detecção mais rápida
+  check_interval: "15s"        # Reduzido de 30s para 15s - detecção mais rápida
   fd_leak_threshold: 20             # Reduzido de 100 para 20 - mais restritivo
   goroutine_leak_threshold: 20      # Reduzido de 50 para 20 - detectar vazamentos cedo
   memory_leak_threshold: 52428800   # Reduzido para 50MB - mais restritivo
@@ -428,7 +442,7 @@ anomaly_detection:
     alert_enabled: true             # Habilitar alertas
     webhook_url: ""                 # URL do webhook (opcional)
     auto_scale: false               # Auto-scaling (desabilitado)
-    circuit_breaker: false          # Circuit breaker (desabilitado)
+    circuit_breaker: true          # Circuit breaker (desabilitado)
     log_level: "warn"               # Nível de log para anomalias
     metrics_enabled: true           # Exportar métricas de anomalias
 
@@ -560,3 +574,155 @@ multi_tenant:
         default: 100
         prod: 150
         staging: 75
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE SEGURANÇA (ENTERPRISE)
+# -----------------------------------------------------------------------------
+security:
+  enabled: false                    # Desabilitado por padrão
+
+  authentication:
+    enabled: false
+    method: "none"                 # Options: "none", "basic", "token", "jwt", "mtls"
+    session_timeout: "24h"
+    max_attempts: 5
+    lockout_time: "15m"
+    # users:
+    #   admin:
+    #     username: "admin"
+    #     password_hash: ""        # SHA256 hash
+    #     roles: ["admin"]
+    #     enabled: true
+    # tokens:
+    #   "your-api-token": "admin"
+
+  authorization:
+    enabled: false
+    default_role: "viewer"
+    # roles:
+    #   admin:
+    #     permissions:
+    #       - resource: "*"
+    #         action: "*"
+    #   viewer:
+    #     permissions:
+    #       - resource: "health"
+    #         action: "read"
+
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    verify_client: false
+
+  rate_limiting:
+    enabled: true
+    requests_per_second: 1000
+    burst_size: 2000
+    per_ip: false
+
+  cors:
+    enabled: false
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST"]
+    allowed_headers: ["Content-Type"]
+    max_age: "12h"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE DISTRIBUTED TRACING
+# -----------------------------------------------------------------------------
+tracing:
+  enabled: false                    # Desabilitado por padrão
+  service_name: "ssw-logs-capture"
+  service_version: "v0.0.2"
+  environment: "production"
+  exporter: "otlp"                  # Options: "jaeger", "otlp", "console", "zipkin"
+  endpoint: "http://jaeger:4318/v1/traces"
+  sample_rate: 0.01                 # 1% sampling para produção
+  batch_timeout: "5s"
+  max_batch_size: 512
+  # headers:
+  #   "authorization": "Bearer YOUR_TRACE_TOKEN"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE SLO (Service Level Objectives)
+# -----------------------------------------------------------------------------
+slo:
+  enabled: false                    # Desabilitado por padrão
+  prometheus_url: "http://prometheus:9090"
+  evaluation_interval: "1m"
+  retention_period: "30d"
+  alert_webhook: ""
+
+  # slos:
+  #   - name: "log_ingestion_availability"
+  #     description: "Log ingestion service availability"
+  #     error_budget: 0.001         # 99.9% availability
+  #     window: "30d"
+  #     alert_on_breach: true
+  #     severity: "critical"
+  #     slis:
+  #       - name: "ingestion_success_rate"
+  #         query: "rate(logs_processed_total[5m]) / rate(logs_received_total[5m]) * 100"
+  #         target: 99.9
+  #         window: "5m"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE GOROUTINE TRACKING
+# -----------------------------------------------------------------------------
+goroutine_tracking:
+  enabled: true
+  check_interval: "60s"             # Verificar a cada 1 minuto
+  leak_threshold: 100               # Alertar se crescer > 100 goroutines
+  max_goroutines: 10000             # Limite absoluto
+  warn_threshold: 8000              # Warning em 8000 goroutines
+  tracking_enabled: true            # Rastrear stack traces
+  stack_trace_on_leak: false        # Stack trace em leak (verbose)
+  alert_webhook: ""                 # URL para alertas
+  retention_period: "24h"           # Manter histórico por 24h
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE OBSERVABILITY
+# -----------------------------------------------------------------------------
+observability:
+  enabled: true
+
+  # Profiling (pprof)
+  profiling:
+    enabled: false                  # Desabilitado por padrão (overhead)
+    host: "localhost"
+    port: 6060
+    endpoints:
+      - "/debug/pprof/"
+      - "/debug/pprof/heap"
+      - "/debug/pprof/goroutine"
+      - "/debug/pprof/threadcreate"
+
+  # Health checks
+  health_checks:
+    enabled: true
+    endpoint: "/health"
+    detailed_endpoint: "/health/detailed"
+    check_interval: "30s"
+    checks:
+      - name: "dispatcher"
+        enabled: true
+      - name: "sinks"
+        enabled: true
+      - name: "monitors"
+        enabled: true
+
+  # Structured logging
+  structured_logging:
+    enabled: true
+    format: "json"                  # "json" or "text"
+    level: "info"
+    include_caller: false
+    include_stacktrace: false
+    sampling:
+      enabled: false
+      initial: 100
+      thereafter: 100
+
+# -----------------------------------------------------------------------------

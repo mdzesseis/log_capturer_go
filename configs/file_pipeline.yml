@@ -2,16 +2,42 @@
 # SSW LOGS CAPTURE - FILE PIPELINE CONFIGURATION
 # =============================================================================
 # Este arquivo define arquivos e diretórios específicos para monitoramento
-# Sobrescreve as configurações default de files_config em config.yaml
+#
+# IMPORTANTE: Este arquivo é OPCIONAL e tem precedência sobre files_config
+# - Se file_monitor_service.pipeline_file estiver configurado, este arquivo é usado
+# - Se este arquivo não existir, o sistema usa files_config do config.yaml
+# - Se você deixar seções VAZIAS aqui, o sistema respeita e NÃO aplica defaults
+#
+# COMPORTAMENTO COM default_configs (config.yaml):
+# - default_configs: true  → Aplica defaults APENAS se seção não for mencionada
+# - default_configs: false → Usa apenas valores explicitamente configurados
+# - Seções COMENTADAS ou VAZIAS neste arquivo são RESPEITADAS (não sobrescritas)
 # =============================================================================
 
-# version: "1.0"
+version: "1.0"
 
 # -----------------------------------------------------------------------------
 # ARQUIVOS ESPECÍFICOS PARA MONITORAMENTO
 # -----------------------------------------------------------------------------
-# Arquivos com caminho completo têm precedência sobre descoberta automática
-# Se o arquivo não existir, gera WARNING no log mas não trava o serviço
+# Lista de arquivos individuais para monitorar com labels personalizadas
+#
+# COMPORTAMENTO:
+# - Arquivos listados aqui são monitorados independentemente de default_configs
+# - Se o arquivo não existir, gera WARNING no log mas não trava o serviço
+# - Labels são aplicadas a cada linha de log capturada do arquivo
+# - enabled: false desabilita o monitoramento do arquivo específico
+#
+# EXEMPLO DE USO:
+# - path: "/var/log/syslog"           # Caminho absoluto do arquivo
+#   labels:                           # Labels customizadas (opcional)
+#     source: "file"
+#     file_name: "syslog"
+#     environment: "production"
+#   enabled: true                     # true = monitora, false = ignora
+#
+# IMPORTANTE: Deixe esta seção VAZIA ([]) se não quiser monitorar nenhum arquivo específico
+# Exemplo de seção vazia: files: []
+#
 files:
   # System logs - APENAS OS QUE EXISTEM
   - path: "/var/log/syslog"
@@ -28,71 +54,191 @@ files:
       file_name: "auth.log"
     enabled: true
 
-  # REMOVIDOS - arquivos que não existem no sistema
+  # Adicione mais arquivos conforme necessário
 
 # -----------------------------------------------------------------------------
 # DIRETÓRIOS PARA DESCOBERTA AUTOMÁTICA
 # -----------------------------------------------------------------------------
 # Monitora diretórios inteiros com padrões de inclusão/exclusão
-# Arquivos descobertos recebem labels default configuradas aqui
+#
+# COMPORTAMENTO:
+# - Arquivos descobertos automaticamente recebem labels default_labels
+# - patterns: Lista de padrões glob a incluir (ex: "*.log", "app-*.txt")
+# - exclude_patterns: Padrões a excluir (ex: "*.gz", "*.zip")
+# - exclude_directories: Subdiretórios a ignorar
+# - recursive: true = monitora subdiretórios, false = apenas diretório raiz
+# - enabled: false = ignora este diretório completamente
+#
+# IMPORTANTE - CONTROLE DE DEFAULTS:
+# - Se você deixar patterns: [] (vazio), NENHUM arquivo será descoberto
+# - Se você deixar esta seção comentada/vazia, o sistema respeita sua escolha
+# - NÃO são aplicados defaults se você explicitamente configurar como vazio
+#
+# EXEMPLO DE USO:
+# - path: "/var/log"                  # Diretório a monitorar
+#   patterns:                         # Padrões de arquivos a incluir
+#     - "*.log"
+#     - "syslog*"
+#   exclude_patterns:                 # Padrões a excluir (segurança)
+#     - "*.gz"
+#     - "*.old"
+#   exclude_directories:              # Diretórios a ignorar
+#     - "archive"
+#     - "monitoring_data_suite"
+#   recursive: true                   # Monitorar subdiretórios
+#   default_labels:                   # Labels aplicadas aos logs descobertos
+#     source: "file"
+#     log_type: "system"
+#   enabled: true                     # Ativar descoberta neste diretório
+#
+# SEGURANÇA: SEMPRE configure exclude_patterns para evitar arquivos sensíveis:
+#   - "*.key", "*.pem" (chaves privadas)
+#   - "*secret*", "*password*" (arquivos com credenciais)
+#   - "*.gz", "*.zip" (arquivos comprimidos)
+#
 directories:
-  # DESABILITADO - descoberta automática pode capturar arquivos indesejados
-  - path: "/var/log"
-    patterns: []
-    exclude_patterns: []
-    exclude_directories: []
-    recursive: false
-    default_labels: {}
-    enabled: false
+  # ⚠️ EXEMPLO DESABILITADO - Descoberta automática em /var/log
+  # Descomente e ajuste se quiser ativar descoberta automática
+  # - path: "/var/log"
+  #   patterns:
+  #     - "*.log"
+  #     - "syslog"
+  #   exclude_patterns:
+  #     - "*.gz"
+  #     - "*.zip"
+  #     - "*.old"
+  #   exclude_directories:
+  #     - "monitoring_data_suite"
+  #   recursive: false
+  #   default_labels:
+  #     source: "file"
+  #     log_type: "system"
+  #   enabled: true
 
-  # DESABILITADO - Logs da aplicação log_capturer (evita feedback loop)
-  - path: "/app/logs"
-    patterns: []
-    exclude_patterns: []
-    recursive: false
-    default_labels: {}
-    enabled: false
+  # ⚠️ IMPORTANTE: Logs da aplicação log_capturer (EVITAR FEEDBACK LOOP)
+  # Esta entrada está desabilitada para prevenir monitoramento dos próprios logs
+  # - path: "/app/logs"
+  #   patterns: []
+  #   exclude_patterns: []
+  #   recursive: false
+  #   default_labels: {}
+  #   enabled: false
 
-  # Logs customizados (adicione seus próprios diretórios aqui)
+  # ✅ TEMPLATE: Adicione seus próprios diretórios aqui
+  # Descomente e ajuste conforme necessário
   # - path: "/opt/myapp/logs"
   #   patterns:
   #     - "*.log"
+  #     - "application-*.txt"
   #   exclude_patterns:
   #     - "*.gz"
+  #     - "*.bak"
+  #     - "*debug*"
   #   exclude_directories:
   #     - "archive"
+  #     - "temp"
   #   recursive: true
   #   default_labels:
   #     log_type: "application"
   #     service: "myapp"
   #     team: "myteam"
+  #     environment: "production"
   #   enabled: true
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE MONITORAMENTO
 # -----------------------------------------------------------------------------
-# Configurações específicas para o comportamento do file monitor
+# Configurações que controlam o comportamento do file monitor service
+#
+# IMPORTANTE: Estas configurações se aplicam a TODOS os arquivos e diretórios
+# monitorados por este pipeline (tanto files quanto directories)
+#
+# VALORES RECOMENDADOS:
+# - Desenvolvimento: poll_interval baixo (100-500ms), max_files moderado
+# - Produção: poll_interval moderado (1000-5000ms), max_files alto
+#
 monitoring:
   # Intervalo de varredura de diretórios (segundos)
+  # Controla com que frequência o sistema procura por novos arquivos
+  # Valor mais baixo = detecção mais rápida, maior uso de CPU
   directory_scan_interval: 30
 
   # Máximo de arquivos simultâneos monitorados
+  # Limite de segurança para prevenir uso excessivo de recursos
+  # Se exceder, arquivos adicionais são ignorados com WARNING no log
   max_files: 1000
 
   # Tamanho do buffer de leitura (bytes)
+  # Buffer usado para ler dados do arquivo
+  # Maior = menos syscalls, mais memória; Menor = menos memória, mais syscalls
+  # Recomendado: 64KB (65536) para maioria dos casos
   read_buffer_size: 65536  # 64KB
 
   # Intervalo de polling para mudanças (milissegundos)
+  # Frequência de verificação se o arquivo teve mudanças
+  # Valor mais baixo = latência menor, maior uso de CPU
+  # Valores comuns: 100ms (dev), 1000ms (prod), 5000ms (arquivos lentos)
   poll_interval: 1000
 
   # Seguir links simbólicos
+  # true = monitora o arquivo apontado pelo symlink
+  # false = ignora symlinks (mais seguro, evita loops)
+  # RECOMENDADO: false para evitar loops e problemas de segurança
   follow_symlinks: false
 
   # Incluir arquivos ocultos (começando com .)
+  # true = monitora arquivos como .hidden_log
+  # false = ignora arquivos ocultos
+  # RECOMENDADO: false (arquivos ocultos geralmente são temporários)
   include_hidden: false
 
-  # Tamanho máximo de arquivo para monitorar (0 = ilimitado)
+  # Tamanho máximo de arquivo para monitorar (bytes, 0 = ilimitado)
+  # Arquivos maiores que este limite são ignorados
+  # Previne monitoramento de arquivos enormes que podem travar o sistema
+  # Valor padrão: 100MB (104857600)
+  # Considere reduzir se tiver problemas de memória
   max_file_size: 104857600  # 100MB
 
-  # Ação quando arquivo é rotacionado (recreate, follow, ignore)
+  # Ação quando arquivo é rotacionado
+  # Opções:
+  #   - "recreate": Fecha arquivo antigo, abre novo (recomendado)
+  #   - "follow": Tenta seguir o arquivo rotacionado (pode perder dados)
+  #   - "ignore": Ignora rotação, continua lendo arquivo antigo
+  # RECOMENDADO: "recreate" para maioria dos casos
   rotation_action: "recreate"
+
+# =============================================================================
+# NOTAS FINAIS E MELHORES PRÁTICAS
+# =============================================================================
+#
+# 1. SEGURANÇA:
+#    - SEMPRE configure exclude_patterns para evitar arquivos sensíveis
+#    - Evite monitorar diretórios inteiros sem filtros
+#    - Use enabled: false para desabilitar temporariamente
+#
+# 2. PERFORMANCE:
+#    - Limite o número de arquivos monitorados (max_files)
+#    - Use exclude_patterns agressivamente para reduzir carga
+#    - Aumente poll_interval se CPU estiver alta
+#
+# 3. DEFAULTS (config.yaml):
+#    - Se default_configs: true, seções NÃO mencionadas recebem defaults
+#    - Se default_configs: false, apenas valores explícitos são usados
+#    - Seções VAZIAS ou COMENTADAS neste arquivo são RESPEITADAS
+#
+# 4. PRECEDÊNCIA:
+#    - Este arquivo (file_pipeline.yml) TEM PRECEDÊNCIA sobre files_config
+#    - Se este arquivo não existir, files_config (config.yaml) é usado
+#    - Environment variables podem sobrescrever algumas configurações
+#
+# 5. DEBUGGING:
+#    - Habilite log_level: "debug" em config.yaml para ver detalhes
+#    - Verifique /app/logs para warnings sobre arquivos não encontrados
+#    - Use curl http://localhost:8401/monitored/files para listar arquivos ativos
+#
+# 6. EVITAR FEEDBACK LOOPS:
+#    - NUNCA monitore /app/logs (logs da própria aplicação)
+#    - NUNCA monitore diretórios de output dos sinks
+#    - Use exclude_directories para prevenir loops
+#
+# =============================================================================

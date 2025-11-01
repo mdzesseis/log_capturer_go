@@ -1,0 +1,19 @@
+{
+	"servers": {
+		"mcp-gopls": {
+			"type": "stdio",
+			"command": "/home/mateus/go/bin/mcp-gopls",
+			"args": []
+		},
+		"gopls": {
+			"type": "stdio",
+			"command": "/home/mateus/go/bin/gopls",
+			"args": []
+		},
+		"gopls-2": {
+			"url": "http://localhost:8092",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}
