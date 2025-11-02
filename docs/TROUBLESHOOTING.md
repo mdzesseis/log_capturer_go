@@ -1549,6 +1549,6 @@ Include:
 
 ---
 
-**Last Updated**: 2025-11-01
-**Version**: 1.0
+**Last Updated**: 2025-11-02
+**Version**: v0.0.2
 **Maintained By**: SSW Logs Capture Team

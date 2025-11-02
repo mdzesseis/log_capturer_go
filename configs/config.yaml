@@ -174,9 +174,9 @@ sinks:
     url: "http://loki:3100"
     push_endpoint: "/loki/api/v1/push"
     tenant_id: ""
-    timeout: "120s"
-    batch_size: 500
-    batch_timeout: "15s"
+    timeout: "240s"
+    batch_size: 20000
+    batch_timeout: "40s"
     max_request_size: 2097152
     queue_size: 25000
     # default_labels:
@@ -209,7 +209,7 @@ sinks:
       send_on_error: true              # Enviar para DLQ em erro de envio
     # Configurações de batching adaptativo
     adaptive_batching:
-      enabled: true                   # Desabilitado por padrão
+      enabled: false                   # Desabilitado por padrão
       min_batch_size: 10
       max_batch_size: 1000
       initial_batch_size: 100
@@ -267,9 +267,9 @@ sinks:
 processing:
   enabled: true
   pipelines_file: "/app/configs/pipelines.yaml"
-  worker_count: 2
-  queue_size: 5000
-  processing_timeout: "5s"
+  worker_count: 6
+  queue_size: 10000
+  processing_timeout: "10s"
   skip_failed_logs: true
   enrich_logs: true
 
@@ -278,8 +278,8 @@ processing:
 # -----------------------------------------------------------------------------
 timestamp_validation:
   enabled: true
-  max_past_age_seconds: 21600     # 6 horas no passado
-  max_future_age_seconds: 60      # 1 minuto no futuro
+  max_past_age_seconds: 3600     # 1 hora no passado
+  max_future_age_seconds: 30      # 30 segundos no futuro
   clamp_enabled: true             # Habilitar clamping automático
   clamp_dlq: false               # Enviar timestamps corrigidos para DLQ
   invalid_action: "clamp"         # Ação: "clamp", "reject", "warn"

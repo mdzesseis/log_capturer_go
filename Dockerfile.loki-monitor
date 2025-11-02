@@ -21,8 +21,8 @@ RUN mkdir -p /app /scripts /tmp/monitoring && \
     chmod -R 755 /tmp/monitoring
 
 # Copiar scripts
-COPY scripts/loki-monitor.py /app/
-COPY scripts/loki-monitor.sh /app/
+COPY ./scripts/loki-monitor.py /app/
+COPY ./scripts/loki-monitor.sh /app/
 
 # Tornar scripts executáveis e ajustar permissões
 RUN chmod +x /app/loki-monitor.py /app/loki-monitor.sh && \

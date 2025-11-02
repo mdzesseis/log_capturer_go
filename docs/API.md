@@ -1,7 +1,7 @@
 # API Documentation - Log Capturer Go
 
-**Version**: 1.0
-**Base URL**: `http://localhost:8000` (default)
+**Version**: v0.0.2
+**Base URL**: `http://localhost:8401` (default)
 **Content-Type**: `application/json`
 
 ---
@@ -31,8 +31,9 @@ The Log Capturer Go API provides HTTP endpoints for monitoring, configuration, a
 
 | Service | Port | Purpose |
 |---------|------|---------|
-| API Server | 8000 | Main HTTP API |
+| API Server | 8401 | Main HTTP API |
 | Metrics Server | 8001 | Prometheus metrics |
+| pprof Server | 6060 | Go profiling and debugging |
 
 ---
 
@@ -44,7 +45,7 @@ If security is enabled, all API requests require a Bearer token:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN_HERE" \
-  http://localhost:8000/health
+  http://localhost:8401/health
 ```
 
 ### Configuration
@@ -76,7 +77,7 @@ Provides comprehensive health status for the application and all components.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/health
+curl http://localhost:8401/health
 ```
 
 **Example Response**:
@@ -157,7 +158,7 @@ Returns detailed operational statistics for all application components.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/stats
+curl http://localhost:8401/stats
 ```
 
 **Example Response**:
@@ -215,7 +216,7 @@ Returns sanitized configuration (no secrets).
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/config
+curl http://localhost:8401/config
 ```
 
 **Example Response**:
@@ -260,7 +261,7 @@ Triggers a hot reload of the configuration.
 
 **Example Request**:
 ```bash
-curl -X POST http://localhost:8000/config/reload
+curl -X POST http://localhost:8401/config/reload
 ```
 
 **Example Response**:
@@ -285,7 +286,7 @@ Returns file position tracking status.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/positions
+curl http://localhost:8401/positions
 ```
 
 **Example Response**:
@@ -324,7 +325,7 @@ Manage and monitor the Dead Letter Queue for failed log entries.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/dlq/stats
+curl http://localhost:8401/dlq/stats
 ```
 
 **Example Response**:
@@ -356,7 +357,7 @@ Triggers reprocessing of failed entries in the DLQ.
 
 **Example Request**:
 ```bash
-curl -X POST http://localhost:8000/dlq/reprocess
+curl -X POST http://localhost:8401/dlq/reprocess
 ```
 
 **Example Response**:
@@ -387,7 +388,7 @@ Proxy endpoint for Prometheus metrics.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/metrics
+curl http://localhost:8401/metrics
 ```
 
 **Example Response** (Prometheus format):
@@ -419,7 +420,7 @@ Returns detailed goroutine statistics for debugging.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/debug/goroutines
+curl http://localhost:8401/debug/goroutines
 ```
 
 **Example Response**:
@@ -453,7 +454,7 @@ Returns detailed memory usage and GC statistics.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/debug/memory
+curl http://localhost:8401/debug/memory
 ```
 
 **Example Response**:
@@ -497,7 +498,7 @@ Validates the integrity of position tracking data.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/debug/positions/validate
+curl http://localhost:8401/debug/positions/validate
 ```
 
 **Example Response**:
@@ -531,7 +532,7 @@ Service Level Objective monitoring status.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/slo/status
+curl http://localhost:8401/slo/status
 ```
 
 **Example Response**:
@@ -565,7 +566,7 @@ Detailed goroutine tracking and leak detection.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/goroutines/stats
+curl http://localhost:8401/goroutines/stats
 ```
 
 **Example Response**:
@@ -592,7 +593,7 @@ Security audit logs and authentication statistics.
 
 **Example Request**:
 ```bash
-curl http://localhost:8000/security/audit
+curl http://localhost:8401/security/audit
 ```
 
 **Example Response**:
@@ -630,7 +631,7 @@ All error responses follow this format:
 ### Example Error Response
 
 ```bash
-curl http://localhost:8000/invalid-endpoint
+curl http://localhost:8401/invalid-endpoint
 ```
 
 ```json
@@ -666,10 +667,10 @@ Use `/health` for load balancer health checks:
 
 ```bash
 # Simple health check
-curl -f http://localhost:8000/health || exit 1
+curl -f http://localhost:8401/health || exit 1
 
 # Check specific status
-curl -s http://localhost:8000/health | jq -e '.status == "healthy"'
+curl -s http://localhost:8401/health | jq -e '.status == "healthy"'
 ```
 
 ### 2. Monitoring
@@ -694,7 +695,7 @@ Always validate configuration before reloading:
 ./log_capturer --config=config.yaml --validate
 
 # Then reload if valid
-curl -X POST http://localhost:8000/config/reload
+curl -X POST http://localhost:8401/config/reload
 ```
 
 ### 4. Error Handling
@@ -702,7 +703,7 @@ curl -X POST http://localhost:8000/config/reload
 Always check response codes:
 
 ```bash
-response=$(curl -s -w "\n%{http_code}" http://localhost:8000/health)
+response=$(curl -s -w "\n%{http_code}" http://localhost:8401/health)
 http_code=$(echo "$response" | tail -n1)
 body=$(echo "$response" | sed '$d')
 
@@ -724,7 +725,7 @@ fi
 import requests
 
 # Health check
-response = requests.get('http://localhost:8000/health')
+response = requests.get('http://localhost:8401/health')
 if response.status_code == 200:
     health = response.json()
     print(f"Status: {health['status']}")
@@ -734,7 +735,7 @@ else:
 
 # With authentication
 headers = {'Authorization': 'Bearer YOUR_TOKEN'}
-stats = requests.get('http://localhost:8000/stats', headers=headers).json()
+stats = requests.get('http://localhost:8401/stats', headers=headers).json()
 print(f"Processed: {stats['dispatcher']['processed']}")
 ```
 
@@ -756,7 +757,7 @@ type HealthResponse struct {
 }
 
 func main() {
-    resp, err := http.Get("http://localhost:8000/health")
+    resp, err := http.Get("http://localhost:8401/health")
     if err != nil {
         panic(err)
     }
@@ -774,7 +775,7 @@ func main() {
 #!/bin/bash
 
 # Complete health check script
-API_URL="http://localhost:8000"
+API_URL="http://localhost:8401"
 
 echo "Checking API health..."
 health=$(curl -sf "$API_URL/health")
@@ -806,6 +807,6 @@ fi
 
 ---
 
-**Last Updated**: 2025-11-01
-**Maintained By**: DevOps Team
+**Last Updated**: 2025-11-02
+**Maintained By**: SSW Development Team
 **Support**: See [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)

@@ -1,0 +1,64 @@
+# Arquivos/pastas não necessários para o build da imagem
+
+# Controle de versão e IDEs
+.git
+.github
+.vscode
+.claude
+.mcp.json
+
+# Binários e artefatos locais
+ssw-logs-capture
+bin/
+dist/
+build/
+coverage/
+*.out
+
+# Documentação e materiais de revisão
+README.md
+*.md
+docs/
+api/
+dashboards/
+provisioning/
+pull_requests/
+relatorios_code_review/
+mcp-server/
+
+# Testes e benchmarks (não necessários para compilar)
+tests/
+test-scripts/
+benchmarks/
+
+# Scripts de desenvolvimento/operacionais
+# scripts/
+scripts_go/
+
+# Arquivos de orquestração/monitoramento usados só fora da imagem
+docker-compose.yml
+Dockerfile.loki-monitor
+loki-config.yaml
+prometheus.yml
+
+# Logs, cache e temporários
+logs/
+*.log
+*.tmp
+tmp/
+.cache/
+*.swp
+.DS_Store
+
+# Dependências de outras stacks que porventura existam
+node_modules/
+venv/
+__pycache__/
+
+# Modelos grandes não usados no build (montados via volume se necessário)
+models/
+
+# Importante: manter configs no contexto (utilizadas no COPY do Dockerfile)
+!configs/
+!configs/**
+

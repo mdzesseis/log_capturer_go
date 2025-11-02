@@ -440,6 +440,7 @@ See [API Documentation](docs/API.md) for complete endpoint reference.
 
 ### Development Documentation
 
+- **[Developer Guide (CLAUDE.md)](CLAUDE.md)** - Complete developer guide with concurrency patterns, testing, and best practices
 - **[Development Guide](docs/DEVELOPMENT.md)** - Development setup
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - System design
 - **[Contributing Guide](CONTRIBUTING.md)** - How to contribute
@@ -681,5 +682,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 **Built with ❤️ using Go**
 
 **Version**: v0.0.2
-**Last Updated**: 2025-11-01
+**Last Updated**: 2025-11-02
 **Maintained By**: SSW Development Team

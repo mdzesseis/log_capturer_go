@@ -1,0 +1,1 @@
+1. erros de timestamp do loki, (loki regeitando entradas de logs devido a timestamp antigo ou no futuro) esse tipo de erro nao pode acionar o circuit breaker.

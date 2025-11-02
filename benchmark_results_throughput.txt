@@ -1,0 +1,13 @@
+# ssw-logs-capture/benchmarks [ssw-logs-capture/benchmarks.test]
+./cpu_test.go:46:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+./cpu_test.go:51:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+./cpu_test.go:95:8: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+./cpu_test.go:148:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+./cpu_test.go:153:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+./cpu_test.go:177:15: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+./cpu_test.go:195:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+./cpu_test.go:200:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+./cpu_test.go:233:15: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+./cpu_test.go:256:5: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+./cpu_test.go:256:5: too many errors
+FAIL	ssw-logs-capture/benchmarks [build failed]

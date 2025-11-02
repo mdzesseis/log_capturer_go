@@ -146,6 +146,9 @@ func (app *App) registerHandlers(router *mux.Router) {
 	router.Handle("/dlq/stats", middleware(http.HandlerFunc(app.dlqStatsHandler))).Methods("GET")
 	router.Handle("/dlq/reprocess", middleware(http.HandlerFunc(app.dlqReprocessHandler))).Methods("POST")
 
+	// Log ingest endpoint for load testing and API access
+	router.Handle("/api/v1/logs", middleware(http.HandlerFunc(app.logsIngestHandler))).Methods("POST")
+
 	// Metrics endpoint (proxy to metrics server)
 	router.Handle("/metrics", middleware(http.HandlerFunc(app.metricsHandler))).Methods("GET")
 
@@ -677,6 +680,100 @@ func (app *App) dlqStatsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Error(w, "DLQ not available", http.StatusServiceUnavailable)
+}
+
+// logsIngestHandler accepts log entries via HTTP POST for processing.
+//
+// This endpoint allows external systems and load testing tools to submit
+// log entries directly to the log capturer for processing. Each log entry
+// is validated and then sent to the dispatcher for processing and delivery.
+//
+// Request Body (JSON):
+//   {
+//     "message": "Log message content",          // Required
+//     "level": "info",                           // Optional, defaults to "info"
+//     "source_type": "api",                      // Optional, defaults to "api"
+//     "source_id": "external-system-1",          // Optional
+//     "labels": {"key": "value"},                // Optional
+//     "timestamp": "2025-11-02T12:00:00Z"        // Optional, defaults to now
+//   }
+//
+// Response Codes:
+//   - 200 OK: Log entry accepted and queued
+//   - 400 Bad Request: Invalid JSON or missing required fields
+//   - 500 Internal Server Error: Failed to process log entry
+//   - 503 Service Unavailable: Dispatcher not available
+//
+// This endpoint is primarily used for:
+//   - Load testing and performance validation
+//   - External log collection from systems without file/container access
+//   - API-based log aggregation
+func (app *App) logsIngestHandler(w http.ResponseWriter, r *http.Request) {
+	// Ensure dispatcher is available
+	if app.dispatcher == nil {
+		http.Error(w, "Dispatcher not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse request body
+	var entry struct {
+		Message    string            `json:"message"`
+		Level      string            `json:"level"`
+		SourceType string            `json:"source_type"`
+		SourceID   string            `json:"source_id"`
+		Labels     map[string]string `json:"labels"`
+		Timestamp  time.Time         `json:"timestamp"`
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err := json.Unmarshal(body, &entry); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate required fields
+	if entry.Message == "" {
+		http.Error(w, "Missing required field: message", http.StatusBadRequest)
+		return
+	}
+
+	// Set defaults
+	if entry.Level == "" {
+		entry.Level = "info"
+	}
+	if entry.SourceType == "" {
+		entry.SourceType = "api"
+	}
+	if entry.SourceID == "" {
+		entry.SourceID = "http-ingest"
+	}
+	if entry.Labels == nil {
+		entry.Labels = make(map[string]string)
+	}
+	// Add API-specific labels
+	entry.Labels["ingested_via"] = "http_api"
+	entry.Labels["client_ip"] = r.RemoteAddr
+
+	// Send to dispatcher
+	ctx := r.Context()
+	if err := app.dispatcher.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to process log entry: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Success response
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "accepted",
+		"message": "Log entry queued for processing",
+	})
 }
 
 // Enterprise handlers - Advanced monitoring and security endpoints
