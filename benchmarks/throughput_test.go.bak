@@ -83,13 +83,14 @@ func benchmarkDispatcherThroughput(b *testing.B, numLogs int) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel) // Reduce noise in benchmarks
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      100000,
-		Workers:    4,
+		WorkerCount:    4,
 		BatchSize:      100,
-		BatchTimeout: 100 * time.Millisecond,
+		BatchTimeout:   "100ms",
 		MaxRetries:     3,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "100ms",
+		RetryMaxDelay:  "5s",
 	}
 
 	sink := NewBenchmarkSink("benchmark-sink")
@@ -126,7 +127,7 @@ func benchmarkDispatcherThroughput(b *testing.B, numLogs int) {
 
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < numLogs; j++ {
-			if err := d.Handle(ctx, entries[j].SourceType, entries[j].SourceID, entries[j].Message, entries[j].Labels); err != nil {
+			if err := d.HandleLogEntry(ctx, entries[j]); err != nil {
 				b.Errorf("Failed to handle log entry: %v", err)
 			}
 			totalProcessed.Add(1)
@@ -152,13 +153,14 @@ func BenchmarkDispatcherThroughput_Concurrent(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      100000,
-		Workers:    8, // More workers for concurrency
+		WorkerCount:    8, // More workers for concurrency
 		BatchSize:      100,
-		BatchTimeout: 50 * time.Millisecond,
+		BatchTimeout:   "50ms",
 		MaxRetries:     3,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "100ms",
+		RetryMaxDelay:  "5s",
 	}
 
 	sink := NewBenchmarkSink("benchmark-sink")
@@ -188,7 +190,7 @@ func BenchmarkDispatcherThroughput_Concurrent(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
+			if err := d.HandleLogEntry(ctx, entry); err != nil {
 				b.Errorf("Failed to handle log entry: %v", err)
 			}
 		}
@@ -212,13 +214,23 @@ func BenchmarkDispatcherThroughput_WithDedup(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      100000,
-		Workers:    4,
+		WorkerCount:    4,
 		BatchSize:      100,
-		BatchTimeout: 100 * time.Millisecond,
+		BatchTimeout:   "100ms",
 		MaxRetries:     3,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "100ms",
+		RetryMaxDelay:  "5s",
+		Deduplication: types.DeduplicationConfig{
+			Enabled:          true,
+			TTL:              "1h",
+			MaxCacheSize:     100000,
+			HashAlgorithm:    "sha256",
+			IncludeTimestamp: false,
+			IncludeSourceID:  false,
+			CleanupInterval:  "10m",
+		},
 	}
 
 	sink := NewBenchmarkSink("benchmark-sink")
@@ -255,7 +267,7 @@ func BenchmarkDispatcherThroughput_WithDedup(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < numLogs; j++ {
-			if err := d.Handle(ctx, entries[j].SourceType, entries[j].SourceID, entries[j].Message, entries[j].Labels); err != nil {
+			if err := d.HandleLogEntry(ctx, entries[j]); err != nil {
 				b.Errorf("Failed to handle log entry: %v", err)
 			}
 		}

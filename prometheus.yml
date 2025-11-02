@@ -60,6 +60,24 @@ scrape_configs:
     scrape_timeout: 10s
     metrics_path: /metrics
 
+  # Kafka metrics (via JMX exporter)
+  # NOTE: Requires JMX exporter to be configured on Kafka broker
+  # Uncomment when JMX exporter is enabled
+  # - job_name: 'kafka'
+  #   static_configs:
+  #     - targets: ['kafka:9999']
+  #   scrape_interval: 30s
+  #   scrape_timeout: 10s
+  #   metrics_path: /metrics
+
+  # Zookeeper metrics (via JMX exporter)
+  # - job_name: 'zookeeper'
+  #   static_configs:
+  #     - targets: ['zookeeper:9999']
+  #   scrape_interval: 30s
+  #   scrape_timeout: 10s
+  #   metrics_path: /metrics
+
   # Loki storage monitor (if implemented)
   - job_name: 'loki_storage_monitor'
     static_configs:

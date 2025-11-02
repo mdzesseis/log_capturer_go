@@ -149,6 +149,7 @@ type SinksConfig struct {
 	LocalFile     LocalFileSinkConfig     `yaml:"local_file"`     // Local file sink configuration
 	Elasticsearch ElasticsearchSinkConfig `yaml:"elasticsearch"`  // Elasticsearch sink configuration
 	Splunk        SplunkSinkConfig        `yaml:"splunk"`        // Splunk sink configuration
+	Kafka         KafkaSinkConfig         `yaml:"kafka"`         // Apache Kafka sink configuration
 }
 
 // AuthConfig represents authentication configuration.
@@ -257,6 +258,67 @@ type SplunkSinkConfig struct {
 	BatchTimeout string `yaml:"batch_timeout"` // Batch timeout duration
 	Timeout     string `yaml:"timeout"`      // Request timeout
 	Compression bool   `yaml:"compression"`  // Enable request compression
+}
+
+// KafkaSinkConfig contains Apache Kafka output settings.
+type KafkaSinkConfig struct {
+	Enabled          bool                   `yaml:"enabled"`           // Enable Kafka sink
+	Brokers          []string               `yaml:"brokers"`           // Kafka broker addresses
+	Topic            string                 `yaml:"topic"`             // Default topic name
+	Compression      string                 `yaml:"compression"`       // Compression type (gzip, snappy, lz4, zstd, none)
+	BatchSize        int                    `yaml:"batch_size"`        // Batch size for messages
+	BatchTimeout     string                 `yaml:"batch_timeout"`     // Batch timeout duration
+	QueueSize        int                    `yaml:"queue_size"`        // Internal queue size
+	MaxMessageBytes  int                    `yaml:"max_message_bytes"` // Maximum message size in bytes
+	RequiredAcks     int                    `yaml:"required_acks"`     // Required acks (0=none, 1=leader, -1=all)
+	Timeout          string                 `yaml:"timeout"`           // Request timeout
+	RetryMax         int                    `yaml:"retry_max"`         // Maximum retry attempts
+	Partitioning     PartitioningConfig     `yaml:"partitioning"`      // Partitioning configuration
+	Auth             KafkaAuthConfig        `yaml:"auth"`              // Kafka authentication
+	TLS              TLSConfig              `yaml:"tls"`               // TLS configuration
+	DLQConfig        KafkaDLQConfig         `yaml:"dlq_config"`        // Dead letter queue config
+	BackpressureConfig BackpressureConfig   `yaml:"backpressure_config"` // Backpressure configuration
+}
+
+// PartitioningConfig contains Kafka partitioning settings.
+type PartitioningConfig struct {
+	Enabled  bool   `yaml:"enabled"`   // Enable custom partitioning
+	Strategy string `yaml:"strategy"`  // Partitioning strategy (hash, round-robin, manual)
+	KeyField string `yaml:"key_field"` // Field to use as partition key
+}
+
+// KafkaAuthConfig contains Kafka authentication settings.
+type KafkaAuthConfig struct {
+	Enabled   bool   `yaml:"enabled"`   // Enable authentication
+	Mechanism string `yaml:"mechanism"` // Auth mechanism (PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
+	Username  string `yaml:"username"`  // SASL username
+	Password  string `yaml:"password"`  // SASL password
+}
+
+// TLSConfig contains TLS/SSL settings for secure connections.
+type TLSConfig struct {
+	Enabled           bool   `yaml:"enabled"`            // Enable TLS
+	VerifyCertificate bool   `yaml:"verify_certificate"` // Verify server certificate
+	CAFile            string `yaml:"ca_file"`            // CA certificate file path
+	CertFile          string `yaml:"cert_file"`          // Client certificate file path
+	KeyFile           string `yaml:"key_file"`           // Client private key file path
+}
+
+// KafkaDLQConfig contains Kafka-specific DLQ settings.
+type KafkaDLQConfig struct {
+	Enabled       bool   `yaml:"enabled"`         // Enable DLQ for Kafka
+	Topic         string `yaml:"topic"`           // DLQ topic name
+	SendOnError   bool   `yaml:"send_on_error"`   // Send to DLQ on error
+	SendOnTimeout bool   `yaml:"send_on_timeout"` // Send to DLQ on timeout
+}
+
+// BackpressureConfig contains backpressure management settings.
+type BackpressureConfig struct {
+	Enabled                  bool    `yaml:"enabled"`                     // Enable backpressure management
+	QueueWarningThreshold    float64 `yaml:"queue_warning_threshold"`     // Queue warning threshold (0.0-1.0)
+	QueueCriticalThreshold   float64 `yaml:"queue_critical_threshold"`    // Queue critical threshold (0.0-1.0)
+	QueueEmergencyThreshold  float64 `yaml:"queue_emergency_threshold"`   // Queue emergency threshold (0.0-1.0)
+	TimeoutEscalation        bool    `yaml:"timeout_escalation"`          // Enable timeout escalation
 }
 
 // TimestampValidationConfig contains timestamp validation settings.

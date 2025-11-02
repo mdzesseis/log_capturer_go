@@ -1,0 +1,108 @@
+FAIL	ssw-logs-capture/benchmarks [build failed]
+?   	ssw-logs-capture/cmd	[no test files]
+Loaded configuration from file: /tmp/BenchmarkAppCreation3733916958/001/config.yaml
+⚙ Default configurations enabled - applying defaults for missing values
+DEBUG: Server config - Enabled: false, Host: 0.0.0.0, Port: 8401
+No file pipeline configured, using defaults from files_config
+✓ Configuration validation passed
+{"level":"info","msg":"Server configuration loaded","server_enabled":false,"server_host":"0.0.0.0","server_port":8401,"time":"2025-11-02T05:42:54-03:00"}
+--- FAIL: BenchmarkAppCreation
+    app_test.go:468: failed to initialize components: failed to create log processor: failed to load pipelines: failed to read pipeline config file: open pipelines.yaml: no such file or directory
+Loaded configuration from file: /tmp/BenchmarkHealthHandler926671183/001/config.yaml
+⚙ Default configurations enabled - applying defaults for missing values
+DEBUG: Server config - Enabled: false, Host: 0.0.0.0, Port: 8401
+No file pipeline configured, using defaults from files_config
+✓ Configuration validation passed
+{"level":"info","msg":"Server configuration loaded","server_enabled":false,"server_host":"0.0.0.0","server_port":8401,"time":"2025-11-02T05:42:54-03:00"}
+--- FAIL: BenchmarkHealthHandler
+    app_test.go:483: failed to initialize components: failed to create log processor: failed to load pipelines: failed to read pipeline config file: open pipelines.yaml: no such file or directory
+FAIL
+exit status 1
+FAIL	ssw-logs-capture/internal/app	0.012s
+PASS
+ok  	ssw-logs-capture/internal/config	0.004s
+time="2025-11-02T05:42:54-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-02T05:42:54-03:00" level=info msg="Starting dispatcher" batch_size=100 deduplication_enabled=false dlq_enabled=false queue_size=10000 workers=4
+time="2025-11-02T05:42:54-03:00" level=info msg="Dispatcher worker started" worker_id=1
+time="2025-11-02T05:42:54-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-02T05:42:54-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-02T05:42:54-03:00" level=info msg="Dispatcher worker started" worker_id=3
+time="2025-11-02T05:42:54-03:00" level=info msg="Dispatcher worker started" worker_id=2
+panic: 
+	assert: mock: I don't know what to return because the method call was unexpected.
+		Either do Mock.On("IsHealthy").Return(...) first, or remove the IsHealthy() call.
+		This method was unexpected:
+			IsHealthy()
+			
+		at: [/home/mateus/log_capturer_go/internal/dispatcher/dispatcher_test.go:43 /home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:887 /home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:782 /home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:790 /home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:427 /home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/asm_amd64.s:1700]
+
+goroutine 10 [running]:
+github.com/stretchr/testify/mock.(*Mock).fail(0xc00003a1e0, {0x83700e?, 0x8?}, {0xc000088380?, 0x0?, 0x0?})
+	/home/mateus/go/pkg/mod/github.com/stretchr/testify@v1.11.1/mock/mock.go:359 +0x125
+github.com/stretchr/testify/mock.(*Mock).MethodCalled(0xc00003a1e0, {0x93a9e5, 0x9}, {0x0, 0x0, 0x0})
+	/home/mateus/go/pkg/mod/github.com/stretchr/testify@v1.11.1/mock/mock.go:527 +0x785
+github.com/stretchr/testify/mock.(*Mock).Called(0xc00003a1e0, {0x0, 0x0, 0x0})
+	/home/mateus/go/pkg/mod/github.com/stretchr/testify@v1.11.1/mock/mock.go:491 +0x125
+ssw-logs-capture/internal/dispatcher.(*MockSink).IsHealthy(0xc0001a8180?)
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher_test.go:43 +0x1c
+ssw-logs-capture/internal/dispatcher.(*Dispatcher).processBatch(0xc0001d6488, {0xc000134000, 0x1, 0x64}, 0xc000222070)
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:887 +0x2d8
+ssw-logs-capture/internal/dispatcher.(*Dispatcher).worker.func1()
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:782 +0x7c
+ssw-logs-capture/internal/dispatcher.(*Dispatcher).worker(0xc0001d6488, 0x0?)
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:790 +0x430
+ssw-logs-capture/internal/dispatcher.(*Dispatcher).Start.func3(0x0?)
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:427 +0x52
+created by ssw-logs-capture/internal/dispatcher.(*Dispatcher).Start in goroutine 50
+	/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:425 +0x65e
+exit status 2
+FAIL	ssw-logs-capture/internal/dispatcher	0.016s
+?   	ssw-logs-capture/internal/metrics	[no test files]
+?   	ssw-logs-capture/internal/monitors	[no test files]
+?   	ssw-logs-capture/internal/processing	[no test files]
+goos: linux
+goarch: amd64
+pkg: ssw-logs-capture/internal/sinks
+cpu: 13th Gen Intel(R) Core(TM) i5-1345U
+BenchmarkCreateStreamKey-10    	 3124269	       378.3 ns/op	     344 B/op	       6 allocs/op
+PASS
+ok  	ssw-logs-capture/internal/sinks	1.626s
+PASS
+ok  	ssw-logs-capture/pkg/anomaly	0.003s
+?   	ssw-logs-capture/pkg/backpressure	[no test files]
+?   	ssw-logs-capture/pkg/batching	[no test files]
+?   	ssw-logs-capture/pkg/buffer	[no test files]
+goos: linux
+goarch: amd64
+pkg: ssw-logs-capture/pkg/circuit
+cpu: 13th Gen Intel(R) Core(TM) i5-1345U
+BenchmarkCircuitBreakerSerial-10      	    2809	    361610 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCircuitBreakerParallel-10    	  140446	      7717 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	ssw-logs-capture/pkg/circuit	3.222s
+FAIL	ssw-logs-capture/pkg/cleanup [build failed]
+?   	ssw-logs-capture/pkg/compression	[no test files]
+FAIL	ssw-logs-capture/pkg/deduplication [build failed]
+?   	ssw-logs-capture/pkg/degradation	[no test files]
+?   	ssw-logs-capture/pkg/discovery	[no test files]
+FAIL	ssw-logs-capture/pkg/dlq [build failed]
+?   	ssw-logs-capture/pkg/docker	[no test files]
+?   	ssw-logs-capture/pkg/errors	[no test files]
+?   	ssw-logs-capture/pkg/goroutines	[no test files]
+?   	ssw-logs-capture/pkg/hotreload	[no test files]
+?   	ssw-logs-capture/pkg/leakdetection	[no test files]
+?   	ssw-logs-capture/pkg/monitoring	[no test files]
+FAIL	ssw-logs-capture/pkg/positions [build failed]
+?   	ssw-logs-capture/pkg/ratelimit	[no test files]
+FAIL	ssw-logs-capture/pkg/security [build failed]
+?   	ssw-logs-capture/pkg/selfguard	[no test files]
+?   	ssw-logs-capture/pkg/slo	[no test files]
+PASS
+ok  	ssw-logs-capture/pkg/task_manager	0.006s
+?   	ssw-logs-capture/pkg/tracing	[no test files]
+PASS
+ok  	ssw-logs-capture/pkg/types	0.002s
+FAIL	ssw-logs-capture/pkg/validation [build failed]
+PASS
+ok  	ssw-logs-capture/tests/load	0.003s
+FAIL

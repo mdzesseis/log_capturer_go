@@ -36,14 +36,13 @@ func TestCPUProfile_Sustained(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
-	config := types.DispatcherConfig{
-		QueueSize:      50000,
-		WorkerCount:    4,
-		BatchSize:      100,
-		BatchTimeout:   "100ms",
-		MaxRetries:     3,
-		RetryBaseDelay: "100ms",
-		RetryMaxDelay:  "5s",
+	config := dispatcher.DispatcherConfig{
+		QueueSize:    50000,
+		Workers:      4,
+		BatchSize:    100,
+		BatchTimeout: 100 * time.Millisecond,
+		MaxRetries:   3,
+		RetryDelay:   100 * time.Millisecond,
 	}
 
 	sink := NewBenchmarkSink("cpu-test-sink")
@@ -92,7 +91,7 @@ func TestCPUProfile_Sustained(t *testing.T) {
 			case <-ticker.C:
 				// Send logs for this second
 				for i := 0; i < logsPerSecond; i++ {
-					d.HandleLogEntry(ctx, entry)
+					d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels)
 				}
 				totalSent += logsPerSecond
 
@@ -138,14 +137,13 @@ func BenchmarkCPU_DispatcherHandleLogEntry(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := types.DispatcherConfig{
-		QueueSize:      100000,
-		WorkerCount:    4,
-		BatchSize:      100,
-		BatchTimeout:   "100ms",
-		MaxRetries:     3,
-		RetryBaseDelay: "100ms",
-		RetryMaxDelay:  "5s",
+	config := dispatcher.DispatcherConfig{
+		QueueSize:    100000,
+		Workers:      4,
+		BatchSize:    100,
+		BatchTimeout: 100 * time.Millisecond,
+		MaxRetries:   3,
+		RetryDelay:   100 * time.Millisecond,
 	}
 
 	sink := NewBenchmarkSink("cpu-bench-sink")
@@ -174,7 +172,7 @@ func BenchmarkCPU_DispatcherHandleLogEntry(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := d.HandleLogEntry(ctx, entry); err != nil {
+		if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
 			b.Fatalf("Failed to handle entry: %v", err)
 		}
 	}
@@ -185,14 +183,13 @@ func BenchmarkCPU_LabelProcessing(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := types.DispatcherConfig{
-		QueueSize:      10000,
-		WorkerCount:    2,
-		BatchSize:      50,
-		BatchTimeout:   "100ms",
-		MaxRetries:     1,
-		RetryBaseDelay: "10ms",
-		RetryMaxDelay:  "1s",
+	config := dispatcher.DispatcherConfig{
+		QueueSize:    10000,
+		Workers:      2,
+		BatchSize:    50,
+		BatchTimeout: 100 * time.Millisecond,
+		MaxRetries:   1,
+		RetryDelay:   10 * time.Millisecond,
 	}
 
 	sink := NewBenchmarkSink("label-bench-sink")
@@ -230,7 +227,7 @@ func BenchmarkCPU_LabelProcessing(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		if err := d.HandleLogEntry(ctx, entry); err != nil {
+		if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
 			b.Fatalf("Failed to handle entry: %v", err)
 		}
 	}
@@ -246,14 +243,13 @@ func BenchmarkCPU_BatchProcessing(b *testing.B) {
 
 	for _, batchSize := range batchSizes {
 		b.Run(fmt.Sprintf("BatchSize_%d", batchSize), func(b *testing.B) {
-			config := types.DispatcherConfig{
-				QueueSize:      100000,
-				WorkerCount:    4,
-				BatchSize:      batchSize,
-				BatchTimeout:   "100ms",
-				MaxRetries:     1,
-				RetryBaseDelay: "10ms",
-				RetryMaxDelay:  "1s",
+			config := dispatcher.DispatcherConfig{
+				QueueSize:    100000,
+				Workers:      4,
+				BatchSize:    batchSize,
+				BatchTimeout: 100 * time.Millisecond,
+				MaxRetries:   1,
+				RetryDelay:   10 * time.Millisecond,
 			}
 
 			sink := NewBenchmarkSink(fmt.Sprintf("batch-bench-%d", batchSize))
@@ -278,7 +274,7 @@ func BenchmarkCPU_BatchProcessing(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				if err := d.HandleLogEntry(ctx, entry); err != nil {
+				if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
 					b.Fatalf("Failed to handle entry: %v", err)
 				}
 			}
@@ -296,14 +292,13 @@ func BenchmarkCPU_WorkerConcurrency(b *testing.B) {
 
 	for _, workerCount := range workerCounts {
 		b.Run(fmt.Sprintf("Workers_%d", workerCount), func(b *testing.B) {
-			config := types.DispatcherConfig{
-				QueueSize:      100000,
-				WorkerCount:    workerCount,
-				BatchSize:      100,
-				BatchTimeout:   "100ms",
-				MaxRetries:     1,
-				RetryBaseDelay: "10ms",
-				RetryMaxDelay:  "1s",
+			config := dispatcher.DispatcherConfig{
+				QueueSize:    100000,
+				Workers:      workerCount,
+				BatchSize:    100,
+				BatchTimeout: 100 * time.Millisecond,
+				MaxRetries:   1,
+				RetryDelay:   10 * time.Millisecond,
 			}
 
 			sink := NewBenchmarkSink(fmt.Sprintf("worker-bench-%d", workerCount))
@@ -328,7 +323,7 @@ func BenchmarkCPU_WorkerConcurrency(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				if err := d.HandleLogEntry(ctx, entry); err != nil {
+				if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
 					b.Fatalf("Failed to handle entry: %v", err)
 				}
 			}

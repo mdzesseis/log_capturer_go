@@ -1,0 +1,1042 @@
+Results:
+
+
+[/home/mateus/log_capturer_go/pkg/leakdetection/resource_monitor.go:385] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    384: 	if memStats.NumGC > 0 && len(memStats.PauseNs) > 0 {
+  > 385: 		lastPause := time.Duration(memStats.PauseNs[(memStats.NumGC+255)%256])
+    386: 		rm.stats.GCPauses = append(rm.stats.GCPauses, lastPause)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/leakdetection/resource_monitor.go:362] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    361: 	runtime.ReadMemStats(&memStats)
+  > 362: 	return int64(memStats.Alloc)
+    363: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/leakdetection/resource_monitor.go:290] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    289: 	if int64(memStats.HeapInuse) > rm.config.MemoryLeakThreshold {
+  > 290: 		rm.reportLeak("memory", "Memory", int64(memStats.HeapInuse), rm.config.MemoryLeakThreshold,
+    291: 			fmt.Sprintf("Heap memory usage: %d bytes", memStats.HeapInuse))
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/leakdetection/resource_monitor.go:289] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    288: 	runtime.ReadMemStats(&memStats)
+  > 289: 	if int64(memStats.HeapInuse) > rm.config.MemoryLeakThreshold {
+    290: 		rm.reportLeak("memory", "Memory", int64(memStats.HeapInuse), rm.config.MemoryLeakThreshold,
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:1074] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    1073: 	minFreeBytes := int64(100 * 1024 * 1024) // 100MB
+  > 1074: 	if int64(freeBytes)-size < minFreeBytes {
+    1075: 		return false
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:1043] - G115 (CWE-190): integer overflow conversion uint64 -> int64 (Confidence: MEDIUM, Severity: HIGH)
+    1042: 			"next_gc":       stats.NextGC,
+  > 1043: 			"last_gc":       time.Unix(0, int64(stats.LastGC)).Format(time.RFC3339),
+    1044: 		},
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/cleanup/disk_manager.go:401] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    400: 	total := stat.Blocks * uint64(stat.Bsize)
+  > 401: 	free := stat.Bavail * uint64(stat.Bsize)
+    402: 	used := total - free
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/cleanup/disk_manager.go:400] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    399: 
+  > 400: 	total := stat.Blocks * uint64(stat.Bsize)
+    401: 	free := stat.Bavail * uint64(stat.Bsize)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:1070] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    1069: 
+  > 1070: 	freeBytes := stat.Bavail * uint64(stat.Bsize)
+    1071: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:1030] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    1029: 	totalBytes := stat.Blocks * uint64(stat.Bsize)
+  > 1030: 	freeBytes := stat.Bavail * uint64(stat.Bsize)
+    1031: 	usagePercent := float64(totalBytes-freeBytes) / float64(totalBytes) * 100
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:1029] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    1028: 
+  > 1029: 	totalBytes := stat.Blocks * uint64(stat.Bsize)
+    1030: 	freeBytes := stat.Bavail * uint64(stat.Bsize)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:877] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    876: 	totalBytes := stat.Blocks * uint64(stat.Bsize)
+  > 877: 	freeBytes := stat.Bavail * uint64(stat.Bsize)
+    878: 	usedBytes := totalBytes - freeBytes
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:876] - G115 (CWE-190): integer overflow conversion int64 -> uint64 (Confidence: MEDIUM, Severity: HIGH)
+    875: 	// Calcular uso do disco
+  > 876: 	totalBytes := stat.Blocks * uint64(stat.Bsize)
+    877: 	freeBytes := stat.Bavail * uint64(stat.Bsize)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:221] - G115 (CWE-190): integer overflow conversion int -> uint32 (Confidence: MEDIUM, Severity: HIGH)
+    220: 	lengthBuf := make([]byte, 4)
+  > 221: 	binary.LittleEndian.PutUint32(lengthBuf, uint32(len(data)))
+    222: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/batching/adaptive_batcher.go:334] - G115 (CWE-190): integer overflow conversion int -> int32 (Confidence: MEDIUM, Severity: HIGH)
+    333: 	if adapted {
+  > 334: 		atomic.StoreInt32(&ab.currentBatchSize, int32(newBatchSize))
+    335: 		atomic.StoreInt64(&ab.currentFlushDelay, int64(newFlushDelay))
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/batching/adaptive_batcher.go:111] - G115 (CWE-190): integer overflow conversion int -> int32 (Confidence: MEDIUM, Severity: HIGH)
+    110: 		logger:            logger,
+  > 111: 		currentBatchSize:  int32(config.InitialBatchSize),
+    112: 		currentFlushDelay: int64(config.InitialFlushDelay),
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:808] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    807: 		for j := range nnm.weightsHO[i] {
+  > 808: 			nnm.weightsHO[i][j] = (rand.Float64() - 0.5) * 2.0 / math.Sqrt(float64(nnm.hiddenSize))
+    809: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:799] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    798: 		for j := range nnm.weightsIH[i] {
+  > 799: 			nnm.weightsIH[i][j] = (rand.Float64() - 0.5) * 2.0 / math.Sqrt(float64(nnm.inputSize))
+    800: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:141] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    140: 
+  > 141: 	threshold := minVal + rand.Float64()*(maxVal-minVal)
+    142: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:133] - G404 (CWE-338): Use of weak random number generator (math/rand or math/rand/v2 instead of crypto/rand) (Confidence: MEDIUM, Severity: HIGH)
+    132: 	// Randomly select feature and threshold
+  > 133: 	featureName := ifm.featureNames[rand.Intn(len(ifm.featureNames))]
+    134: 	minVal, maxVal := ifm.getFeatureRange(data, featureName)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/common.go:44] - G402 (CWE-295): TLS InsecureSkipVerify may be true. (Confidence: LOW, Severity: HIGH)
+    43: 	tlsConfig := &tls.Config{
+  > 44: 		InsecureSkipVerify: config.InsecureSkipVerify,
+    45: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/extractors.go:251] - G401 (CWE-328): Use of weak cryptographic primitive (Confidence: HIGH, Severity: MEDIUM)
+    250: 	// Message hash for duplicate detection
+  > 251: 	hash := fmt.Sprintf("%x", md5.Sum([]byte(entry.Message)))
+    252: 	hashKey := fmt.Sprintf("hash:%s", hash)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/hotreload/config_reloader.go:572] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    571: 
+  > 572: 	dst, err := os.Create(backupPath)
+    573: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1134] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    1133: 
+  > 1134: 	file, err := os.Create(tmpFile)
+    1135: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1056] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    1055: func (dlq *DeadLetterQueue) readEntriesFromFile(filePath string) ([]DLQEntry, error) {
+  > 1056: 	file, err := os.Open(filePath)
+    1057: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:477] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    476: 
+  > 477: 	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    478: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:364] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    363: 	filename := filepath.Join(db.baseDir, fmt.Sprintf("buffer_%06d.dat", db.fileIndex))
+  > 364: 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, db.config.FilePermissions)
+    365: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:290] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    289: func (db *DiskBuffer) readFromFile(filename string) ([]types.LogEntry, error) {
+  > 290: 	file, err := os.Open(filename)
+    291: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:1210] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    1209: func (em *EnsembleModel) Load(path string) error {
+  > 1210: 	data, err := os.ReadFile(path)
+    1211: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:996] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    995: func (nnm *NeuralNetworkModel) Load(path string) error {
+  > 996: 	data, err := os.ReadFile(path)
+    997: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:634] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    633: func (sm *StatisticalModel) Load(path string) error {
+  > 634: 	data, err := os.ReadFile(path)
+    635: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:305] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    304: func (ifm *IsolationForestModel) Load(path string) error {
+  > 305: 	data, err := os.ReadFile(path)
+    306: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:615] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    614: 	// Criar arquivo comprimido
+  > 615: 	dst, err := os.Create(dstFile)
+    616: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:608] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    607: 	// Abrir arquivo original
+  > 608: 	src, err := os.Open(srcFile)
+    609: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:504] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    503: 	// Criar arquivo
+  > 504: 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    505: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/config/config.go:815] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    814: 	// Check if file exists and is readable
+  > 815: 	file, err := os.Open(path)
+    816: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/config/config.go:794] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    793: 	testFile := filepath.Join(dir, ".write_test")
+  > 794: 	file, err := os.Create(testFile)
+    795: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/config/config.go:772] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    771: 	// Check read permission
+  > 772: 	file, err := os.Open(dir)
+    773: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/config/config.go:366] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    365: func loadConfigFile(filename string, config *types.Config) error {
+  > 366: 	data, err := os.ReadFile(filename)
+    367: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/config/config.go:74] - G304 (CWE-22): Potential file inclusion via variable (Confidence: HIGH, Severity: MEDIUM)
+    73: 	// Carregar arquivo
+  > 74: 	data, err := os.ReadFile(pipelineFile)
+    75: 	if err != nil {
+
+Autofix: Consider using os.Root to scope file access under a fixed root (Go >=1.24). Prefer root.Open/root.Stat over os.Open/os.Stat to prevent directory traversal.
+
+[/home/mateus/log_capturer_go/internal/metrics/metrics.go:341-344] - G112 (CWE-400): Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server (Confidence: LOW, Severity: MEDIUM)
+    340: 	return &MetricsServer{
+  > 341: 		server: &http.Server{
+  > 342: 			Addr:    addr,
+  > 343: 			Handler: mux,
+  > 344: 		},
+    345: 		logger: logger,
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/initialization.go:809-812] - G112 (CWE-400): Potential Slowloris Attack because ReadHeaderTimeout is not configured in the http.Server (Confidence: LOW, Severity: MEDIUM)
+    808: 	addr := fmt.Sprintf("%s:%d", app.config.Server.Host, app.config.Server.Port)
+  > 809: 	app.httpServer = &http.Server{
+  > 810: 		Addr:    addr,
+  > 811: 		Handler: router,
+  > 812: 	}
+    813: 	app.logger.WithField("addr", addr).Info("HTTP server initialized")
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:937] - G107 (CWE-88): Potential HTTP request made with variable url (Confidence: MEDIUM, Severity: MEDIUM)
+    936: 	metricsURL := fmt.Sprintf("http://localhost:%d/metrics", app.config.Metrics.Port)
+  > 937: 	resp, err := http.Get(metricsURL)
+    938: 	if err != nil {
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:477] - G302 (CWE-276): Expect file permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    476: 
+  > 477: 	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    478: 	if err != nil {
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:504] - G302 (CWE-276): Expect file permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    503: 	// Criar arquivo
+  > 504: 	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+    505: 	if err != nil {
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/file_positions.go:43] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    42: 	// Ensure positions directory exists
+  > 43: 	if err := os.MkdirAll(positionsDir, 0755); err != nil {
+    44: 		logger.Error("Failed to create positions directory", map[string]interface{}{
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/container_positions.go:41] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    40: 	// Ensure positions directory exists
+  > 41: 	if err := os.MkdirAll(positionsDir, 0755); err != nil {
+    42: 		logger.Error("Failed to create positions directory", map[string]interface{}{
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/hotreload/config_reloader.go:556] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    555: 	// Create backup directory if it doesn't exist
+  > 556: 	if err := os.MkdirAll(cr.config.BackupDirectory, 0755); err != nil {
+    557: 		return fmt.Errorf("failed to create backup directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:265] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    264: 	// Criar diretório se não existir
+  > 265: 	if err := os.MkdirAll(dlq.config.Directory, 0755); err != nil {
+    266: 		return fmt.Errorf("failed to create DLQ directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/cleanup/disk_manager.go:141] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    140: 		// Diretório não existe, criar se necessário
+  > 141: 		if err := os.MkdirAll(config.Path, 0755); err != nil {
+    142: 			return fmt.Errorf("failed to create directory %s: %w", config.Path, err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:1176] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    1175: 	dir := filepath.Dir(path)
+  > 1176: 	if err := os.MkdirAll(dir, 0755); err != nil {
+    1177: 		return fmt.Errorf("failed to create directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:963] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    962: 	dir := filepath.Dir(path)
+  > 963: 	if err := os.MkdirAll(dir, 0755); err != nil {
+    964: 		return fmt.Errorf("failed to create directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:575] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    574: 	dir := filepath.Dir(path)
+  > 575: 	if err := os.MkdirAll(dir, 0755); err != nil {
+    576: 		return fmt.Errorf("failed to create directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:277] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    276: 	dir := filepath.Dir(path)
+  > 277: 	if err := os.MkdirAll(dir, 0755); err != nil {
+    278: 		return fmt.Errorf("failed to create directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:158] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    157: 	// Criar diretório se não existir
+  > 158: 	if err := os.MkdirAll(lfs.config.Directory, 0755); err != nil {
+    159: 		return fmt.Errorf("failed to create log directory: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/initialization.go:895] - G301 (CWE-276): Expect directory permissions to be 0750 or less (Confidence: HIGH, Severity: MEDIUM)
+    894: 	// Criar diretório com permissões apropriadas
+  > 895: 	if err := os.MkdirAll(dir, 0755); err != nil {
+    896: 		return fmt.Errorf("failed to create directory %s: %w", dir, err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/file_positions.go:95] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    94: 	tempFile := fpm.filename + ".tmp"
+  > 95: 	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+    96: 		return fmt.Errorf("failed to write temp positions file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/container_positions.go:93] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    92: 	tempFile := cpm.filename + ".tmp"
+  > 93: 	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+    94: 		return fmt.Errorf("failed to write temp positions file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:1202] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    1201: 
+  > 1202: 	if err := os.WriteFile(path, data, 0644); err != nil {
+    1203: 		return fmt.Errorf("failed to write file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:988] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    987: 
+  > 988: 	if err := os.WriteFile(path, data, 0644); err != nil {
+    989: 		return fmt.Errorf("failed to write file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:626] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    625: 
+  > 626: 	if err := os.WriteFile(path, data, 0644); err != nil {
+    627: 		return fmt.Errorf("failed to write file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:297] - G306 (CWE-276): Expect WriteFile permissions to be 0600 or less (Confidence: HIGH, Severity: MEDIUM)
+    296: 
+  > 297: 	if err := os.WriteFile(path, data, 0644); err != nil {
+    298: 		return fmt.Errorf("failed to write file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/extractors.go:4] - G501 (CWE-327): Blocklisted import crypto/md5: weak cryptographic primitive (Confidence: HIGH, Severity: MEDIUM)
+    3: import (
+  > 4: 	"crypto/md5"
+    5: 	"fmt"
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/validation/timestamp_validator.go:217] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    216: 				}
+  > 217: 				tv.dlq.AddEntry(*entry, "timestamp_clamped", "timestamp_validation", "timestamp_validator", 0, context)
+    218: 			}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/file_positions.go:100] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    99: 	if err := os.Rename(tempFile, fpm.filename); err != nil {
+  > 100: 		os.Remove(tempFile)
+    101: 		return fmt.Errorf("failed to rename positions file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/positions/container_positions.go:98] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    97: 	if err := os.Rename(tempFile, cpm.filename); err != nil {
+  > 98: 		os.Remove(tempFile)
+    99: 		return fmt.Errorf("failed to rename positions file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/hotreload/config_reloader.go:208] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    207: 	if cr.watcher != nil {
+  > 208: 		cr.watcher.Close()
+    209: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/docker/pool_manager.go:290] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    289: 	if oldClient.client != nil {
+  > 290: 		oldClient.client.Close()
+    291: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/docker/connection_pool.go:434] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    433: 			if conn.Client != nil {
+  > 434: 				conn.Client.Close()
+    435: 			}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/docker/connection_pool.go:336] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    335: 	if conn.Client != nil {
+  > 336: 		conn.Client.Close()
+    337: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/docker/connection_pool.go:290] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    289: 	if err != nil {
+  > 290: 		dockerClient.Close()
+    291: 		return nil, fmt.Errorf("failed to ping docker daemon: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/docker/connection_pool.go:149] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    148: 		if conn.Client != nil {
+  > 149: 			conn.Client.Close()
+    150: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1154] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1153: 
+  > 1154: 	file.Close()
+    1155: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1149] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1148: 			file.Close()
+  > 1149: 			os.Remove(tmpFile)
+    1150: 			return err
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1148] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1147: 		if _, err := file.Write(append(data, '\n')); err != nil {
+  > 1148: 			file.Close()
+    1149: 			os.Remove(tmpFile)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1143] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1142: 			file.Close()
+  > 1143: 			os.Remove(tmpFile)
+    1144: 			return err
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:1142] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1141: 		if err != nil {
+  > 1142: 			file.Close()
+    1143: 			os.Remove(tmpFile)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:495] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    494: 	if dlq.file != nil {
+  > 495: 		dlq.file.Sync()
+    496: 		dlq.stats.LastFlush = time.Now()
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:462] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    461: 	if dlq.file != nil {
+  > 462: 		dlq.file.Close()
+    463: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:326] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    325: 	if dlq.file != nil {
+  > 326: 		dlq.file.Close()
+    327: 		dlq.file = nil
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/discovery/service_discovery.go:184] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    183: 	if sd.dockerClient != nil {
+  > 184: 		sd.dockerClient.Close()
+    185: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/compression/http_compression.go:164] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    163: 	if _, err := writer.Write(data); err != nil {
+  > 164: 		writer.Close()
+    165: 		return nil, fmt.Errorf("gzip write failed: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:539] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    538: 	// Close current file
+  > 539: 	db.closeCurrentFile()
+    540: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:435] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    434: 		if db.currentFile != nil {
+  > 435: 			db.currentFile.Sync()
+    436: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:432] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    431: 		if db.gzipWriter != nil {
+  > 432: 			db.gzipWriter.Flush()
+    433: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go:429] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    428: 		if db.writer != nil {
+  > 429: 			db.writer.Flush()
+    430: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/pkg/anomaly/models.go:674] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    673: 						var pctInt int
+  > 674: 						fmt.Sscanf(pctStr, "%d", &pctInt)
+    675: 						sm.percentiles[feature][pctInt] = val
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/splunk_sink.go:559] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    558: 
+  > 559: 		resp.Body.Close()
+    560: 		return nil // Success
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/splunk_sink.go:551] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    550: 			lastErr = err
+  > 551: 			resp.Body.Close()
+    552: 			if attempt < s.config.MaxRetries && s.isRetryableError(resp.StatusCode) {
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:746] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    745: 	if lf.file != nil {
+  > 746: 		lf.file.Close()
+    747: 		lf.file = nil
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:734] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    733: 	if flusher, ok := lf.writer.(interface{ Flush() error }); ok {
+  > 734: 		flusher.Flush()
+    735: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/sinks/local_file_sink.go:512] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    511: 	if err != nil {
+  > 512: 		file.Close()
+    513: 		return nil, fmt.Errorf("failed to stat log file: %w", err)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:552] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    551: 				// Fechar arquivo em caso de erro fatal
+  > 552: 				mf.file.Close()
+    553: 				mf.file = nil
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:538] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    537: 			if mf.file == nil && file != nil {
+  > 538: 				file.Close()
+    539: 			}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:488] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    487: 					if mf.file != nil {
+  > 488: 						mf.file.Close()
+    489: 						mf.file = nil
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:369] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    368: 		// Heartbeat
+  > 369: 		fm.taskManager.Heartbeat("file_monitor")
+    370: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:318] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    317: 	if mf.file != nil {
+  > 318: 		mf.file.Close()
+    319: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:314] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    313: 	// Remover do watcher
+  > 314: 	fm.watcher.Remove(filePath)
+    315: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:220] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    219: 		if file.file != nil {
+  > 220: 			file.file.Close()
+    221: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:214] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    213: 	if fm.watcher != nil {
+  > 214: 		fm.watcher.Close()
+    215: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:209] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    208: 	if fm.positionManager != nil {
+  > 209: 		fm.positionManager.Stop()
+    210: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/file_monitor.go:205] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    204: 	// Parar tasks
+  > 205: 	fm.taskManager.StopTask("file_monitor")
+    206: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:744] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    743: 
+  > 744: 			stream.Close()
+    745: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:693] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    692: 			case <-heartbeatTicker.C:
+  > 693: 				cm.taskManager.Heartbeat(taskName)
+    694: 			}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:649] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    648: 	taskName := "container_" + containerID
+  > 649: 	cm.taskManager.StopTask(taskName)
+    650: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:644] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    643: 	if mc.stream != nil {
+  > 644: 		mc.stream.Close()
+    645: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:610-612] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    609: 	taskName := "container_" + containerID
+  > 610: 	cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
+  > 611: 		return cm.monitorContainer(ctx, mc)
+  > 612: 	})
+    613: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:392-402] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    391: 		taskName := "container_add_" + containerID
+  > 392: 		cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
+  > 393: 			defer cm.taskManager.StopTask(taskName) // Limpar task após conclusão
+  > 394: 
+  > 395: 			select {
+  > 396: 			case <-time.After(1 * time.Second):
+  > 397: 				// Buscar informações completas do container
+  > 398: 				return cm.addContainerByID(containerID)
+  > 399: 			case <-ctx.Done():
+  > 400: 				return ctx.Err()
+  > 401: 			}
+  > 402: 		})
+    403: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:324] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    323: 		// Heartbeat
+  > 324: 		cm.taskManager.Heartbeat("container_health_check")
+    325: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:305] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    304: 		case <-heartbeatTicker.C:
+  > 305: 			cm.taskManager.Heartbeat("container_events")
+    306: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:257] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    256: 			// Apenas heartbeat - sem scanning periódico
+  > 257: 			cm.taskManager.Heartbeat("container_monitor")
+    258: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:204] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    203: 	if cm.dockerPool != nil {
+  > 204: 		cm.dockerPool.Close()
+    205: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:191] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    190: 	cm.taskManager.StopTask("container_events")
+  > 191: 	cm.taskManager.StopTask("container_health_check")
+    192: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:190] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    189: 	cm.taskManager.StopTask("container_monitor")
+  > 190: 	cm.taskManager.StopTask("container_events")
+    191: 	cm.taskManager.StopTask("container_health_check")
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:189] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    188: 	// Parar tasks
+  > 189: 	cm.taskManager.StopTask("container_monitor")
+    190: 	cm.taskManager.StopTask("container_events")
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/metrics/metrics.go:337] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    336: 		w.WriteHeader(http.StatusOK)
+  > 337: 		w.Write([]byte("OK"))
+    338: 	})
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:1188-1190] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1187: 
+  > 1188: 		d.deadLetterQueue.AddEntry(entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
+  > 1189: 			"throttle_level": d.backpressureManager.GetLevel().String(),
+  > 1190: 		})
+    1191: 		return nil
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:485] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    484: 	if d.config.DLQEnabled && d.deadLetterQueue != nil {
+  > 485: 		d.deadLetterQueue.Stop()
+    486: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go:480] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    479: 	if d.config.DeduplicationEnabled && d.deduplicationManager != nil {
+  > 480: 		d.deduplicationManager.Stop()
+    481: 	}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/config/config.go:819] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    818: 	}
+  > 819: 	file.Close()
+    820: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/config/config.go:799] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    798: 	file.Close()
+  > 799: 	os.Remove(testFile)
+    800: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/config/config.go:798] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    797: 	}
+  > 798: 	file.Close()
+    799: 	os.Remove(testFile)
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/config/config.go:776] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    775: 	}
+  > 776: 	file.Close()
+    777: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:1093] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1092: 	w.Header().Set("Content-Type", "application/json")
+  > 1093: 	json.NewEncoder(w).Encode(validationResult)
+    1094: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:1054] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    1053: 	w.Header().Set("Content-Type", "application/json")
+  > 1054: 	json.NewEncoder(w).Encode(memoryInfo)
+    1055: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:991] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    990: 	w.Header().Set("Content-Type", "application/json")
+  > 991: 	json.NewEncoder(w).Encode(debugInfo)
+    992: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:903-908] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    902: 			w.Header().Set("Content-Type", "application/json")
+  > 903: 			json.NewEncoder(w).Encode(map[string]interface{}{
+  > 904: 				"status":  "info",
+  > 905: 				"message": "Manual DLQ reprocessing not implemented. Entries are automatically reprocessed by the background loop.",
+  > 906: 				"timestamp": time.Now().Unix(),
+  > 907: 				"dlq_stats": dlq.GetStats(),
+  > 908: 			})
+    909: 			return
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:878] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    877: 	w.Header().Set("Content-Type", "application/json")
+  > 878: 	json.NewEncoder(w).Encode(audit)
+    879: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:840] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    839: 	w.Header().Set("Content-Type", "application/json")
+  > 840: 	json.NewEncoder(w).Encode(stats)
+    841: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:808] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    807: 	w.Header().Set("Content-Type", "application/json")
+  > 808: 	json.NewEncoder(w).Encode(status)
+    809: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:773-776] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    772: 	w.WriteHeader(http.StatusOK)
+  > 773: 	json.NewEncoder(w).Encode(map[string]interface{}{
+  > 774: 		"status":  "accepted",
+  > 775: 		"message": "Log entry queued for processing",
+  > 776: 	})
+    777: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:678] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    677: 			w.Header().Set("Content-Type", "application/json")
+  > 678: 			json.NewEncoder(w).Encode(stats)
+    679: 			return
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:649] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    648: 	w.Header().Set("Content-Type", "application/json")
+  > 649: 	json.NewEncoder(w).Encode(stats)
+    650: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:617-620] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    616: 	w.Header().Set("Content-Type", "application/json")
+  > 617: 	json.NewEncoder(w).Encode(map[string]string{
+  > 618: 		"status":  "success",
+  > 619: 		"message": "Configuration reload triggered successfully.",
+  > 620: 	})
+    621: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:584] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    583: 	w.Header().Set("Content-Type", "application/json")
+  > 584: 	json.NewEncoder(w).Encode(sanitizedConfig)
+    585: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:538] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    537: 	w.Header().Set("Content-Type", "application/json")
+  > 538: 	json.NewEncoder(w).Encode(stats)
+    539: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/handlers.go:359] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    358: 	w.Header().Set("Content-Type", "application/json")
+  > 359: 	json.NewEncoder(w).Encode(health)
+    360: }
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:461] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    460: 		if app.metricsServer != nil {
+  > 461: 			app.metricsServer.Stop()
+    462: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:457] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    456: 		for _, sink := range app.sinks {
+  > 457: 			sink.Stop()
+    458: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:454] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    453: 
+  > 454: 		app.dispatcher.Stop()
+    455: 
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:391] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    390: 		if app.containerMonitor != nil {
+  > 391: 			app.containerMonitor.Stop()
+    392: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:388] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    387: 		if app.fileMonitor != nil {
+  > 388: 			app.fileMonitor.Stop()
+    389: 		}
+
+Autofix: 
+
+[/home/mateus/log_capturer_go/internal/app/app.go:384] - G104 (CWE-703): Errors unhandled (Confidence: HIGH, Severity: LOW)
+    383: 			defer cancel()
+  > 384: 			app.httpServer.Shutdown(ctx)
+    385: 		}
+
+Autofix: 
+
+Summary:
+  Gosec  : dev
+  Files  : 55
+  Lines  : 30562
+  Nosec  : 0
+  Issues : 143
+

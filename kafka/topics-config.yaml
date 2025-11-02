@@ -1,0 +1,144 @@
+# =============================================================================
+# KAFKA TOPICS CONFIGURATION
+# =============================================================================
+# Configuração dos tópicos Kafka para SSW Logs Capture
+# =============================================================================
+
+topics:
+  # Tópico principal para logs de alta prioridade
+  - name: "logs-high-priority"
+    partitions: 6
+    replication_factor: 1
+    config:
+      retention.ms: 604800000          # 7 dias
+      retention.bytes: 1073741824      # 1GB por partição
+      segment.bytes: 536870912         # 512MB por segmento
+      compression.type: "snappy"
+      cleanup.policy: "delete"
+      min.insync.replicas: 1
+      max.message.bytes: 1048576       # 1MB
+
+  # Tópico para logs de prioridade normal
+  - name: "logs-normal-priority"
+    partitions: 3
+    replication_factor: 1
+    config:
+      retention.ms: 604800000          # 7 dias
+      retention.bytes: 1073741824      # 1GB por partição
+      segment.bytes: 536870912         # 512MB por segmento
+      compression.type: "snappy"
+      cleanup.policy: "delete"
+      min.insync.replicas: 1
+      max.message.bytes: 1048576       # 1MB
+
+  # Tópico para logs de baixa prioridade
+  - name: "logs-low-priority"
+    partitions: 2
+    replication_factor: 1
+    config:
+      retention.ms: 259200000          # 3 dias
+      retention.bytes: 536870912       # 512MB por partição
+      segment.bytes: 268435456         # 256MB por segmento
+      compression.type: "snappy"
+      cleanup.policy: "delete"
+      min.insync.replicas: 1
+      max.message.bytes: 1048576       # 1MB
+
+  # Tópico genérico para todos os logs (default)
+  - name: "logs"
+    partitions: 4
+    replication_factor: 1
+    config:
+      retention.ms: 604800000          # 7 dias
+      retention.bytes: 1073741824      # 1GB por partição
+      segment.bytes: 536870912         # 512MB por segmento
+      compression.type: "snappy"
+      cleanup.policy: "delete"
+      min.insync.replicas: 1
+      max.message.bytes: 1048576       # 1MB
+
+  # Tópico para Dead Letter Queue (logs que falharam)
+  - name: "logs-dlq"
+    partitions: 2
+    replication_factor: 1
+    config:
+      retention.ms: 2592000000         # 30 dias
+      retention.bytes: 2147483648      # 2GB por partição
+      segment.bytes: 536870912         # 512MB por segmento
+      compression.type: "gzip"         # Compressão maior para DLQ
+      cleanup.policy: "delete"
+      min.insync.replicas: 1
+      max.message.bytes: 2097152       # 2MB (maior para DLQ)
+
+# =============================================================================
+# ROUTING RULES
+# =============================================================================
+# Regras de roteamento para direcionar logs aos tópicos corretos
+# =============================================================================
+
+routing:
+  # Regra 1: Logs críticos vão para high-priority
+  - condition:
+      label_matches:
+        level: "error|fatal|critical"
+    topic: "logs-high-priority"
+    priority: 100
+
+  # Regra 2: Logs de containers específicos vão para high-priority
+  - condition:
+      label_matches:
+        source_type: "docker"
+        container_name: ".*-api.*|.*-backend.*"
+    topic: "logs-high-priority"
+    priority: 90
+
+  # Regra 3: Logs de debug vão para low-priority
+  - condition:
+      label_matches:
+        level: "debug|trace"
+    topic: "logs-low-priority"
+    priority: 80
+
+  # Regra 4: Default - todos os outros logs
+  - condition:
+      default: true
+    topic: "logs"
+    priority: 0
+
+# =============================================================================
+# CONSUMER GROUPS
+# =============================================================================
+# Definição de consumer groups para diferentes casos de uso
+# =============================================================================
+
+consumer_groups:
+  # Consumer para análise em tempo real
+  - name: "realtime-analyzer"
+    topics:
+      - "logs-high-priority"
+      - "logs-normal-priority"
+    auto_offset_reset: "latest"
+    enable_auto_commit: true
+
+  # Consumer para indexação no Elasticsearch
+  - name: "elasticsearch-indexer"
+    topics:
+      - "logs"
+      - "logs-high-priority"
+      - "logs-normal-priority"
+    auto_offset_reset: "earliest"
+    enable_auto_commit: false
+
+  # Consumer para arquivamento de longo prazo
+  - name: "archiver"
+    topics:
+      - "logs"
+    auto_offset_reset: "earliest"
+    enable_auto_commit: true
+
+  # Consumer para processar DLQ
+  - name: "dlq-processor"
+    topics:
+      - "logs-dlq"
+    auto_offset_reset: "earliest"
+    enable_auto_commit: false

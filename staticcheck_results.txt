@@ -1,0 +1,141 @@
+-: # ssw-logs-capture/benchmarks [ssw-logs-capture/benchmarks.test]
+benchmarks/cpu_test.go:46:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+benchmarks/cpu_test.go:51:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+benchmarks/cpu_test.go:95:8: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+benchmarks/cpu_test.go:148:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+benchmarks/cpu_test.go:153:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+benchmarks/cpu_test.go:177:15: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+benchmarks/cpu_test.go:195:3: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+benchmarks/cpu_test.go:200:32: cannot use config (variable of struct type types.DispatcherConfig) as dispatcher.DispatcherConfig value in argument to dispatcher.NewDispatcher
+benchmarks/cpu_test.go:233:15: d.HandleLogEntry undefined (type *dispatcher.Dispatcher has no field or method HandleLogEntry)
+benchmarks/cpu_test.go:256:5: unknown field RetryMaxDelay in struct literal of type types.DispatcherConfig
+benchmarks/cpu_test.go:256:5: too many errors (compile)
+-: # ssw-logs-capture/pkg/cleanup [ssw-logs-capture/pkg/cleanup.test]
+pkg/cleanup/disk_manager_test.go:30:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:77:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:127:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:183:19: cannot use 0.002 (untyped float constant) as int64 value in struct literal (truncated)
+pkg/cleanup/disk_manager_test.go:190:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:218:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:223:40: manager.getDiskSpace undefined (type *DiskSpaceManager has no field or method getDiskSpace)
+pkg/cleanup/disk_manager_test.go:230:22: manager.getDiskSpace undefined (type *DiskSpaceManager has no field or method getDiskSpace)
+pkg/cleanup/disk_manager_test.go:237:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:255:21: manager.matchesPattern undefined (type *DiskSpaceManager has no field or method matchesPattern)
+pkg/cleanup/disk_manager_test.go:237:2: too many errors (compile)
+-: # ssw-logs-capture/pkg/deduplication [ssw-logs-capture/pkg/deduplication.test]
+pkg/deduplication/deduplication_manager_test.go:16:3: unknown field Enabled in struct literal of type Config
+pkg/deduplication/deduplication_manager_test.go:27:53: too many arguments in call to NewDeduplicationManager
+	have (Config, *logrus.Logger, context.Context)
+	want (Config, *logrus.Logger)
+pkg/deduplication/deduplication_manager_test.go:33:29: manager.currentSize undefined (type *DeduplicationManager has no field or method currentSize)
+pkg/deduplication/deduplication_manager_test.go:38:3: unknown field Enabled in struct literal of type Config
+pkg/deduplication/deduplication_manager_test.go:49:53: too many arguments in call to NewDeduplicationManager
+	have (Config, *logrus.Logger, context.Context)
+	want (Config, *logrus.Logger)
+pkg/deduplication/deduplication_manager_test.go:55:29: manager.currentSize undefined (type *DeduplicationManager has no field or method currentSize)
+pkg/deduplication/deduplication_manager_test.go:56:42: manager.stats.TotalEntries undefined (type Stats has no field or method TotalEntries)
+pkg/deduplication/deduplication_manager_test.go:57:42: manager.stats.DuplicatesFound undefined (type Stats has no field or method DuplicatesFound)
+pkg/deduplication/deduplication_manager_test.go:62:3: unknown field Enabled in struct literal of type Config
+pkg/deduplication/deduplication_manager_test.go:73:53: too many arguments in call to NewDeduplicationManager
+	have (Config, *logrus.Logger, context.Context)
+	want (Config, *logrus.Logger)
+pkg/deduplication/deduplication_manager_test.go:73:53: too many errors (compile)
+-: # ssw-logs-capture/pkg/dlq [ssw-logs-capture/pkg/dlq.test]
+pkg/dlq/dead_letter_queue_test.go:24:3: unknown field Format in struct literal of type Config
+pkg/dlq/dead_letter_queue_test.go:32:44: too many arguments in call to NewDeadLetterQueue
+	have (Config, *logrus.Logger, context.Context)
+	want (Config, *logrus.Logger)
+pkg/dlq/dead_letter_queue_test.go:52:3: unknown field Format in struct literal of type Config
+pkg/dlq/dead_letter_queue_test.go:61:44: too many arguments in call to NewDeadLetterQueue
+	have (Config, *logrus.Logger, context.Context)
+	want (Config, *logrus.Logger)
+pkg/dlq/dead_letter_queue_test.go:69:3: unknown field OriginalLog in struct literal of type DLQEntry
+pkg/dlq/dead_letter_queue_test.go:70:3: unknown field SourceID in struct literal of type DLQEntry
+pkg/dlq/dead_letter_queue_test.go:71:3: unknown field FailureType in struct literal of type DLQEntry
+pkg/dlq/dead_letter_queue_test.go:74:12: cannot use map[string]interface{}{…} (value of type map[string]interface{}) as map[string]string value in struct literal
+pkg/dlq/dead_letter_queue_test.go:80:21: not enough arguments in call to dlq.AddEntry
+	have (DLQEntry)
+	want (types.LogEntry, string, string, string, int, map[string]string)
+pkg/dlq/dead_letter_queue_test.go:100:24: entry.OriginalLog undefined (type DLQEntry has no field or method OriginalLog)
+pkg/dlq/dead_letter_queue_test.go:100:24: too many errors (compile)
+-: # ssw-logs-capture/pkg/positions [ssw-logs-capture/pkg/positions.test]
+pkg/positions/position_manager_test.go:17:12: undefined: Config
+pkg/positions/position_manager_test.go:27:13: undefined: NewPositionManager
+pkg/positions/position_manager_test.go:40:12: undefined: Config
+pkg/positions/position_manager_test.go:50:13: undefined: NewPositionManager
+pkg/positions/position_manager_test.go:70:12: undefined: Config
+pkg/positions/position_manager_test.go:80:13: undefined: NewPositionManager
+pkg/positions/position_manager_test.go:96:12: undefined: Config
+pkg/positions/position_manager_test.go:106:13: undefined: NewPositionManager
+pkg/positions/position_manager_test.go:125:12: undefined: Config
+pkg/positions/position_manager_test.go:135:13: undefined: NewPositionManager
+pkg/positions/position_manager_test.go:135:13: too many errors (compile)
+-: # ssw-logs-capture/pkg/security [ssw-logs-capture/pkg/security.test]
+pkg/security/auth_test.go:4:2: "context" imported and not used
+pkg/security/auth_test.go:216:12: undefined: SecurityConfig
+pkg/security/auth_test.go:230:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:244:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:251:12: undefined: SecurityConfig
+pkg/security/auth_test.go:265:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:279:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:311:12: undefined: SecurityConfig
+pkg/security/auth_test.go:331:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:352:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:4:2: too many errors (compile)
+-: # ssw-logs-capture/pkg/validation [ssw-logs-capture/pkg/validation.test]
+pkg/validation/timestamp_validator_test.go:17:3: unknown field MaxPastHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:18:3: unknown field MaxFutureHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:19:3: unknown field Timezone in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:20:3: unknown field OnInvalidAction in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:21:3: unknown field SupportedFormats in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:22:3: unknown field ClampToCurrentTime in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:28:53: cannot use ctx (variable of interface type context.Context) as *dlq.DeadLetterQueue value in argument to NewTimestampValidator
+pkg/validation/timestamp_validator_test.go:38:3: unknown field MaxPastHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:39:3: unknown field MaxFutureHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:40:3: unknown field Timezone in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:40:3: too many errors (compile)
+internal/app/handlers.go:8:2: "io/ioutil" has been deprecated since Go 1.19: As of Go 1.16, the same functionality is now provided by package [io] or package [os], and those implementations should be preferred in new code. See the specific function documentation for details.  (SA1019)
+internal/app/utils.go:29:6: func parseFileMode is unused (U1000)
+internal/config/config.go:429:6: func getEnvDuration is unused (U1000)
+internal/config/config.go:438:6: func getEnvStringSlice is unused (U1000)
+internal/config/config.go:748:27: func (*ConfigValidator).validateDirectoryAccess is unused (U1000)
+internal/config/config.go:781:27: func (*ConfigValidator).validateDirectoryWritable is unused (U1000)
+internal/config/config.go:804:27: func (*ConfigValidator).validateFileReadable is unused (U1000)
+internal/dispatcher/dispatcher.go:1358:3: this value of normalizedName is never used (SA4006)
+internal/metrics/metrics.go:5:2: "io/ioutil" has been deprecated since Go 1.19: As of Go 1.16, the same functionality is now provided by package [io] or package [os], and those implementations should be preferred in new code. See the specific function documentation for details.  (SA1019)
+internal/metrics/metrics.go:287:7: this value of ok is never used (SA4006)
+internal/metrics/metrics.go:455:2: field customMutex is unused (U1000)
+internal/metrics/metrics.go:569:3: should use a simple channel send/receive instead of select with a single case (S1000)
+internal/monitors/file_monitor.go:418:24: func (*FileMonitor).shouldLogQuietFile is unused (U1000)
+internal/monitors/file_monitor.go:435:24: func (*FileMonitor).pollFiles is unused (U1000)
+internal/monitors/file_monitor.go:725:24: func (*FileMonitor).processSpecificFiles is unused (U1000)
+internal/monitors/file_monitor.go:732:24: func (*FileMonitor).processPipelineDirectories is unused (U1000)
+internal/monitors/file_monitor.go:792:24: func (*FileMonitor).scanPipelineDirectory is unused (U1000)
+internal/monitors/file_monitor.go:918:24: func (*FileMonitor).matchesPipelinePatterns is unused (U1000)
+internal/monitors/file_monitor.go:937:24: func (*FileMonitor).matchesPipelineExcludePatterns is unused (U1000)
+internal/monitors/file_monitor.go:951:24: func (*FileMonitor).matchesPipelineExcludeDirectories is unused (U1000)
+internal/processing/log_processor.go:241:25: func (*LogProcessor).matchesLabels is unused (U1000)
+internal/sinks/local_file_sink.go:1074:2: should use 'return int64(freeBytes)-size >= minFreeBytes' instead of 'if int64(freeBytes)-size < minFreeBytes { return false }; return true' (S1008)
+internal/sinks/local_file_sink.go:1082:27: func (*LocalFileSink).getQueuePressure is unused (U1000)
+internal/sinks/local_file_sink.go:1096:27: func (*LocalFileSink).getDiskPressure is unused (U1000)
+internal/sinks/local_file_sink.go:1102:27: func (*LocalFileSink).shouldDropEntryDueToBackpressure is unused (U1000)
+pkg/anomaly/detector.go:700:11: unnecessary use of fmt.Sprintf (S1039)
+pkg/anomaly/detector.go:708:11: unnecessary use of fmt.Sprintf (S1039)
+pkg/anomaly/models.go:1095:2: field config is unused (U1000)
+pkg/anomaly/models.go:1096:2: field logger is unused (U1000)
+pkg/anomaly/models.go:1326:2: rand.Seed has been deprecated since Go 1.20 and an alternative has been available since Go 1.0: As of Go 1.20 there is no reason to call Seed with a random value. Programs that call Seed with a known value to get a specific sequence of results should use New(NewSource(seed)) to obtain a local random generator. (SA1019)
+pkg/buffer/disk_buffer.go:38:2: field recoveryIndex is unused (U1000)
+pkg/compression/http_compressor.go:19:2: var metricsOnce is unused (U1000)
+pkg/compression/http_compressor.go:20:2: var globalCompressionRatio is unused (U1000)
+pkg/compression/http_compressor.go:21:2: var globalCompressionLatency is unused (U1000)
+pkg/compression/http_compressor.go:22:2: var globalCompressionErrors is unused (U1000)
+pkg/compression/http_compressor.go:23:2: var globalAlgorithmsUsed is unused (U1000)
+pkg/compression/http_compressor.go:73:2: field mutex is unused (U1000)
+pkg/compression/http_compressor.go:77:2: field compressionLatency is unused (U1000)
+pkg/compression/http_compressor.go:88:2: field snappyPool is unused (U1000)
+pkg/compression/http_compressor.go:506:2: redundant return statement (S1023)
+pkg/docker/client_manager.go:20:2: field mutex is unused (U1000)
+pkg/hotreload/config_reloader.go:41:2: field configMux is unused (U1000)
+pkg/ratelimit/adaptive_limiter.go:29:2: field lastAdaptation is unused (U1000)
+pkg/security/auth.go:260:42: should not use built-in type string as key for value; define your own type to avoid collisions (SA1029)
+pkg/tracing/tracing.go:12:2: "go.opentelemetry.io/otel/exporters/jaeger" is deprecated: This module is no longer supported. OpenTelemetry dropped support for Jaeger exporter in July 2023. Jaeger officially accepts and recommends using OTLP. Use [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp] or [go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc] instead.  (SA1019)

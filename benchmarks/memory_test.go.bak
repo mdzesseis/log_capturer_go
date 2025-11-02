@@ -22,13 +22,14 @@ func TestMemoryUsage_Sustained(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.WarnLevel)
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      10000,
-		Workers:    4,
+		WorkerCount:    4,
 		BatchSize:      100,
-		BatchTimeout: 100 * time.Millisecond,
+		BatchTimeout:   "100ms",
 		MaxRetries:     3,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "100ms",
+		RetryMaxDelay:  "5s",
 	}
 
 	sink := NewBenchmarkSink("memory-test-sink")
@@ -89,7 +90,7 @@ func TestMemoryUsage_Sustained(t *testing.T) {
 			case <-ticker.C:
 				// Send logs for this second
 				for i := 0; i < logsPerSecond; i++ {
-					d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels)
+					d.HandleLogEntry(ctx, entry)
 				}
 
 				// Sample memory every 10 seconds
@@ -174,13 +175,14 @@ func BenchmarkMemoryAllocation_LogEntry(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      10000,
-		Workers:    2,
+		WorkerCount:    2,
 		BatchSize:      100,
-		BatchTimeout: 100 * time.Millisecond,
+		BatchTimeout:   "100ms",
 		MaxRetries:     1,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "10ms",
+		RetryMaxDelay:  "1s",
 	}
 
 	sink := NewBenchmarkSink("memory-bench-sink")
@@ -209,7 +211,7 @@ func BenchmarkMemoryAllocation_LogEntry(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		if err := d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels); err != nil {
+		if err := d.HandleLogEntry(ctx, entry); err != nil {
 			b.Fatalf("Failed to handle entry: %v", err)
 		}
 	}
@@ -249,13 +251,14 @@ func TestMemoryLeak_GoroutineCleanup(t *testing.T) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	config := dispatcher.DispatcherConfig{
+	config := types.DispatcherConfig{
 		QueueSize:      1000,
-		Workers:    4,
+		WorkerCount:    4,
 		BatchSize:      10,
-		BatchTimeout: 50 * time.Millisecond,
+		BatchTimeout:   "50ms",
 		MaxRetries:     1,
-		RetryDelay:   100 * time.Millisecond,
+		RetryBaseDelay: "10ms",
+		RetryMaxDelay:  "100ms",
 	}
 
 	// Get baseline goroutine count
@@ -286,7 +289,7 @@ func TestMemoryLeak_GoroutineCleanup(t *testing.T) {
 				SourceType: "leak-test",
 				SourceID:   fmt.Sprintf("leak-%d", cycle),
 			}
-			d.Handle(ctx, entry.SourceType, entry.SourceID, entry.Message, entry.Labels)
+			d.HandleLogEntry(ctx, entry)
 		}
 
 		// Stop dispatcher

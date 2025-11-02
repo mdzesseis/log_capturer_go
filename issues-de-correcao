@@ -1,1 +1,8 @@
 1. erros de timestamp do loki, (loki regeitando entradas de logs devido a timestamp antigo ou no futuro) esse tipo de erro nao pode acionar o circuit breaker.
+ ● Executei os benchmarks localmente com Go 1.24.9: houve falhas de build em vários
+   pacotes de testes/benchmarks (benchmarks, cleanup, deduplication, dlq,
+   positions, security, validation) e sucesso em sinks, circuit, anomaly,
+   task_manager, types. O workflow de benchmark continuará funcionando porque
+   redireciona erros para arquivo e usa “|| true”; os resultados foram salvos em
+   current_bench.txt (tail exibido no console). Quer que eu rode também o
+   govulncheck/local security scan agora?

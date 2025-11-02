@@ -267,6 +267,130 @@ var (
 		},
 		[]string{"resource_type", "component"},
 	)
+
+	// =============================================================================
+	// KAFKA SINK METRICS
+	// =============================================================================
+
+	// Kafka messages produced total
+	KafkaMessagesProducedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_messages_produced_total",
+			Help: "Total number of messages produced to Kafka",
+		},
+		[]string{"topic", "status"},
+	)
+
+	// Kafka producer errors
+	KafkaProducerErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_producer_errors_total",
+			Help: "Total number of Kafka producer errors",
+		},
+		[]string{"topic", "error_type"},
+	)
+
+	// Kafka batch size (messages per batch sent)
+	KafkaBatchSize = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kafka_batch_size_messages",
+			Help:    "Number of messages in each Kafka batch",
+			Buckets: []float64{1, 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+		},
+		[]string{"topic"},
+	)
+
+	// Kafka batch send duration
+	KafkaBatchSendDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kafka_batch_send_duration_seconds",
+			Help:    "Time spent sending a batch to Kafka",
+			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0},
+		},
+		[]string{"topic"},
+	)
+
+	// Kafka queue size (internal queue before producing)
+	KafkaQueueSize = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_queue_size",
+			Help: "Current size of Kafka internal queue",
+		},
+		[]string{"sink_name"},
+	)
+
+	// Kafka queue utilization (0.0 to 1.0)
+	KafkaQueueUtilization = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_queue_utilization",
+			Help: "Kafka queue utilization percentage (0.0 to 1.0)",
+		},
+		[]string{"sink_name"},
+	)
+
+	// Kafka partition distribution
+	KafkaPartitionMessages = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_partition_messages_total",
+			Help: "Total messages sent to each Kafka partition",
+		},
+		[]string{"topic", "partition"},
+	)
+
+	// Kafka compression ratio
+	KafkaCompressionRatio = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_compression_ratio",
+			Help: "Kafka message compression ratio (compressed/uncompressed)",
+		},
+		[]string{"topic", "compression_type"},
+	)
+
+	// Kafka backpressure events
+	KafkaBackpressureTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_backpressure_events_total",
+			Help: "Total number of backpressure events (queue full, etc)",
+		},
+		[]string{"sink_name", "threshold_level"},
+	)
+
+	// Kafka circuit breaker state
+	KafkaCircuitBreakerState = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_circuit_breaker_state",
+			Help: "Kafka circuit breaker state (0=closed, 1=half-open, 2=open)",
+		},
+		[]string{"sink_name"},
+	)
+
+	// Kafka message size
+	KafkaMessageSizeBytes = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "kafka_message_size_bytes",
+			Help:    "Size of Kafka messages in bytes",
+			Buckets: []float64{100, 500, 1024, 5120, 10240, 51200, 102400, 512000, 1048576},
+		},
+		[]string{"topic"},
+	)
+
+	// Kafka DLQ messages
+	KafkaDLQMessagesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "kafka_dlq_messages_total",
+			Help: "Total number of messages sent to Kafka DLQ",
+		},
+		[]string{"topic", "reason"},
+	)
+
+	// Kafka connection status
+	KafkaConnectionStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "kafka_connection_status",
+			Help: "Kafka connection status (1=connected, 0=disconnected)",
+		},
+		[]string{"broker", "sink_name"},
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -328,6 +452,20 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(CompressionRatio)
 		safeRegister(BatchingStats)
 		safeRegister(LeakDetection)
+		// Kafka sink metrics
+		safeRegister(KafkaMessagesProducedTotal)
+		safeRegister(KafkaProducerErrorsTotal)
+		safeRegister(KafkaBatchSize)
+		safeRegister(KafkaBatchSendDuration)
+		safeRegister(KafkaQueueSize)
+		safeRegister(KafkaQueueUtilization)
+		safeRegister(KafkaPartitionMessages)
+		safeRegister(KafkaCompressionRatio)
+		safeRegister(KafkaBackpressureTotal)
+		safeRegister(KafkaCircuitBreakerState)
+		safeRegister(KafkaMessageSizeBytes)
+		safeRegister(KafkaDLQMessagesTotal)
+		safeRegister(KafkaConnectionStatus)
 	})
 
 	mux := http.NewServeMux()

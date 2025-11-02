@@ -135,6 +135,21 @@ func (app *App) initSinks() error {
 		app.logger.Info("Local file sink initialized")
 	}
 
+	// Kafka Sink
+	if app.config.Sinks.Kafka.Enabled {
+		var deadLetterQueue *dlq.DeadLetterQueue
+		if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+			deadLetterQueue = dispatcherImpl.GetDLQ()
+		}
+		kafkaSink, err := sinks.NewKafkaSink(app.config.Sinks.Kafka, app.logger, deadLetterQueue, app.enhancedMetrics)
+		if err != nil {
+			return fmt.Errorf("failed to create Kafka sink: %w", err)
+		}
+		app.sinks = append(app.sinks, kafkaSink)
+		app.dispatcher.AddSink(kafkaSink)
+		app.logger.WithField("brokers", app.config.Sinks.Kafka.Brokers).Info("Kafka sink initialized")
+	}
+
 	if len(app.sinks) == 0 {
 		return fmt.Errorf("no sinks enabled")
 	}
