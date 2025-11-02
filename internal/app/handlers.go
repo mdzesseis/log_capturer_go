@@ -356,7 +356,10 @@ func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(health)
+	if err := json.NewEncoder(w).Encode(health); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // statsHandler provides detailed operational statistics for all application components.
@@ -581,7 +584,10 @@ func (app *App) configHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sanitizedConfig)
+	if err := json.NewEncoder(w).Encode(sanitizedConfig); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // configReloadHandler triggers a configuration reload when hot reload is enabled.
@@ -614,10 +620,13 @@ func (app *App) configReloadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status":  "success",
 		"message": "Configuration reload triggered successfully.",
-	})
+	}); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // positionsHandler returns current file position tracking statistics.
@@ -770,10 +779,13 @@ func (app *App) logsIngestHandler(w http.ResponseWriter, r *http.Request) {
 	// Success response
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "accepted",
 		"message": "Log entry queued for processing",
-	})
+	}); err != nil {
+		// If writing response fails after headers, just log via metrics
+		return
+	}
 }
 
 // Enterprise handlers - Advanced monitoring and security endpoints
@@ -805,7 +817,10 @@ func (app *App) sloStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	status := app.sloManager.GetSLOStatus()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // goroutineStatsHandler returns detailed goroutine tracking and leak detection statistics.
@@ -875,7 +890,10 @@ func (app *App) securityAuditHandler(w http.ResponseWriter, r *http.Request) {
 		"status":  "pending",
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(audit)
+	if err := json.NewEncoder(w).Encode(audit); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }
 
 // dlqReprocessHandler forces reprocessing of the Dead Letter Queue.
@@ -946,7 +964,7 @@ func (app *App) metricsHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Copy response body
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		app.logger.WithError(err).Error("Failed to write metrics response")
+		app.logger.WithError(err).Debug("Failed to write metrics response")
 	}
 }
 
@@ -1090,5 +1108,8 @@ func (app *App) debugPositionsValidateHandler(w http.ResponseWriter, r *http.Req
 	// This is a placeholder - actual validation would depend on position manager implementation
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(validationResult)
+	if err := json.NewEncoder(w).Encode(validationResult); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
 }

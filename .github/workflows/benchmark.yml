@@ -23,9 +23,9 @@ jobs:
         fetch-depth: 0  # Fetch full history for comparison
 
     - name: Configurar Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version-file: 'go.mod'
         cache: true
 
     - name: Baixar dependências
@@ -66,7 +66,7 @@ jobs:
         if [ -f main_bench.txt ] && [ -f current_bench.txt ]; then
           echo "### Comparação com branch main:" >> benchmark_comment.md
           echo '```' >> benchmark_comment.md
-          benchstat main_bench.txt current_bench.txt >> benchmark_comment.md 2>&1 || echo "Benchstat comparison failed or no significant difference" >> benchmark_comment.md
+          $(go env GOPATH)/bin/benchstat main_bench.txt current_bench.txt >> benchmark_comment.md 2>&1 || echo "Benchstat comparison failed or no significant difference" >> benchmark_comment.md
           echo '```' >> benchmark_comment.md
           echo "" >> benchmark_comment.md
 
@@ -74,7 +74,7 @@ jobs:
           echo "### 🔍 Análise de Regressão:" >> benchmark_comment.md
 
           # Verificar se houve degradação significativa (>10%)
-          REGRESSION=$(benchstat -alpha 0.05 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[0-9]+\.[0-9]+%' | grep -v '\+[0-5]\.' || true)
+          REGRESSION=$($(go env GOPATH)/bin/benchstat -alpha 0.05 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[0-9]+\.[0-9]+%' | grep -v '\+[0-5]\.' || true)
 
           if [ -n "$REGRESSION" ]; then
             echo "⚠️ **ATENÇÃO**: Possíveis regressões de performance detectadas:" >> benchmark_comment.md
@@ -98,14 +98,18 @@ jobs:
 
         cat benchmark_comment.md
 
+    - name: Preparar artefatos
+      run: |
+        mkdir -p bench_artifacts
+        [ -f current_bench.txt ] && cp current_bench.txt bench_artifacts/
+        [ -f main_bench.txt ] && cp main_bench.txt bench_artifacts/
+        [ -f benchmark_comment.md ] && cp benchmark_comment.md bench_artifacts/
+
     - name: Upload benchmark results
       uses: actions/upload-artifact@v4
       with:
         name: benchmark-results
-        path: |
-          current_bench.txt
-          main_bench.txt
-          benchmark_comment.md
+        path: bench_artifacts/
         retention-days: 30
 
     - name: Comment PR com resultados
@@ -152,7 +156,7 @@ jobs:
       run: |
         # Falhar o job se houver regressões críticas (>20%)
         if [ -f main_bench.txt ] && [ -f current_bench.txt ]; then
-          CRITICAL_REGRESSION=$(benchstat -alpha 0.01 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[2-9][0-9]\.[0-9]+%|\+[0-9]{3,}\.[0-9]+%' || true)
+          CRITICAL_REGRESSION=$($(go env GOPATH)/bin/benchstat -alpha 0.01 main_bench.txt current_bench.txt 2>&1 | grep -E '\+[2-9][0-9]\.[0-9]+%|\+[0-9]{3,}\.[0-9]+%' || true)
 
           if [ -n "$CRITICAL_REGRESSION" ]; then
             echo "❌ CRITICAL: Regressão de performance >20% detectada!"
@@ -171,9 +175,9 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Configurar Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version-file: 'go.mod'
         cache: true
 
     - name: Executar benchmarks completos

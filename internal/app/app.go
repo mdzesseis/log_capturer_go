@@ -381,14 +381,20 @@ func (app *App) Stop() error {
 		if app.httpServer != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			app.httpServer.Shutdown(ctx)
+			if err := app.httpServer.Shutdown(ctx); err != nil {
+				app.logger.WithError(err).Warn("HTTP server shutdown error")
+			}
 		}
 
 		if app.fileMonitor != nil {
-			app.fileMonitor.Stop()
+			if err := app.fileMonitor.Stop(); err != nil {
+				app.logger.WithError(err).Warn("File monitor stop error")
+			}
 		}
 		if app.containerMonitor != nil {
-			app.containerMonitor.Stop()
+			if err := app.containerMonitor.Stop(); err != nil {
+				app.logger.WithError(err).Warn("Container monitor stop error")
+			}
 		}
 		if app.diskManager != nil {
 			if err := app.diskManager.Stop(); err != nil {
@@ -451,14 +457,18 @@ func (app *App) Stop() error {
 			}
 		}
 
-		app.dispatcher.Stop()
+		_ = app.dispatcher.Stop()
 
 		for _, sink := range app.sinks {
-			sink.Stop()
+			if err := sink.Stop(); err != nil {
+				app.logger.WithError(err).Warn("Sink stop error")
+			}
 		}
 
 		if app.metricsServer != nil {
-			app.metricsServer.Stop()
+			if err := app.metricsServer.Stop(); err != nil {
+				app.logger.WithError(err).Warn("Metrics server stop error")
+			}
 		}
 
 		app.taskManager.Cleanup()

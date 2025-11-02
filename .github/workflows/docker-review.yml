@@ -1,5 +1,9 @@
 name: Revisão de Configurações Docker
 
+permissions:
+  contents: read
+  issues: write
+
 on:
   push:
     branches:
@@ -18,8 +22,8 @@ jobs:
 
     - name: Instalar hadolint para linting de Dockerfile
       run: |
-        wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
-        chmod +x /usr/local/bin/hadolint
+        sudo wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+        sudo chmod +x /usr/local/bin/hadolint
 
     - name: Executar hadolint nos Dockerfiles
       id: hadolint
@@ -35,7 +39,7 @@ jobs:
       id: compose
       run: |
         find . -name "docker-compose*.yml" -o -name "docker-compose*.yaml" | while read file; do
-          docker-compose -f "$file" config > /dev/null 2>&1
+          docker compose -f "$file" config > /dev/null 2>&1
           if [ $? -ne 0 ]; then
             echo "Erro de validação em $file" >> compose_report.txt
             echo "compose-issues=true" >> $GITHUB_OUTPUT
@@ -47,13 +51,16 @@ jobs:
 
     - name: Verificar vulnerabilidades em imagens base
       run: |
-        # Instalar trivy para scan de vulnerabilidades
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-        echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+        # Instalar trivy para scan de vulnerabilidades (sem apt-key)
+        sudo apt-get update && sudo apt-get install -y curl gnupg lsb-release
+        sudo mkdir -p /etc/apt/keyrings
+        curl -fsSL https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /etc/apt/keyrings/trivy.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
         sudo apt-get update && sudo apt-get install -y trivy
         find . -name "Dockerfile*" | xargs -I {} sh -c 'grep -i FROM {} | head -1 | cut -d" " -f2' | xargs -I {} trivy image {} > trivy_report.txt 2>&1 || true
 
     - name: Gerar relatório detalhado de Docker em português brasileiro
+      id: generate-report
       run: |
         mkdir -p relatorios_docker_review
         TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -119,7 +126,7 @@ jobs:
 
     - name: Criar issue se problemas encontrados
       if: steps.hadolint.outputs.docker-issues == 'true' || steps.compose.outputs.compose-issues == 'true'
-      uses: actions/github-script@v6
+      uses: actions/github-script@v7
       env:
         DOCKER_ISSUES: ${{ steps.hadolint.outputs.docker-issues }}
         COMPOSE_ISSUES: ${{ steps.compose.outputs.compose-issues }}

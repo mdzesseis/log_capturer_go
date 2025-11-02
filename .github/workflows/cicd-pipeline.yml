@@ -16,9 +16,9 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Configurar Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version-file: 'go.mod'
 
     - name: Baixar dependências
       run: go mod download
@@ -33,7 +33,7 @@ jobs:
       run: |
         COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
         echo "Coverage atual: ${COVERAGE}%"
-        if (( $(echo "$COVERAGE < 70" | bc -l) )); then
+        if awk -v cov="$COVERAGE" 'BEGIN{exit !(cov+0 < 70)}'; then
           echo "❌ Coverage de ${COVERAGE}% está abaixo do threshold de 70%"
           exit 1
         else
@@ -52,7 +52,7 @@ jobs:
           coverage.html
 
     - name: Build da aplicação
-      run: go build -o bin/app .
+      run: mkdir -p bin && go build -o bin/ssw-logs-capture ./cmd/main.go
 
     - name: Upload artefatos de build
       uses: actions/upload-artifact@v4
@@ -73,14 +73,13 @@ jobs:
 
     - name: Validar imagem Docker
       run: |
-        docker run --rm log_capturer_go:latest --help || echo "Validação simulada: imagem construída com sucesso"
+        docker run --rm log_capturer_go:latest ./ssw-logs-capture --help || echo "Validação simulada: imagem construída com sucesso"
 
     - name: Upload artefatos de imagem
       uses: actions/upload-artifact@v4
       with:
         name: docker-image-info
-        path: |
-          coverage.html
+        path: Dockerfile
 
   deploy:
     needs: docker-build-and-validate

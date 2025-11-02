@@ -37,7 +37,7 @@ jobs:
     - name: Run govulncheck
       id: govulncheck
       run: |
-        govulncheck ./... > govulncheck_results.txt 2>&1 || echo "VULNS_FOUND=true" >> $GITHUB_OUTPUT
+        $(go env GOPATH)/bin/govulncheck ./... > govulncheck_results.txt 2>&1 || echo "VULNS_FOUND=true" >> $GITHUB_OUTPUT
         cat govulncheck_results.txt
 
     - name: Upload vulnerability scan results
@@ -167,7 +167,7 @@ jobs:
     - name: Run staticcheck
       run: |
         go install honnef.co/go/tools/cmd/staticcheck@latest
-        staticcheck ./...
+        $(go env GOPATH)/bin/staticcheck ./...
 
     - name: Check for common issues
       run: |
