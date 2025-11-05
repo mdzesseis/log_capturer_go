@@ -39,7 +39,7 @@ import (
 	"ssw-logs-capture/pkg/buffer"
 	"ssw-logs-capture/pkg/cleanup"
 	"ssw-logs-capture/pkg/discovery"
-	"ssw-logs-capture/pkg/goroutines"
+	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/hotreload"
 	"ssw-logs-capture/pkg/leakdetection"
 	"ssw-logs-capture/pkg/positions"
@@ -96,7 +96,7 @@ type App struct {
 	securityManager   *security.AuthManager          // Handles authentication, authorization, and audit logging
 	tracingManager    *tracing.TracingManager        // Provides distributed tracing capabilities with OpenTelemetry
 	sloManager        *slo.SLOManager                // Monitors service level objectives and manages error budgets
-	goroutineTracker  *goroutines.GoroutineTracker   // Tracks goroutine usage and detects potential memory leaks
+	goroutineTracker  *profiling.GoroutineTracker   // Tracks goroutine usage with aggressive profiling and stack trace analysis
 	serviceDiscovery  *discovery.ServiceDiscovery    // Handles automatic service discovery
 
 	sinks []types.Sink // Collection of configured output destinations (Loki, local files, etc.)
@@ -313,12 +313,7 @@ func (app *App) Start() error {
 		}
 	}
 
-	// Start enterprise features
-	if app.goroutineTracker != nil {
-		if err := app.goroutineTracker.Start(app.ctx); err != nil {
-			return fmt.Errorf("failed to start goroutine tracker: %w", err)
-		}
-	}
+	// Goroutine tracker is already started in initEnterpriseFeatures()
 	if app.sloManager != nil {
 		if err := app.sloManager.Start(app.ctx); err != nil {
 			return fmt.Errorf("failed to start SLO manager: %w", err)
@@ -418,9 +413,7 @@ func (app *App) Stop() error {
 
 		// Stop enterprise features
 		if app.goroutineTracker != nil {
-			if err := app.goroutineTracker.Stop(); err != nil {
-				app.logger.WithError(err).Error("Failed to stop goroutine tracker")
-			}
+			app.goroutineTracker.Stop()
 		}
 		if app.sloManager != nil {
 			if err := app.sloManager.Stop(); err != nil {

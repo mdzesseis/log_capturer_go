@@ -134,12 +134,14 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,hamedkarbasi93-kafka-datasource
     volumes:
       - grafana_data:/var/lib/grafana
       - ./provisioning:/etc/grafana/provisioning:ro
     depends_on:
       loki:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     logging:
       driver: "json-file"

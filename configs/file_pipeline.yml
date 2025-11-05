@@ -52,7 +52,58 @@ files:
       source: "file"
       file_path: "/var/log/auth.log"
       file_name: "auth.log"
+      log_type: "authentication"
     enabled: true
+
+  - path: "/var/log/kern.log"
+    labels:
+      source: "file"
+      file_path: "/var/log/kern.log"
+      file_name: "kern.log"
+      log_type: "kernel"
+    enabled: true
+
+  - path: "/var/log/daemon.log"
+    labels:
+      source: "file"
+      file_path: "/var/log/daemon.log"
+      file_name: "daemon.log"
+      log_type: "daemon"
+    enabled: false  # File does not exist on this system
+
+  - path: "/var/log/dpkg.log"
+    labels:
+      source: "file"
+      file_path: "/var/log/dpkg.log"
+      file_name: "dpkg.log"
+      log_type: "package_management"
+    enabled: true
+
+  - path: "/var/log/apt/history.log"
+    labels:
+      source: "file"
+      file_path: "/var/log/apt/history.log"
+      file_name: "apt_history.log"
+      log_type: "package_management"
+    enabled: true
+
+  - path: "/var/log/dmesg"
+    labels:
+      source: "file"
+      file_path: "/var/log/dmesg"
+      file_name: "dmesg"
+      log_type: "kernel"
+    enabled: true
+
+  # Application logs from monitoring suite
+  - path: "/var/log/monitoring_data_suite/logs/app.log"
+    labels:
+      source: "file"
+      file_path: "/var/log/monitoring_data_suite/logs/app.log"
+      file_name: "monitoring_suite_app.log"
+      log_type: "application"
+      service: "monitoring_suite"
+    enabled: false  # Disabled to avoid feedback loop
 
   # Adicione mais arquivos conforme necessário
 

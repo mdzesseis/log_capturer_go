@@ -883,11 +883,16 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 	// Enviar para todos os sinks
 	successCount := 0
+	healthySinks := 0
+	var lastErr error
+
 	for _, sink := range d.sinks {
 		if !sink.IsHealthy() {
 			logger.Warn("Skipping unhealthy sink")
 			continue
 		}
+
+		healthySinks++
 
 		// Fazer cópia profunda dos entries para evitar race conditions entre sinks
 		entriesCopy := make([]types.LogEntry, len(entries))
@@ -904,9 +909,7 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 			d.updateStats(func(stats *types.DispatcherStats) {
 				stats.ErrorCount++
 			})
-
-			// Verificar se deve tentar novamente
-			d.handleFailedBatch(batch, err)
+			lastErr = err
 		} else {
 			successCount++
 			// Atualizar distribuição por sink
@@ -915,6 +918,24 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 				stats.SinkDistribution[sinkType] += int64(len(entries))
 			})
 		}
+	}
+
+	// Circuit Breaker: If ALL sinks failed, send directly to DLQ instead of retrying
+	// This prevents goroutine explosion when all sinks are down
+	if healthySinks > 0 && successCount == 0 {
+		logger.WithFields(logrus.Fields{
+			"batch_size":     len(batch),
+			"healthy_sinks":  healthySinks,
+			"success_count":  0,
+		}).Warn("All healthy sinks failed - sending batch to DLQ without retry to prevent goroutine leak")
+
+		// Send all items directly to DLQ
+		for _, item := range batch {
+			d.sendToDLQ(item.Entry, lastErr.Error(), "all_sinks_failed", "all_sinks", item.Retries)
+		}
+	} else if successCount < healthySinks && healthySinks > 0 {
+		// Some sinks failed, some succeeded - handle normally with retry
+		d.handleFailedBatch(batch, lastErr)
 	}
 
 	duration := time.Since(startTime)

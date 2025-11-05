@@ -18,7 +18,7 @@ import (
 	"ssw-logs-capture/pkg/discovery"
 	"ssw-logs-capture/pkg/dlq"
 	"ssw-logs-capture/pkg/errors"
-	"ssw-logs-capture/pkg/goroutines"
+	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/hotreload"
 	"ssw-logs-capture/pkg/leakdetection"
 	"ssw-logs-capture/pkg/positions"
@@ -650,23 +650,15 @@ func (app *App) initializeEnterpriseFeatures() error {
 		app.logger.Info("SLO manager initialized")
 	}
 
-	// Goroutine Tracker
-	if app.config.GoroutineTracking.Enabled {
-		goroutineConfig := goroutines.GoroutineConfig{
-			Enabled:              app.config.GoroutineTracking.Enabled,
-			CheckInterval:        parseDurationSafe(app.config.GoroutineTracking.CheckInterval, 30*time.Second),
-			LeakThreshold:        app.config.GoroutineTracking.LeakThreshold,
-			MaxGoroutines:        1000, // Default max goroutines
-			WarnThreshold:        500,  // Default warning threshold
-			TrackingEnabled:      app.config.GoroutineTracking.DetailedProfiling,
-			StackTraceOnLeak:     app.config.GoroutineTracking.StackTraceDepth > 0,
-			AlertWebhook:         app.config.GoroutineTracking.AlertWebhook,
-			RetentionPeriod:      24 * time.Hour, // Default retention
-		}
-		goroutineTracker := goroutines.NewGoroutineTracker(goroutineConfig, app.logger)
-		app.goroutineTracker = goroutineTracker
-		app.logger.Info("Goroutine tracker initialized")
-	}
+	// Goroutine Tracker - Always enabled for leak detection
+	app.logger.Info("=== PHASE 1: Creating profiling tracker ===")
+	goroutineTracker := profiling.NewGoroutineTracker(app.logger)
+	app.logger.Info("=== PHASE 2: Starting profiling tracker ===")
+	checkInterval := parseDurationSafe(app.config.GoroutineTracking.CheckInterval, 15*time.Second)
+	goroutineTracker.Start(checkInterval)
+	app.goroutineTracker = goroutineTracker
+	app.logger.Info("=== PHASE 3: PROFILING TRACKER FULLY INITIALIZED! ===")
+	app.logger.WithField("check_interval", checkInterval).Info("Goroutine tracker initialized with aggressive profiling")
 
 	return nil
 }

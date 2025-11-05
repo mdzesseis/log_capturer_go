@@ -777,33 +777,60 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 
 // readContainerLogs lê logs de um stream de container
 func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitoredContainer, stream io.Reader) error {
-	buf := make([]byte, 8192)
 	incomplete := ""
 	logCount := int64(0)
 	bytesRead := int64(0)
 
+	// Canal para receber dados do stream em goroutine separada
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	readCh := make(chan readResult, 1)
+
+	// Goroutine para ler do stream
+	go func() {
+		for {
+			localBuf := make([]byte, 8192)
+			n, err := stream.Read(localBuf)
+
+			// Copiar apenas os bytes lidos
+			var data []byte
+			if n > 0 {
+				data = make([]byte, n)
+				copy(data, localBuf[:n])
+			}
+
+			select {
+			case readCh <- readResult{data: data, err: err}:
+				if err != nil {
+					return // Sair se houver erro (incluindo EOF)
+				}
+			case <-ctx.Done():
+				return // Context cancelado, sair
+			}
+		}
+	}()
+
 	for {
+		// Aguardar dados do stream OU cancelamento do context
+		var result readResult
 		select {
 		case <-ctx.Done():
-			return ctx.Err() // Retorna o erro específico do contexto (context.Canceled)
-		default:
-			n, err := stream.Read(buf)
-			if err != nil {
-				if err == io.EOF {
-					return nil
-				}
-				return err
-			}
+			return ctx.Err()
+		case result = <-readCh:
+			// Dados recebidos, processar abaixo
+		}
 
-			if n == 0 {
-				continue
-			}
+		data := result.data
+		err := result.err
 
-			bytesRead += int64(n)
+		if len(data) > 0 {
+			bytesRead += int64(len(data))
 
 			// Processar dados lidos
-			data := incomplete + string(buf[:n])
-			lines := strings.Split(data, "\n")
+			dataStr := incomplete + string(data)
+			lines := strings.Split(dataStr, "\n")
 
 			// Última linha pode estar incompleta
 			incomplete = lines[len(lines)-1]
@@ -908,6 +935,14 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 				logCount = 0
 				bytesRead = 0
 			}
+		}
+
+		// Handle read errors
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
 	}
 }

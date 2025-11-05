@@ -329,7 +329,7 @@ func (app *App) healthHandler(w http.ResponseWriter, r *http.Request) {
 	if app.goroutineTracker != nil {
 		goroutineStats := app.goroutineTracker.GetStats()
 		status := "healthy"
-		if goroutineStats.Status != "healthy" {
+		if statusStr, ok := goroutineStats["status"].(string); ok && statusStr != "healthy" {
 			status = "warning"
 			allHealthy = false
 		}
@@ -520,7 +520,7 @@ func (app *App) statsHandler(w http.ResponseWriter, r *http.Request) {
 	degradationStatus := "healthy"
 	if app.goroutineTracker != nil {
 		gtStats := app.goroutineTracker.GetStats()
-		if gtStats.Status != "healthy" {
+		if statusStr, ok := gtStats["status"].(string); ok && statusStr != "healthy" {
 			degradationStatus = "degraded"
 		}
 	}

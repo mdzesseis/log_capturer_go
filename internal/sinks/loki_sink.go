@@ -25,6 +25,18 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// LokiDataError representa um erro de dados do cliente que não deve acionar circuit breaker
+// Exemplos: timestamp fora de ordem, timestamp muito antigo/futuro, formato inválido
+type LokiDataError struct {
+	StatusCode int
+	Message    string
+	IsTimestampError bool
+}
+
+func (e *LokiDataError) Error() string {
+	return fmt.Sprintf("loki data error (%d): %s", e.StatusCode, e.Message)
+}
+
 // LokiSink implementa sink para Grafana Loki
 type LokiSink struct {
 	config       types.LokiConfig
@@ -441,17 +453,37 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 
 	startTime := time.Now()
 
+	// Capture data errors separately to avoid triggering circuit breaker
+	var dataErr *LokiDataError
+
 	err := ls.breaker.Execute(func() error {
-		return ls.sendToLoki(entries)
+		err := ls.sendToLoki(entries)
+		// Check if it's a data error (shouldn't trigger circuit breaker)
+		if errors.As(err, &dataErr) {
+			return nil // Don't trigger circuit breaker for client data errors
+		}
+		return err
 	})
+
+	// If we have a data error that didn't trigger the breaker, use it as the error
+	if dataErr != nil {
+		err = dataErr
+	}
 
 	duration := time.Since(startTime)
 	metrics.RecordSinkSendDuration("loki", duration)
 
 	if err != nil {
-		ls.logger.WithError(err).WithField("entries", len(entries)).Error("Failed to send batch to Loki")
-		metrics.RecordLogSent("loki", "error")
-		metrics.RecordError("loki_sink", "send_error")
+		// Different handling for data errors vs transient errors
+		if dataErr != nil {
+			ls.logger.WithError(err).WithField("entries", len(entries)).Warn("Loki rejected batch due to data error (timestamp issue)")
+			metrics.RecordLogSent("loki", "client_error")
+			metrics.RecordError("loki_sink", "data_error")
+		} else {
+			ls.logger.WithError(err).WithField("entries", len(entries)).Error("Failed to send batch to Loki")
+			metrics.RecordLogSent("loki", "error")
+			metrics.RecordError("loki_sink", "send_error")
+		}
 
 		// Enviar batch inteiro para DLQ após falha
 		for _, entry := range entries {
@@ -611,6 +643,21 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 
 		// Retornar erro mais detalhado
 		if resp.StatusCode == 400 {
+			// Verificar se é erro de timestamp (não deve acionar circuit breaker)
+			errorBodyLower := strings.ToLower(errorBody)
+			isTimestampError := strings.Contains(errorBodyLower, "out of order") ||
+				strings.Contains(errorBodyLower, "too old") ||
+				strings.Contains(errorBodyLower, "too far in the future") ||
+				strings.Contains(errorBodyLower, "timestamp") ||
+				strings.Contains(errorBodyLower, "entry with ts")
+
+			if isTimestampError {
+				return &LokiDataError{
+					StatusCode: 400,
+					Message: errorBody,
+					IsTimestampError: true,
+				}
+			}
 			return fmt.Errorf("loki bad request (400): %s", errorBody)
 		} else if resp.StatusCode == 401 {
 			return fmt.Errorf("loki unauthorized (401): %s", errorBody)

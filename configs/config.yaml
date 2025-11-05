@@ -80,7 +80,7 @@ files_config:
 # CONFIGURAÇÕES DO SERVIÇO DE MONITORAMENTO DE ARQUIVOS
 # -----------------------------------------------------------------------------
 file_monitor_service:
-  enabled: true
+  enabled: true  # Re-enabled after circuit breaker fix DE LEAK
   pipeline_file: "/app/configs/file_pipeline.yml"
   poll_interval: "30s"
   read_buffer_size: 65536
@@ -96,7 +96,7 @@ file_monitor_service:
 # NOTA: O sistema agora usa descoberta orientada a eventos Docker em vez de polling
 # O campo 'reconnect_interval' ainda existe mas é usado apenas para fallback/heartbeat
 container_monitor:
-  enabled: true
+  enabled: true  # Re-enabled after circuit breaker fix
   socket_path: "unix:///var/run/docker.sock"
   health_check_delay: "30s"
   reconnect_interval: "30s"          # Agora usado apenas para heartbeat (não mais polling)
@@ -170,7 +170,7 @@ dispatcher:
 # -----------------------------------------------------------------------------
 sinks:
   loki:
-    enabled: true
+    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
     url: "http://loki:3100"
     push_endpoint: "/loki/api/v1/push"
     tenant_id: ""
@@ -222,7 +222,7 @@ sinks:
       buffer_size: 20000
 
   local_file:
-    enabled: true
+    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
     directory: "/app/logs/output"
     filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
     #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
@@ -262,7 +262,7 @@ sinks:
     index: ""
 
   kafka:
-    enabled: true                       # ✅ ENABLED - High-throughput sink (10K+ logs/sec)
+    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
     brokers:
       - "kafka:9092"                    # Kafka broker addresses
     topic: "logs"                       # Default topic (can be overridden by routing)
@@ -471,7 +471,7 @@ disk_buffer:
 # CONFIGURAÇÕES DE DETECÇÃO DE ANOMALIAS ML
 # -----------------------------------------------------------------------------
 anomaly_detection:
-  enabled: true                     # Habilitar detecção de anomalias
+  enabled: false                    # Mantido desabilitado - gera muito ruído nos logs
   algorithm: "ml_ensemble"          # Tipos: "isolation_forest", "statistical", "neural_network", "ml_ensemble"
   sensitivity_level: "medium"       # Níveis: "low", "medium", "high"
   window_size: "5m"                 # Janela de análise (reduzido para teste)

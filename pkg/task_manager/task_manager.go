@@ -112,10 +112,17 @@ func (tm *taskManager) StartTask(ctx context.Context, taskID string, fn func(con
 	tm.wg.Add(1)
 	go func() {
 		defer tm.wg.Done() // Ensure WaitGroup is decremented when task completes
+		defer func() {
+			// Log goroutine termination
+			tm.logger.WithField("task_id", taskID).Debug("Task goroutine terminated")
+		}()
 		tm.runTask(newTask)
 	}()
 
-	tm.logger.WithField("task_id", taskID).Info("Task started")
+	tm.logger.WithFields(logrus.Fields{
+		"task_id": taskID,
+		"total_tasks": len(tm.tasks),
+	}).Info("Task started")
 	return nil
 }
 
@@ -169,29 +176,43 @@ func (tm *taskManager) runTask(t *task) {
 // StopTask para uma tarefa
 func (tm *taskManager) StopTask(taskID string) error {
 	tm.mutex.Lock()
-	defer tm.mutex.Unlock()
 
 	task, exists := tm.tasks[taskID]
 	if !exists {
+		tm.mutex.Unlock()
 		return fmt.Errorf("task %s not found", taskID)
 	}
 
 	if task.State != "running" {
+		tm.mutex.Unlock()
 		return fmt.Errorf("task %s is not running", taskID)
 	}
 
 	// Cancelar contexto da tarefa
 	task.Cancel()
 
+	// CRITICAL: Unlock BEFORE waiting to avoid deadlock
+	tm.mutex.Unlock()
+
 	// Aguardar conclusão com timeout
 	select {
 	case <-task.Done:
+		tm.mutex.Lock()
 		task.State = "stopped"
-		tm.logger.WithField("task_id", taskID).Info("Task stopped")
+		tm.mutex.Unlock()
+		tm.logger.WithFields(logrus.Fields{
+			"task_id": taskID,
+			"total_tasks": len(tm.tasks),
+		}).Info("Task stopped successfully")
 	case <-time.After(10 * time.Second):
+		tm.mutex.Lock()
 		task.State = "failed"
 		task.LastError = "stop timeout"
-		tm.logger.WithField("task_id", taskID).Warn("Task stop timeout")
+		tm.mutex.Unlock()
+		tm.logger.WithFields(logrus.Fields{
+			"task_id": taskID,
+			"total_tasks": len(tm.tasks),
+		}).Warn("Task stop timeout - goroutine may be leaked")
 	}
 
 	return nil

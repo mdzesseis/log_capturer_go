@@ -1,0 +1,46 @@
+# =============================================================================
+# KAFKA DATASOURCE CONFIGURATION
+# =============================================================================
+#
+# This datasource allows Grafana to query Kafka topics directly for log data
+#
+# Architecture:
+#   log_capturer → Kafka Topics → Grafana (via this datasource)
+#
+# The Kafka datasource plugin allows:
+#   - Querying messages from Kafka topics
+#   - Real-time log streaming in Grafana
+#   - Topic-based filtering and visualization
+#
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Kafka
+    type: hamedkarbasi93-kafka-datasource
+    access: proxy
+    uid: kafka_datasource
+    isDefault: false
+    editable: true
+    jsonData:
+      # Kafka broker address (internal Docker network)
+      bootstrapServers: 'kafka:9092'
+
+      # Consumer group ID for Grafana
+      groupId: 'grafana-consumer-group'
+
+      # Auto offset reset policy
+      # - earliest: Start from beginning of topic
+      # - latest: Only show new messages
+      autoOffsetReset: 'latest'
+
+      # Enable auto commit
+      enableAutoCommit: true
+
+      # Timeout for Kafka operations (milliseconds)
+      requestTimeoutMs: 30000
+
+      # Session timeout (milliseconds)
+      sessionTimeoutMs: 10000
+    version: 1
