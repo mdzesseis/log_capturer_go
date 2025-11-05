@@ -788,8 +788,16 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 	}
 	readCh := make(chan readResult, 1)
 
+	// C2: Goroutine Leak Fix - Track stream reading goroutine for proper cleanup
+	// Use a WaitGroup to ensure the goroutine completes before returning
+	var streamReaderWg sync.WaitGroup
+	streamReaderWg.Add(1)
+
 	// Goroutine para ler do stream
 	go func() {
+		defer streamReaderWg.Done()
+		defer cm.logger.WithField("container_id", mc.id).Debug("Stream reader goroutine terminated")
+
 		for {
 			localBuf := make([]byte, 8192)
 			n, err := stream.Read(localBuf)
@@ -809,6 +817,23 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 			case <-ctx.Done():
 				return // Context cancelado, sair
 			}
+		}
+	}()
+
+	// C2: Ensure goroutine cleanup on function exit
+	defer func() {
+		// Wait for stream reader goroutine to finish with timeout
+		done := make(chan struct{})
+		go func() {
+			streamReaderWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Goroutine finished cleanly
+		case <-time.After(5 * time.Second):
+			cm.logger.WithField("container_id", mc.id).Warn("Timeout waiting for stream reader goroutine to stop")
 		}
 	}()
 

@@ -28,6 +28,11 @@ type PoolManager struct {
 	healthCheckInterval time.Duration
 	unhealthyClients    map[int]time.Time
 	healthMutex        sync.RWMutex
+
+	// C3: Goroutine Leak Fix - Add context and waitgroup for proper shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // PooledClient wraps a Docker client with connection tracking
@@ -67,6 +72,9 @@ func NewPoolManager(config PoolConfig, logger *logrus.Logger) (*PoolManager, err
 		config.RetryDelay = 5 * time.Second
 	}
 
+	// C3: Goroutine Leak Fix - Create context for coordinated shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+
 	pm := &PoolManager{
 		clients:             make([]*PooledClient, 0, config.PoolSize),
 		logger:              logger,
@@ -76,14 +84,18 @@ func NewPoolManager(config PoolConfig, logger *logrus.Logger) (*PoolManager, err
 		retryDelay:          config.RetryDelay,
 		healthCheckInterval: config.HealthCheckInterval,
 		unhealthyClients:    make(map[int]time.Time),
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
 
 	// Initialize connection pool
 	if err := pm.initializePool(); err != nil {
+		cancel() // Clean up context on error
 		return nil, fmt.Errorf("failed to initialize Docker connection pool: %w", err)
 	}
 
-	// Start health monitoring
+	// C3: Start health monitoring with goroutine tracking
+	pm.wg.Add(1)
 	go pm.healthMonitor()
 
 	return pm, nil
@@ -185,12 +197,21 @@ func (pm *PoolManager) ReleaseClient(pooledClient *PooledClient) {
 
 // healthMonitor periodically checks the health of clients in the pool
 func (pm *PoolManager) healthMonitor() {
+	defer pm.wg.Done() // C3: Signal completion when goroutine exits
+	defer pm.logger.Debug("Health monitor goroutine terminated")
+
 	ticker := time.NewTicker(pm.healthCheckInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		pm.checkClientHealth()
-		pm.replaceUnhealthyClients()
+	for {
+		select {
+		case <-pm.ctx.Done():
+			// C3: Stop health monitoring when context is cancelled
+			return
+		case <-ticker.C:
+			pm.checkClientHealth()
+			pm.replaceUnhealthyClients()
+		}
 	}
 }
 
@@ -201,8 +222,31 @@ func (pm *PoolManager) checkClientHealth() {
 	copy(clients, pm.clients)
 	pm.mutex.RUnlock()
 
+	// C3: Goroutine Leak Fix - Track health check goroutines with WaitGroup
+	var healthCheckWg sync.WaitGroup
 	for _, pooledClient := range clients {
-		go pm.checkSingleClientHealth(pooledClient)
+		healthCheckWg.Add(1)
+		go func(pc *PooledClient) {
+			defer healthCheckWg.Done()
+			pm.checkSingleClientHealth(pc)
+		}(pooledClient)
+	}
+
+	// C3: Wait for all health checks to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		healthCheckWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All health checks completed
+	case <-time.After(30 * time.Second):
+		pm.logger.Warn("Timeout waiting for health checks to complete")
+	case <-pm.ctx.Done():
+		// Pool is shutting down
+		return
 	}
 }
 
@@ -357,6 +401,23 @@ func (pm *PoolManager) GetPoolStatus() map[string]interface{} {
 
 // Close closes all clients in the pool
 func (pm *PoolManager) Close() error {
+	// C3: Goroutine Leak Fix - Cancel context to stop health monitor
+	pm.cancel()
+
+	// C3: Wait for health monitor goroutine to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		pm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		pm.logger.Info("Health monitor goroutine stopped cleanly")
+	case <-time.After(10 * time.Second):
+		pm.logger.Warn("Timeout waiting for health monitor to stop")
+	}
+
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 

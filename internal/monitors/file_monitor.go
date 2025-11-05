@@ -532,14 +532,17 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 			return
 		}
 
-		// Garantir fechamento em caso de erro
+		// C1: File Descriptor Leak Fix - Ensure file is closed on all error paths
+		// Track whether we successfully assigned the file to mf.file
+		fileAssigned := false
 		defer func() {
-			if mf.file == nil && file != nil {
+			// Only close if we didn't successfully assign to mf.file
+			if !fileAssigned && file != nil {
 				file.Close()
+				fm.logger.WithField("path", mf.path).Debug("Closed file after error during initialization")
 			}
 		}()
 
-		mf.file = file
 		mf.reader = bufio.NewReader(file)
 
 		// Buscar posição salva
@@ -548,13 +551,15 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 			mf.position = 0
 			if _, seekErr := file.Seek(0, 0); seekErr != nil {
 				fm.logger.WithError(seekErr).WithField("path", mf.path).Error("Failed to seek to beginning")
-				// Fechar arquivo em caso de erro fatal
-				mf.file.Close()
-				mf.file = nil
+				// File will be closed by defer
 				mf.reader = nil
 				return
 			}
 		}
+
+		// Successfully initialized - assign to mf.file and mark as assigned
+		mf.file = file
+		fileAssigned = true
 	}
 
 	// Ler linhas
