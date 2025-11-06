@@ -295,7 +295,21 @@ func (fm *FileMonitor) AddFile(filePath string, labels map[string]string) error 
 		"path":      filePath,
 		"source_id": sourceID,
 		"position":  mf.position,
+		"size":      info.Size(),
 	}).Info("File added to monitoring")
+
+	// Read initial content if file has data
+	if info.Size() > mf.position {
+		fm.logger.WithFields(logrus.Fields{
+			"path": filePath,
+			"size": info.Size(),
+			"position": mf.position,
+		}).Info("Reading initial content from file")
+		go func() {
+			time.Sleep(100 * time.Millisecond) // Small delay to ensure setup is complete
+			fm.readFile(mf)
+		}()
+	}
 
 	return nil
 }
@@ -349,8 +363,13 @@ func (fm *FileMonitor) GetMonitoredFiles() []map[string]string {
 
 // monitorLoop loop principal de monitoramento
 func (fm *FileMonitor) monitorLoop(ctx context.Context) error {
+	// Use a faster ticker for polling
 	ticker := time.NewTicker(fm.config.PollInterval)
 	defer ticker.Stop()
+
+	// Also create a separate ticker for active polling
+	pollTicker := time.NewTicker(2 * time.Second)
+	defer pollTicker.Stop()
 
 	for {
 		select {
@@ -363,10 +382,40 @@ func (fm *FileMonitor) monitorLoop(ctx context.Context) error {
 			metrics.RecordError("file_monitor", "watcher_error")
 		case <-ticker.C:
 			fm.healthCheckFiles()
+		case <-pollTicker.C:
+			// Active polling - check all files for changes
+			fm.pollAllFiles()
 		}
 
 		// Heartbeat
 		fm.taskManager.Heartbeat("file_monitor")
+	}
+}
+
+// pollAllFiles actively polls all monitored files for changes
+func (fm *FileMonitor) pollAllFiles() {
+	fm.mutex.RLock()
+	files := make([]*monitoredFile, 0, len(fm.files))
+	for _, mf := range fm.files {
+		files = append(files, mf)
+	}
+	fm.mutex.RUnlock()
+
+	for _, mf := range files {
+		info, err := os.Stat(mf.path)
+		if err != nil {
+			continue
+		}
+
+		// Check if file has grown (new content)
+		if info.Size() > mf.position {
+			fm.logger.WithFields(logrus.Fields{
+				"path": mf.path,
+				"old_position": mf.position,
+				"new_size": info.Size(),
+			}).Debug("File has new content, reading...")
+			fm.readFile(mf)
+		}
 	}
 }
 
@@ -403,12 +452,23 @@ func (fm *FileMonitor) healthCheckFiles() {
 
 // handleFileEvent processa eventos do file watcher
 func (fm *FileMonitor) handleFileEvent(event fsnotify.Event) {
-	if event.Op&fsnotify.Write == fsnotify.Write {
+	// Log all events for debugging
+	fm.logger.WithFields(logrus.Fields{
+		"event": event.String(),
+		"op": event.Op.String(),
+		"file": event.Name,
+	}).Debug("File event received")
+
+	// Process WRITE, CREATE, and CHMOD events
+	if event.Op&fsnotify.Write == fsnotify.Write ||
+	   event.Op&fsnotify.Create == fsnotify.Create ||
+	   event.Op&fsnotify.Chmod == fsnotify.Chmod {
 		fm.mutex.RLock()
 		mf, exists := fm.files[event.Name]
 		fm.mutex.RUnlock()
 
 		if exists {
+			fm.logger.WithField("path", event.Name).Debug("Reading file after event")
 			fm.readFile(mf)
 		}
 	}
@@ -686,23 +746,36 @@ func (fm *FileMonitor) getTaskName(path string) string {
 	return "file_" + fm.getSourceID(path)
 }
 
+// getMapKeys helper function to get keys from a map
+func getMapKeys(m map[string]interface{}) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 // discoverFiles descobre arquivos automaticamente baseado em watch_directories
 func (fm *FileMonitor) discoverFiles() error {
+	// Debug log to see config state
+	fm.logger.WithFields(logrus.Fields{
+		"has_pipeline_config": fm.config.PipelineConfig != nil,
+		"pipeline_config_len": len(fm.config.PipelineConfig),
+	}).Debug("Starting file discovery")
+
 	// Se tem pipeline configurado, processar ele primeiro
 	if fm.config.PipelineConfig != nil {
 		fm.logger.Info("Processing file pipeline configuration")
 
-		// TODO: Fix processSpecificFiles to handle map[string]interface{} properly
 		// Processar arquivos específicos do pipeline
-		// if err := fm.processSpecificFiles(); err != nil {
-		// 	fm.logger.WithError(err).Warn("Failed to process specific files from pipeline")
-		// }
+		if err := fm.processSpecificFiles(); err != nil {
+			fm.logger.WithError(err).Warn("Failed to process specific files from pipeline")
+		}
 
-		// TODO: Fix processPipelineDirectories to handle map[string]interface{} properly
 		// Processar diretórios do pipeline
-		// if err := fm.processPipelineDirectories(); err != nil {
-		// 	fm.logger.WithError(err).Warn("Failed to process directories from pipeline")
-		// }
+		if err := fm.processPipelineDirectories(); err != nil {
+			fm.logger.WithError(err).Warn("Failed to process directories from pipeline")
+		}
 	} else {
 		// Usar configuração default de files_config
 		fm.logger.Info("No pipeline configured, using default directories from files_config")
@@ -720,17 +793,190 @@ func (fm *FileMonitor) discoverFiles() error {
 	return nil
 }
 
-// TODO: processSpecificFiles needs to be rewritten to handle map[string]interface{} properly
 // processSpecificFiles processa arquivos específicos do pipeline
 func (fm *FileMonitor) processSpecificFiles() error {
-	// Temporarily disabled - needs to be rewritten to handle map[string]interface{}
+	if fm.config.PipelineConfig == nil {
+		fm.logger.Warn("PipelineConfig is nil in processSpecificFiles")
+		return nil
+	}
+
+	fm.logger.WithField("pipeline_config_keys", fmt.Sprintf("%v", getMapKeys(fm.config.PipelineConfig))).
+		Debug("PipelineConfig contents")
+
+	// Obter lista de arquivos do pipeline config
+	filesInterface, ok := fm.config.PipelineConfig["files"]
+	if !ok {
+		fm.logger.Debug("No 'files' section found in pipeline config")
+		return nil
+	}
+
+	// Converter para slice de interface{}
+	filesSlice, ok := filesInterface.([]interface{})
+	if !ok {
+		fm.logger.WithField("type", fmt.Sprintf("%T", filesInterface)).Warn("'files' section is not an array")
+		return nil
+	}
+
+	fm.logger.WithField("count", len(filesSlice)).Info("Processing specific files from pipeline")
+
+	// Processar cada arquivo
+	for _, fileInterface := range filesSlice {
+		// Try both map[string]interface{} and map[interface{}]interface{} since YAML can return either
+		var fileMap map[string]interface{}
+
+		switch v := fileInterface.(type) {
+		case map[string]interface{}:
+			fileMap = v
+		case map[interface{}]interface{}:
+			// Convert map[interface{}]interface{} to map[string]interface{}
+			fileMap = make(map[string]interface{})
+			for key, value := range v {
+				if keyStr, ok := key.(string); ok {
+					fileMap[keyStr] = value
+				}
+			}
+		default:
+			fm.logger.WithField("type", fmt.Sprintf("%T", fileInterface)).Warn("File entry is not a map")
+			continue
+		}
+
+		// Extrair path
+		pathInterface, ok := fileMap["path"]
+		if !ok {
+			fm.logger.Warn("File entry missing 'path' field")
+			continue
+		}
+
+		path, ok := pathInterface.(string)
+		if !ok {
+			fm.logger.WithField("type", fmt.Sprintf("%T", pathInterface)).Warn("File path is not a string")
+			continue
+		}
+
+		// Verificar se está habilitado
+		enabledInterface, ok := fileMap["enabled"]
+		if ok {
+			enabled, ok := enabledInterface.(bool)
+			if ok && !enabled {
+				fm.logger.WithField("path", path).Info("File is disabled in pipeline, skipping")
+				continue
+			}
+		}
+		fm.logger.WithField("path", path).Info("File is enabled in pipeline, adding to monitoring")
+
+		// Extrair labels
+		labels := make(map[string]string)
+		labelsInterface, ok := fileMap["labels"]
+		if ok {
+			switch labelsValue := labelsInterface.(type) {
+			case map[string]interface{}:
+				for key, valueInterface := range labelsValue {
+					if value, ok := valueInterface.(string); ok {
+						labels[key] = value
+					}
+				}
+			case map[interface{}]interface{}:
+				for keyInterface, valueInterface := range labelsValue {
+					if key, ok := keyInterface.(string); ok {
+						if value, ok := valueInterface.(string); ok {
+							labels[key] = value
+						}
+					}
+				}
+			}
+		}
+
+		// Marcar como arquivo específico para evitar duplicação
+		fm.specificFiles[path] = true
+
+		// Adicionar arquivo para monitoramento
+		if err := fm.AddFile(path, labels); err != nil {
+			fm.logger.WithError(err).WithField("path", path).Warn("Failed to add specific file from pipeline")
+		} else {
+			fm.logger.WithField("path", path).Info("Added specific file from pipeline")
+		}
+	}
+
 	return nil
 }
 
-// TODO: processPipelineDirectories needs to be rewritten to handle map[string]interface{} properly
 // processPipelineDirectories processa diretórios do pipeline
 func (fm *FileMonitor) processPipelineDirectories() error {
-	// Temporarily disabled - needs to be rewritten to handle map[string]interface{}
+	if fm.config.PipelineConfig == nil {
+		return nil
+	}
+
+	// Obter lista de diretórios do pipeline config
+	dirsInterface, ok := fm.config.PipelineConfig["directories"]
+	if !ok {
+		fm.logger.Debug("No 'directories' section found in pipeline config")
+		return nil
+	}
+
+	// Converter para slice de interface{}
+	dirsSlice, ok := dirsInterface.([]interface{})
+	if !ok {
+		// Tentar como array de strings simples (compatibilidade)
+		if dirsStringSlice, ok := dirsInterface.([]string); ok {
+			for _, dir := range dirsStringSlice {
+				fm.logger.WithField("directory", dir).Info("Scanning directory from pipeline")
+				if err := fm.scanDirectory(dir); err != nil {
+					fm.logger.WithError(err).WithField("directory", dir).Warn("Failed to scan directory from pipeline")
+				}
+			}
+			return nil
+		}
+		fm.logger.WithField("type", fmt.Sprintf("%T", dirsInterface)).Warn("'directories' section is not an array")
+		return nil
+	}
+
+	fm.logger.WithField("count", len(dirsSlice)).Info("Processing directories from pipeline")
+
+	// Processar cada diretório
+	for _, dirInterface := range dirsSlice {
+		// Pode ser string simples ou mapa com configurações
+		switch dir := dirInterface.(type) {
+		case string:
+			// Diretório simples
+			fm.logger.WithField("directory", dir).Info("Scanning directory from pipeline")
+			if err := fm.scanDirectory(dir); err != nil {
+				fm.logger.WithError(err).WithField("directory", dir).Warn("Failed to scan directory from pipeline")
+			}
+
+		case map[string]interface{}:
+			// Diretório com configurações
+			pathInterface, ok := dir["path"]
+			if !ok {
+				fm.logger.Warn("Directory entry missing 'path' field")
+				continue
+			}
+
+			path, ok := pathInterface.(string)
+			if !ok {
+				fm.logger.WithField("type", fmt.Sprintf("%T", pathInterface)).Warn("Directory path is not a string")
+				continue
+			}
+
+			// Verificar se está habilitado
+			enabledInterface, ok := dir["enabled"]
+			if ok {
+				enabled, ok := enabledInterface.(bool)
+				if ok && !enabled {
+					fm.logger.WithField("path", path).Debug("Directory is disabled in pipeline")
+					continue
+				}
+			}
+
+			fm.logger.WithField("directory", path).Info("Scanning directory from pipeline")
+			if err := fm.scanDirectory(path); err != nil {
+				fm.logger.WithError(err).WithField("directory", path).Warn("Failed to scan directory from pipeline")
+			}
+
+		default:
+			fm.logger.WithField("type", fmt.Sprintf("%T", dirInterface)).Warn("Unknown directory entry type")
+		}
+	}
+
 	return nil
 }
 

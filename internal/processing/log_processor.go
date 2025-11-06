@@ -249,6 +249,13 @@ func (lp *LogProcessor) processThroughPipeline(ctx context.Context, entry *types
 	currentEntry := entry
 
 	for _, compiledStep := range pipeline.compiledSteps {
+		// Verificar se contexto foi cancelado
+		select {
+		case <-ctx.Done():
+			return currentEntry, ctx.Err()
+		default:
+		}
+
 		// Verificar condição se existir
 		if compiledStep.Condition != nil {
 			if !compiledStep.Condition.MatchString(currentEntry.Message) {
@@ -332,7 +339,8 @@ func (rep *RegexExtractProcessor) Process(ctx context.Context, entry *types.LogE
 	matches := rep.Pattern.FindStringSubmatch(entry.Message)
 	if len(matches) > 1 {
 		// Criar nova entrada com campos extraídos
-		newEntry := *entry
+		// FIX: Use DeepCopy to avoid copying mutex
+		newEntry := entry.DeepCopy()
 		if newEntry.Labels == nil {
 			newEntry.Labels = make(map[string]string)
 		}
@@ -343,7 +351,7 @@ func (rep *RegexExtractProcessor) Process(ctx context.Context, entry *types.LogE
 			}
 		}
 
-		return &newEntry, nil
+		return newEntry, nil
 	}
 
 	return entry, nil
@@ -442,7 +450,8 @@ func (tpp *TimestampParseProcessor) Process(ctx context.Context, entry *types.Lo
 	}
 
 	// Criar nova entrada
-	newEntry := *entry
+	// FIX: Use DeepCopy to avoid copying mutex
+	newEntry := entry.DeepCopy()
 	if newEntry.Labels == nil {
 		newEntry.Labels = make(map[string]string)
 	}
@@ -454,7 +463,7 @@ func (tpp *TimestampParseProcessor) Process(ctx context.Context, entry *types.Lo
 		newEntry.Labels[tpp.TargetField] = parsedTime.Format(time.RFC3339)
 	}
 
-	return &newEntry, nil
+	return newEntry, nil
 }
 
 // autoDetectTimestamp tenta detectar automaticamente o formato do timestamp
@@ -595,7 +604,8 @@ func NewFieldAddProcessor(config map[string]interface{}) (*FieldAddProcessor, er
 }
 
 func (fap *FieldAddProcessor) Process(ctx context.Context, entry *types.LogEntry) (*types.LogEntry, error) {
-	newEntry := *entry
+	// FIX: Use DeepCopy to avoid copying mutex
+	newEntry := entry.DeepCopy()
 	if newEntry.Labels == nil {
 		newEntry.Labels = make(map[string]string)
 	}
@@ -604,7 +614,7 @@ func (fap *FieldAddProcessor) Process(ctx context.Context, entry *types.LogEntry
 		newEntry.Labels[key] = value
 	}
 
-	return &newEntry, nil
+	return newEntry, nil
 }
 
 func (fap *FieldAddProcessor) GetType() string {
@@ -633,14 +643,15 @@ func NewFieldRemoveProcessor(config map[string]interface{}) (*FieldRemoveProcess
 }
 
 func (frp *FieldRemoveProcessor) Process(ctx context.Context, entry *types.LogEntry) (*types.LogEntry, error) {
-	newEntry := *entry
+	// FIX: Use DeepCopy to avoid copying mutex
+	newEntry := entry.DeepCopy()
 	if newEntry.Labels != nil {
 		for _, field := range frp.Fields {
 			delete(newEntry.Labels, field)
 		}
 	}
 
-	return &newEntry, nil
+	return newEntry, nil
 }
 
 func (frp *FieldRemoveProcessor) GetType() string {
@@ -678,12 +689,13 @@ func NewLogLevelExtractProcessor(config map[string]interface{}) (*LogLevelExtrac
 func (llep *LogLevelExtractProcessor) Process(ctx context.Context, entry *types.LogEntry) (*types.LogEntry, error) {
 	matches := llep.Pattern.FindStringSubmatch(entry.Message)
 	if len(matches) > 1 {
-		newEntry := *entry
+		// FIX: Use DeepCopy to avoid copying mutex
+		newEntry := entry.DeepCopy()
 		if newEntry.Labels == nil {
 			newEntry.Labels = make(map[string]string)
 		}
 		newEntry.Labels[llep.Field] = strings.ToLower(matches[1])
-		return &newEntry, nil
+		return newEntry, nil
 	}
 
 	return entry, nil

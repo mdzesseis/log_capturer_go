@@ -157,6 +157,9 @@ func (app *App) registerHandlers(router *mux.Router) {
 	router.Handle("/debug/memory", middleware(http.HandlerFunc(app.debugMemoryHandler))).Methods("GET")
 	router.Handle("/debug/positions/validate", middleware(http.HandlerFunc(app.debugPositionsValidateHandler))).Methods("GET")
 
+	// Resource monitoring endpoint
+	router.Handle("/api/resources/metrics", middleware(http.HandlerFunc(app.handleResourceMetrics))).Methods("GET")
+
 	// Enterprise endpoints
 	if app.sloManager != nil {
 		router.Handle("/slo/status", middleware(http.HandlerFunc(app.sloStatusHandler))).Methods("GET")
@@ -1091,4 +1094,55 @@ func (app *App) debugPositionsValidateHandler(w http.ResponseWriter, r *http.Req
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(validationResult)
+}
+
+// handleResourceMetrics returns current resource monitoring metrics.
+//
+// This endpoint provides real-time resource metrics from the new monitoring system:
+//   - Current goroutine count and growth rate
+//   - Memory usage (Alloc, Total, Sys) and growth rate
+//   - File descriptor usage (if available)
+//   - GC pause times and heap objects
+//   - Timestamp of last collection
+//
+// Metrics include:
+//   - Absolute values for all resources
+//   - Percentage growth rates over the monitoring interval
+//   - Historical trends for capacity planning
+//   - Alert status and threshold information
+//
+// Response Codes:
+//   - 200 OK: Metrics returned successfully
+//   - 503 Service Unavailable: Resource monitor not available/enabled
+//
+// This endpoint is useful for:
+//   - Real-time resource monitoring and dashboards
+//   - Capacity planning and trend analysis
+//   - Performance troubleshooting and debugging
+//   - Integration with monitoring systems
+//
+// Example response:
+//
+//	{
+//	  "timestamp": "2025-11-06T12:00:00Z",
+//	  "goroutines": 42,
+//	  "memory_alloc_mb": 256,
+//	  "memory_total_mb": 512,
+//	  "memory_sys_mb": 768,
+//	  "file_descriptors": 128,
+//	  "gc_pause_ms": 2.5,
+//	  "heap_objects": 125000,
+//	  "goroutine_growth": 5.2,
+//	  "memory_growth": 2.1
+//	}
+func (app *App) handleResourceMetrics(w http.ResponseWriter, r *http.Request) {
+	if app.resourceMonitorNew == nil {
+		http.Error(w, "Resource monitoring not enabled", http.StatusServiceUnavailable)
+		return
+	}
+
+	metrics := app.resourceMonitorNew.GetMetrics()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(metrics)
 }

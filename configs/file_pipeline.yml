@@ -147,7 +147,7 @@ files:
 #   - "*secret*", "*password*" (arquivos com credenciais)
 #   - "*.gz", "*.zip" (arquivos comprimidos)
 #
-directories:
+# directories:
   # ⚠️ EXEMPLO DESABILITADO - Descoberta automática em /var/log
   # Descomente e ajuste se quiser ativar descoberta automática
   # - path: "/var/log"
@@ -164,7 +164,7 @@ directories:
   #   default_labels:
   #     source: "file"
   #     log_type: "system"
-  #   enabled: true
+    # enabled: true
 
   # ⚠️ IMPORTANTE: Logs da aplicação log_capturer (EVITAR FEEDBACK LOOP)
   # Esta entrada está desabilitada para prevenir monitoramento dos próprios logs

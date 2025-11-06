@@ -28,7 +28,7 @@ app:
   # Apenas campos completamente não mencionados receberão defaults.
   #
   # Pode ser sobrescrito pela variável de ambiente: SSW_DEFAULT_CONFIGS=true/false
-  default_configs: true
+  default_configs: false
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DO SERVIDOR HTTP
@@ -58,7 +58,7 @@ metrics:
 # 2. Não existe file_pipeline.yml OU o recurso não está configurado no pipeline
 files_config:
   watch_directories:
-    # - "/var/log"
+    - "/var/log"
   include_patterns:
     # - "*.log"
     # - "*.txt"
@@ -136,7 +136,7 @@ dispatcher:
   dlq_enabled: true
   dlq_config:
     enabled: true
-    directory: "/app/dlq"
+    directory: "/tmp/dlq"
     max_size_mb: 100
     max_files: 10
     retention_days: 7
@@ -223,7 +223,7 @@ sinks:
 
   local_file:
     enabled: true  # Re-enabled after circuit breaker fix DE LEAK
-    directory: "/app/logs/output"
+    directory: "/tmp/logs/output"
     filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
     #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
     #filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
@@ -262,7 +262,7 @@ sinks:
     index: ""
 
   kafka:
-    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
+    enabled: false  # Temporarily disabled for testing file_monitor
     brokers:
       - "kafka:9092"                    # Kafka broker addresses
     topic: "logs"                       # Default topic (can be overridden by routing)
@@ -347,7 +347,7 @@ service_discovery:
   enabled: false
   update_interval: "30s"          # Intervalo de atualização
   docker_enabled: false            # Descoberta de containers Docker
-  file_enabled: false            # Descoberta baseada em arquivos
+  file_enabled: true            # Descoberta baseada em arquivos
   kubernetes_enabled: false      # Descoberta Kubernetes (futuro)
 
   # Configuração Docker Discovery
@@ -363,16 +363,16 @@ service_discovery:
     #   logs.exclude: "true"
 
   # Configuração File Discovery
-  # file:
-  #   watch_paths:
-  #     - "/etc/log-services"
-  #     - "/app/service-configs"
-  #   config_files:
-  #     - "/etc/log-services/*.yaml"
-  #     - "/app/service-configs/*.json"
-  #   auto_detect_logs: true
-  #   required_labels:
-  #     service_type: "logs"
+  file:
+    watch_paths:
+      - "/etc/log-services"
+      - "/app/service-configs"
+    config_files:
+      - "/etc/log-services/*.yaml"
+      - "/app/service-configs/*.json"
+    auto_detect_logs: true
+    required_labels:
+      service_type: "logs"
 
   # Configuração Kubernetes (futuro)
   # kubernetes:
@@ -442,21 +442,29 @@ cleanup:
 # -----------------------------------------------------------------------------
 resource_monitoring:
   enabled: true
-  check_interval: "15s"        # Reduzido de 30s para 15s - detecção mais rápida
-  fd_leak_threshold: 20             # Reduzido de 100 para 20 - mais restritivo
-  goroutine_leak_threshold: 20      # Reduzido de 50 para 20 - detectar vazamentos cedo
-  memory_leak_threshold: 52428800   # Reduzido para 50MB - mais restritivo
-  alert_cooldown: "2m"              # Reduzido de 5m para 2m - alertas mais frequentes
-  enable_memory_profiling: true     # Habilitado para debug detalhado
+  check_interval: "15s"            # Check interval for resource monitoring
+  goroutine_threshold: 1000        # Alert when goroutines > 1000
+  memory_threshold_mb: 500         # Alert when memory > 500 MB
+  fd_threshold: 1000               # Alert when file descriptors > 1000
+  growth_rate_threshold: 50.0      # Alert when growth rate > 50% per interval
+  alert_on_threshold: true         # Enable threshold-based alerting
+  alert_webhook_url: ""            # Optional webhook URL for alerts
+
+  # Legacy leakdetection settings (for backward compatibility)
+  fd_leak_threshold: 20            # Reduzido de 100 para 20 - mais restritivo
+  goroutine_leak_threshold: 20     # Reduzido de 50 para 20 - detectar vazamentos cedo
+  memory_leak_threshold: 52428800  # Reduzido para 50MB - mais restritivo
+  alert_cooldown: "2m"             # Reduzido de 5m para 2m - alertas mais frequentes
+  enable_memory_profiling: true    # Habilitado para debug detalhado
   enable_gc_optimization: true
-  max_alert_history: 200            # Aumentado histórico para análise
+  max_alert_history: 200           # Aumentado histórico para análise
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE BUFFER DE DISCO
 # -----------------------------------------------------------------------------
 disk_buffer:
   enabled: true                    # Desabilitado por padrão
-  directory: "/app/buffer"
+  directory: "/tmp/buffer"
   max_file_size: 104857600          # 100MB por arquivo
   max_total_size: 1073741824        # 1GB total
   max_files: 50

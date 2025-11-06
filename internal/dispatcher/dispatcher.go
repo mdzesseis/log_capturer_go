@@ -39,7 +39,6 @@ package dispatcher
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"sync"
 	"time"
 
@@ -103,6 +102,11 @@ type Dispatcher struct {
 	rateLimiter          *ratelimit.AdaptiveRateLimiter      // Adaptive rate limiting for sink protection
 	anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies
 	enhancedMetrics      *metrics.EnhancedMetrics         // Advanced metrics collection and reporting
+
+	// PHASE 2 REFACTORING: Modular components for dispatcher functionality
+	batchProcessor  *BatchProcessor  // Handles batch collection and processing
+	retryManager    *RetryManager    // Manages retry logic and DLQ integration
+	statsCollector  *StatsCollector  // Collects and reports statistics
 
 	// Core operational components
 	sinks       []types.Sink          // Collection of configured output destinations
@@ -284,6 +288,25 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		maxConcurrentRetries = config.Workers * 25
 	}
 
+	// Initialize stats structure
+	stats := types.DispatcherStats{
+		SinkDistribution: make(map[string]int64),
+		QueueSize:        0, // Will be updated by RunStatsUpdater
+		QueueCapacity:    config.QueueSize,
+	}
+	var statsMutex sync.RWMutex
+
+	// Create queue
+	queue := make(chan dispatchItem, config.QueueSize)
+
+	// Initialize WaitGroup for component lifecycle management
+	var wg sync.WaitGroup
+
+	// PHASE 2 REFACTORING: Initialize modular components
+	batchProcessor := NewBatchProcessor(config, logger, enhancedMetrics)
+	retryManager := NewRetryManager(config, logger, deadLetterQueue, ctx, &wg, maxConcurrentRetries)
+	statsCollector := NewStatsCollector(&stats, &statsMutex, config, logger, queue)
+
 	return &Dispatcher{
 		config:               config,
 		logger:               logger,
@@ -295,13 +318,19 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		rateLimiter:          rateLimiter,
 		// anomalyDetector:      anomalyDetector, // Temporarily disabled
 		enhancedMetrics:      enhancedMetrics,
+
+		// PHASE 2 REFACTORING: Assign modular components
+		batchProcessor:  batchProcessor,
+		retryManager:    retryManager,
+		statsCollector:  statsCollector,
+
 		sinks:                make([]types.Sink, 0),
-		queue:                make(chan dispatchItem, config.QueueSize),
-		stats: types.DispatcherStats{
-			SinkDistribution: make(map[string]int64),
-		},
+		queue:                queue,
+		stats:                stats,
+		statsMutex:           statsMutex,
 		ctx:                  ctx,
 		cancel:               cancel,
+		wg:                   wg,
 		retrySemaphore:       make(chan struct{}, maxConcurrentRetries),
 		maxConcurrentRetries: maxConcurrentRetries,
 	}
@@ -701,7 +730,14 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 }
 
 // GetStats retorna estatísticas do dispatcher
+// PHASE 2 REFACTORING: Delegates to StatsCollector for thread-safe stats access
 func (d *Dispatcher) GetStats() types.DispatcherStats {
+	return d.statsCollector.GetStats()
+}
+
+// PHASE 2 NOTE: Original implementation preserved for reference
+/*
+func (d *Dispatcher) GetStatsOriginal() types.DispatcherStats {
 	d.statsMutex.RLock()
 	defer d.statsMutex.RUnlock()
 
@@ -715,10 +751,18 @@ func (d *Dispatcher) GetStats() types.DispatcherStats {
 
 	return stats
 }
+*/
 
 // GetRetryQueueStats returns statistics about the retry queue
+// PHASE 2 REFACTORING: Delegates to RetryManager
 // This helps monitor goroutine leak prevention - shows how many retry slots are in use
 func (d *Dispatcher) GetRetryQueueStats() map[string]interface{} {
+	return d.retryManager.GetRetryStats()
+}
+
+// PHASE 2 NOTE: Original implementation preserved for reference
+/*
+func (d *Dispatcher) GetRetryQueueStatsOriginal() map[string]interface{} {
 	currentRetries := len(d.retrySemaphore)
 	utilization := float64(currentRetries) / float64(d.maxConcurrentRetries)
 
@@ -729,6 +773,7 @@ func (d *Dispatcher) GetRetryQueueStats() map[string]interface{} {
 		"available_slots":       d.maxConcurrentRetries - currentRetries,
 	}
 }
+*/
 
 // sendToDLQ envia entrada para Dead Letter Queue
 func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
@@ -765,7 +810,40 @@ func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failed
 }
 
 // worker processa itens da fila
+// PHASE 2 REFACTORING: Simplified worker using BatchProcessor for batch collection
 func (d *Dispatcher) worker(workerID int) {
+	logger := d.logger.WithField("worker_id", workerID)
+	logger.Info("Dispatcher worker started")
+	defer logger.Info("Dispatcher worker stopped")
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+			// Use BatchProcessor to collect batch from queue
+			batch, timedOut := d.batchProcessor.CollectBatch(d.ctx, d.queue)
+
+			if len(batch) > 0 {
+				// Process batch using new modular components
+				d.processBatchWrapper(batch, logger)
+			}
+
+			// Log timeout for debugging if needed
+			if timedOut && len(batch) > 0 {
+				logger.WithFields(logrus.Fields{
+					"batch_size": len(batch),
+					"timeout":    d.config.BatchTimeout,
+				}).Debug("Batch processed due to timeout")
+			}
+		}
+	}
+}
+
+// PHASE 2 NOTE: Original worker implementation preserved below for reference
+// This can be removed after validation of the new implementation
+/*
+func (d *Dispatcher) workerOriginal(workerID int) {
 	logger := d.logger.WithField("worker_id", workerID)
 	logger.Info("Dispatcher worker started")
 
@@ -815,8 +893,48 @@ func (d *Dispatcher) worker(workerID int) {
 		}
 	}
 }
+*/
+
+// PHASE 2 REFACTORING: processBatchWrapper uses modular components for batch processing
+// This is the new simplified interface that delegates to BatchProcessor and RetryManager
+func (d *Dispatcher) processBatchWrapper(batch []dispatchItem, logger *logrus.Entry) {
+	if len(batch) == 0 {
+		return
+	}
+
+	// Use BatchProcessor to send batch to all sinks
+	successCount, healthySinks, lastErr := d.batchProcessor.ProcessBatch(
+		d.ctx,
+		batch,
+		d.sinks,
+		d.anomalyDetector,
+	)
+
+	// Update statistics using StatsCollector
+	for range batch {
+		d.statsCollector.IncrementProcessed()
+		// Update sink distribution
+		for _, sink := range d.sinks {
+			if sink.IsHealthy() {
+				sinkType := d.getSinkType(sink)
+				d.statsCollector.UpdateSinkDistribution(sinkType, 1)
+			}
+		}
+	}
+
+	// Handle failures with RetryManager
+	if healthySinks > 0 && successCount == 0 {
+		// Circuit breaker - all sinks failed, send directly to DLQ
+		d.retryManager.HandleCircuitBreaker(batch, lastErr)
+	} else if successCount < healthySinks && healthySinks > 0 {
+		// Some sinks failed - retry with exponential backoff
+		d.retryManager.HandleFailedBatch(batch, lastErr, d.queue)
+	}
+}
 
 // processBatch processa um batch de itens
+// PHASE 2 NOTE: This is the original implementation kept for compatibility
+// New code should use processBatchWrapper() instead
 func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 	if len(batch) == 0 {
 		return
@@ -1073,7 +1191,16 @@ func (d *Dispatcher) drainQueue() {
 }
 
 // statsUpdater atualiza estatísticas periodicamente
+// PHASE 2 REFACTORING: Delegates to StatsCollector.RunStatsUpdater
 func (d *Dispatcher) statsUpdater() {
+	// Delegate to StatsCollector's RunStatsUpdater
+	// Pass a callback to get retry stats from RetryManager
+	d.statsCollector.RunStatsUpdater(d.ctx, d.retryManager.GetRetryStats)
+}
+
+// PHASE 2 NOTE: Original implementation preserved for reference
+/*
+func (d *Dispatcher) statsUpdaterOriginal() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -1087,7 +1214,7 @@ func (d *Dispatcher) statsUpdater() {
 		case <-ticker.C:
 			now := time.Now()
 			d.statsMutex.Lock()
-			
+
 			currentProcessed := d.stats.TotalProcessed
 			d.stats.QueueSize = len(d.queue)
 
@@ -1126,13 +1253,22 @@ func (d *Dispatcher) statsUpdater() {
 		}
 	}
 }
+*/
 
 // updateStats atualiza estatísticas de forma thread-safe
+// PHASE 2 REFACTORING: Delegates to StatsCollector
 func (d *Dispatcher) updateStats(fn func(*types.DispatcherStats)) {
+	d.statsCollector.UpdateStats(fn)
+}
+
+// PHASE 2 NOTE: Original implementation preserved for reference
+/*
+func (d *Dispatcher) updateStatsOriginal(fn func(*types.DispatcherStats)) {
 	d.statsMutex.Lock()
 	defer d.statsMutex.Unlock()
 	fn(&d.stats)
 }
+*/
 
 // updateTimestampWarnings incrementa contador de warnings de timestamp
 func (d *Dispatcher) updateTimestampWarnings() {
@@ -1141,7 +1277,17 @@ func (d *Dispatcher) updateTimestampWarnings() {
 }
 
 // updateBackpressureMetrics atualiza métricas para o sistema de backpressure
+// PHASE 2 REFACTORING: Delegates to StatsCollector
 func (d *Dispatcher) updateBackpressureMetrics() {
+	if d.backpressureManager == nil {
+		return
+	}
+	d.statsCollector.UpdateBackpressureMetrics(d.backpressureManager)
+}
+
+// PHASE 2 NOTE: Original implementation preserved for reference
+/*
+func (d *Dispatcher) updateBackpressureMetricsOriginal() {
 	if d.backpressureManager == nil {
 		return
 	}
@@ -1183,6 +1329,7 @@ func (d *Dispatcher) updateBackpressureMetrics() {
 		ErrorRate:         errorRate,
 	})
 }
+*/
 
 // handleLowPriorityEntry processa uma entrada de baixa prioridade sem descartar
 func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {

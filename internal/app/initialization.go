@@ -18,6 +18,7 @@ import (
 	"ssw-logs-capture/pkg/discovery"
 	"ssw-logs-capture/pkg/dlq"
 	"ssw-logs-capture/pkg/errors"
+	"ssw-logs-capture/pkg/monitoring"
 	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/hotreload"
 	"ssw-logs-capture/pkg/leakdetection"
@@ -200,6 +201,7 @@ func (app *App) initMonitors() error {
 			ReadInterval:       parseDurationSafe(app.config.FileMonitorService.ReadInterval, 200*time.Millisecond),
 			Recursive:          app.config.FileMonitorService.Recursive,
 			FollowSymlinks:     app.config.FileMonitorService.FollowSymlinks,
+			PipelineConfig:     app.config.FileMonitorService.PipelineConfig, // Add PipelineConfig from loaded file_pipeline.yml
 		}
 		fileMonitor, err := monitors.NewFileMonitor(fileConfig, app.config.TimestampValidation, app.dispatcher, app.taskManager, app.positionManager, app.logger)
 		if err != nil {
@@ -265,8 +267,12 @@ func (app *App) initAuxiliaryServices() error {
 	if err = app.initializeDiskManager(); err != nil {
 		return err
 	}
-	// Resource Monitor
+	// Resource Monitor (legacy)
 	if err = app.initializeResourceMonitor(); err != nil {
+		return err
+	}
+	// New Resource Monitor with alerts
+	if err = app.initializeResourceMonitorNew(); err != nil {
 		return err
 	}
 	// Disk Buffer
@@ -490,6 +496,49 @@ func (app *App) initializeResourceMonitor() error {
 
 	app.resourceMonitor = resourceMonitor
 	app.logger.Info("Resource monitor initialized successfully")
+	return nil
+}
+
+// initializeResourceMonitorNew sets up the new resource monitoring system with alerts and metrics.
+//
+// This method initializes the new resource monitor component from pkg/monitoring that provides:
+//   - Real-time tracking of goroutines, memory, and file descriptors
+//   - Threshold-based alerting with configurable severity levels
+//   - Growth rate monitoring for detecting resource leaks
+//   - Webhook integration for external alert notifications
+//
+// The new resource monitor offers improvements over the legacy system:
+//   - More granular metrics with growth rate calculations
+//   - Severity-based alerts (warning, critical)
+//   - Better alert management with buffered channels
+//   - Integrated webhook support for external notifications
+//
+// When resource monitoring is disabled, this method logs the status
+// and returns without error.
+//
+// Returns:
+//   - error: Resource monitor initialization or configuration error
+func (app *App) initializeResourceMonitorNew() error {
+	if !app.config.ResourceMonitoring.Enabled {
+		app.logger.Info("New resource monitor disabled")
+		return nil
+	}
+
+	monitorConfig := monitoring.Config{
+		Enabled:             app.config.ResourceMonitoring.Enabled,
+		CheckInterval:       parseDurationSafe(app.config.ResourceMonitoring.CheckInterval, 10*time.Second),
+		GoroutineThreshold:  app.config.ResourceMonitoring.GoroutineThreshold,
+		MemoryThresholdMB:   app.config.ResourceMonitoring.MemoryThresholdMB,
+		FDThreshold:         app.config.ResourceMonitoring.FDThreshold,
+		GrowthRateThreshold: app.config.ResourceMonitoring.GrowthRateThreshold,
+		AlertWebhookURL:     app.config.ResourceMonitoring.AlertWebhookURL,
+		AlertOnThreshold:    app.config.ResourceMonitoring.AlertOnThreshold,
+	}
+
+	resourceMonitorNew := monitoring.NewResourceMonitor(monitorConfig, app.logger)
+
+	app.resourceMonitorNew = resourceMonitorNew
+	app.logger.Info("New resource monitor initialized successfully")
 	return nil
 }
 

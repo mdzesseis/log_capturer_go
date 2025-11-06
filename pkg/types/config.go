@@ -108,15 +108,16 @@ type DispatcherConfig struct {
 
 // FileMonitorServiceConfig contains file monitoring settings.
 type FileMonitorServiceConfig struct {
-	Enabled           bool     `yaml:"enabled"`             // Enable file monitoring
-	PipelineFile      string   `yaml:"pipeline_file"`       // Path to file pipeline configuration
-	WatchDirectories  []string `yaml:"watch_directories"`   // Directories to watch
-	IncludePatterns   []string `yaml:"include_patterns"`    // File patterns to include
-	PollInterval      string   `yaml:"poll_interval"`       // File system polling interval
-	ReadInterval      string   `yaml:"read_interval"`       // File reading interval
-	ReadBufferSize    int      `yaml:"read_buffer_size"`    // File read buffer size
-	Recursive         bool     `yaml:"recursive"`           // Enable recursive directory monitoring
-	FollowSymlinks    bool     `yaml:"follow_symlinks"`     // Follow symbolic links
+	Enabled           bool                   `yaml:"enabled"`             // Enable file monitoring
+	PipelineFile      string                 `yaml:"pipeline_file"`       // Path to file pipeline configuration
+	WatchDirectories  []string               `yaml:"watch_directories"`   // Directories to watch
+	IncludePatterns   []string               `yaml:"include_patterns"`    // File patterns to include
+	PollInterval      string                 `yaml:"poll_interval"`       // File system polling interval
+	ReadInterval      string                 `yaml:"read_interval"`       // File reading interval
+	ReadBufferSize    int                    `yaml:"read_buffer_size"`    // File read buffer size
+	Recursive         bool                   `yaml:"recursive"`           // Enable recursive directory monitoring
+	FollowSymlinks    bool                   `yaml:"follow_symlinks"`     // Follow symbolic links
+	PipelineConfig    map[string]interface{} `yaml:"-"`                   // Loaded pipeline configuration (not from yaml)
 }
 
 // ContainerMonitorConfig contains Docker container monitoring settings.

@@ -76,17 +76,17 @@ func loadFilePipeline(config *types.Config) error {
 		return fmt.Errorf("failed to read pipeline file: %w", err)
 	}
 
-	var pipeline types.FilePipelineConfig
-	if err := yaml.Unmarshal(data, &pipeline); err != nil {
+	// Parse the YAML into a generic map instead of FilePipelineConfig
+	// This allows us to pass the raw configuration to the FileMonitor
+	var pipelineMap map[string]interface{}
+	if err := yaml.Unmarshal(data, &pipelineMap); err != nil {
 		return fmt.Errorf("failed to parse pipeline file: %w", err)
 	}
 
-	// Armazenar configuração do pipeline no FileConfig
-	// Temporarily disabled due to type mismatch
-	// config.File.PipelineConfig = &pipeline
+	// Store the pipeline configuration in FileMonitorService
+	config.FileMonitorService.PipelineConfig = pipelineMap
 
 	fmt.Printf("Loaded file pipeline from: %s\n", pipelineFile)
-	// fmt.Printf("Pipeline: %d files, %d directories configured\n", len(pipeline.Files), len(pipeline.Directories))
 
 	return nil
 }

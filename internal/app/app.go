@@ -39,6 +39,7 @@ import (
 	"ssw-logs-capture/pkg/buffer"
 	"ssw-logs-capture/pkg/cleanup"
 	"ssw-logs-capture/pkg/discovery"
+	"ssw-logs-capture/pkg/monitoring"
 	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/hotreload"
 	"ssw-logs-capture/pkg/leakdetection"
@@ -86,9 +87,10 @@ type App struct {
 	processor        *processing.LogProcessor           // Applies transformations and filtering to log entries
 	fileMonitor      *monitors.FileMonitor              // Monitors filesystem changes and reads log files
 	containerMonitor *monitors.ContainerMonitor         // Monitors Docker container logs via Docker API
-	diskManager      *cleanup.DiskSpaceManager          // Manages disk space and performs cleanup operations
-	resourceMonitor  *leakdetection.ResourceMonitor     // Monitors system resources and detects potential leaks
-	diskBuffer       *buffer.DiskBuffer                 // Provides persistent buffering for log entries
+	diskManager         *cleanup.DiskSpaceManager          // Manages disk space and performs cleanup operations
+	resourceMonitor     *leakdetection.ResourceMonitor     // Monitors system resources and detects potential leaks (legacy)
+	resourceMonitorNew  *monitoring.ResourceMonitor        // New resource monitoring system with alerts and metrics
+	diskBuffer          *buffer.DiskBuffer                 // Provides persistent buffering for log entries
 	reloader         *hotreload.ConfigReloader          // Handles configuration hot-reloading
 	anomalyDetector  *anomaly.AnomalyDetector           // Detects anomalies in log patterns and system behavior
 
@@ -297,6 +299,12 @@ func (app *App) Start() error {
 			return fmt.Errorf("failed to start resource monitor: %w", err)
 		}
 	}
+	if app.resourceMonitorNew != nil {
+		if err := app.resourceMonitorNew.Start(); err != nil {
+			return fmt.Errorf("failed to start new resource monitor: %w", err)
+		}
+		app.logger.Info("New resource monitor started")
+	}
 	if app.enhancedMetrics != nil {
 		if err := app.enhancedMetrics.Start(); err != nil {
 			return fmt.Errorf("failed to start enhanced metrics: %w", err)
@@ -393,6 +401,11 @@ func (app *App) Stop() error {
 		if app.resourceMonitor != nil {
 			if err := app.resourceMonitor.Stop(); err != nil {
 				app.logger.WithError(err).Error("Failed to stop resource monitor")
+			}
+		}
+		if app.resourceMonitorNew != nil {
+			if err := app.resourceMonitorNew.Stop(); err != nil {
+				app.logger.WithError(err).Error("Failed to stop new resource monitor")
 			}
 		}
 		if app.enhancedMetrics != nil {

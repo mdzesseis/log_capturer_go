@@ -377,3 +377,13 @@ func (tm *taskManager) Cleanup() {
 
 	tm.logger.Info("Task manager cleanup completed")
 }
+
+// Shutdown gracefully stops the task manager and all running tasks
+func (tm *taskManager) Shutdown() error {
+	tm.logger.Info("Shutting down task manager")
+
+	// Call Cleanup which handles all the shutdown logic
+	tm.Cleanup()
+
+	return nil
+}

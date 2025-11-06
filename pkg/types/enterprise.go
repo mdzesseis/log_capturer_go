@@ -161,15 +161,16 @@ type GoroutineTrackingConfig struct {
 
 // ResourceMonitoringConfig contains system resource monitoring settings.
 type ResourceMonitoringConfig struct {
-	Enabled             bool   `yaml:"enabled"`               // Enable resource monitoring
-	CheckInterval       string `yaml:"check_interval"`        // Resource check interval
-	GoroutineThreshold  int    `yaml:"goroutine_threshold"`   // Goroutine count alert threshold
-	MemoryThresholdMB   int64  `yaml:"memory_threshold_mb"`   // Memory usage alert threshold
-	FDThreshold         int    `yaml:"fd_threshold"`          // File descriptor alert threshold
-	AlertOnThreshold    bool   `yaml:"alert_on_threshold"`    // Enable threshold-based alerting
-	AlertWebhookURL     string `yaml:"alert_webhook_url"`     // Webhook URL for resource alerts
-	CPUThreshold        float64 `yaml:"cpu_threshold"`        // CPU usage alert threshold
-	DiskThreshold       float64 `yaml:"disk_threshold"`       // Disk usage alert threshold
+	Enabled             bool    `yaml:"enabled"`               // Enable resource monitoring
+	CheckInterval       string  `yaml:"check_interval"`        // Resource check interval
+	GoroutineThreshold  int     `yaml:"goroutine_threshold"`   // Goroutine count alert threshold
+	MemoryThresholdMB   int64   `yaml:"memory_threshold_mb"`   // Memory usage alert threshold
+	FDThreshold         int     `yaml:"fd_threshold"`          // File descriptor alert threshold
+	GrowthRateThreshold float64 `yaml:"growth_rate_threshold"` // Growth rate alert threshold (%)
+	AlertOnThreshold    bool    `yaml:"alert_on_threshold"`    // Enable threshold-based alerting
+	AlertWebhookURL     string  `yaml:"alert_webhook_url"`     // Webhook URL for resource alerts
+	CPUThreshold        float64 `yaml:"cpu_threshold"`         // CPU usage alert threshold
+	DiskThreshold       float64 `yaml:"disk_threshold"`        // Disk usage alert threshold
 }
 
 // AnomalyDetectionConfig contains anomaly detection settings.
@@ -227,6 +228,8 @@ type TaskManager interface {
 	GetAllTasks() map[string]TaskStatus
 	// Cleanup limpa todos os recursos
 	Cleanup()
+	// Shutdown gracefully stops the task manager and all running tasks
+	Shutdown() error
 }
 
 // TaskStatus represents the status of a task
