@@ -152,6 +152,43 @@ var (
 
 	// NOTE: Circuit breaker metrics removed as the package was deleted
 
+	// Deduplication metrics
+	LogsDeduplicated = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_logs_deduplicated_total",
+			Help: "Total logs deduplicated",
+		},
+		[]string{"source_type", "source_id"},
+	)
+
+	DeduplicationCacheSize = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_deduplication_cache_size",
+			Help: "Current size of deduplication cache",
+		},
+	)
+
+	DeduplicationCacheHitRate = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_deduplication_hit_rate",
+			Help: "Deduplication cache hit rate (0.0 to 1.0)",
+		},
+	)
+
+	DeduplicationDuplicateRate = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_deduplication_duplicate_rate",
+			Help: "Duplicate log rate (0.0 to 1.0)",
+		},
+	)
+
+	DeduplicationCacheEvictions = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "log_capturer_deduplication_cache_evictions_total",
+			Help: "Total cache evictions (LRU or TTL expiration)",
+		},
+	)
+
 	// Gauge para uso de memória
 	MemoryUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -818,6 +855,12 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(TaskHeartbeats)
 		safeRegister(ActiveTasks)
 		// CircuitBreakerState and CircuitBreakerEvents removed (package deleted)
+		// Deduplication metrics
+		safeRegister(LogsDeduplicated)
+		safeRegister(DeduplicationCacheSize)
+		safeRegister(DeduplicationCacheHitRate)
+		safeRegister(DeduplicationDuplicateRate)
+		safeRegister(DeduplicationCacheEvictions)
 		safeRegister(MemoryUsage)
 		safeRegister(CPUUsage)
 		safeRegister(GCRuns)

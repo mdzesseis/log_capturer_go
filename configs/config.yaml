@@ -147,13 +147,15 @@ dispatcher:
   retry_max_delay: "60s"
   deduplication_enabled: true
   deduplication_config:
-    max_cache_size: 100000
-    ttl: "1h"
-    cleanup_interval: "10m"
-    cleanup_threshold: 0.8
-    hash_algorithm: "sha256"
-    include_timestamp: false
-    include_source_id: true
+    # Task 7: Optimized deduplication configuration
+    # Recommended for production: 10-second window with xxhash (20x faster than SHA256)
+    max_cache_size: 10000       # Max entries in cache (memory: ~2.5 MB)
+    ttl: "10s"                   # Time window for duplicate detection (was 1h)
+    cleanup_interval: "1s"       # Fast cleanup for short TTL (was 10m)
+    cleanup_threshold: 0.8       # Start eviction at 80% utilization
+    hash_algorithm: "xxhash"     # xxhash (fast) or sha256 (secure) - xxhash is 20x faster
+    include_timestamp: false     # Include timestamp in hash (false = more deduplication)
+    include_source_id: true      # Include source ID in hash (true = per-source dedup)
   dlq_enabled: true
   dlq_config:
     enabled: true

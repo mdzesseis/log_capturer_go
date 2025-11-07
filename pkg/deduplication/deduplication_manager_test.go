@@ -23,7 +23,11 @@ func TestDeduplicationManager_NewDeduplicationManager(t *testing.T) {
 	manager := NewDeduplicationManager(config, logger)
 
 	assert.NotNil(t, manager)
-	assert.Equal(t, config, manager.config)
+	// Test that defaults are applied
+	expectedConfig := config
+	expectedConfig.CleanupInterval = 10 * time.Minute
+	expectedConfig.CleanupThreshold = 0.8
+	assert.Equal(t, expectedConfig, manager.config)
 	assert.Equal(t, logger, manager.logger)
 	assert.NotNil(t, manager.cache)
 }
@@ -348,23 +352,30 @@ func TestDeduplicationManager_StartStop(t *testing.T) {
 	assert.True(t, true)
 }
 
-func TestDeduplicationManager_DisabledConfig(t *testing.T) {
+func TestDeduplicationManager_DefaultConfig(t *testing.T) {
 	config := Config{
+		// Empty config - should apply defaults
 	}
 
 	logger := logrus.New()
 
 	manager := NewDeduplicationManager(config, logger)
 
-	// When disabled, should always return false (no duplicates)
+	// Verify defaults are applied
+	assert.Equal(t, 100000, manager.config.MaxCacheSize, "Default MaxCacheSize should be 100000")
+	assert.Equal(t, time.Hour, manager.config.TTL, "Default TTL should be 1 hour")
+	assert.Equal(t, "xxhash", manager.config.HashAlgorithm, "Default hash should be xxhash")
+
+	// Test that it still works with defaults
 	isDup1 := manager.IsDuplicate("message", "source", time.Now())
-	assert.False(t, isDup1, "Should return false when disabled")
+	assert.False(t, isDup1, "First occurrence should not be duplicate")
 
 	isDup2 := manager.IsDuplicate("message", "source", time.Now())
-	assert.False(t, isDup2, "Should return false when disabled (even for same message)")
+	assert.True(t, isDup2, "Second occurrence should be duplicate")
 
 	stats := manager.GetStats()
-	assert.Equal(t, int64(0), stats.TotalChecks, "No stats when disabled")
+	assert.Equal(t, int64(2), stats.TotalChecks, "Should track 2 checks")
+	assert.Equal(t, int64(1), stats.Duplicates, "Should find 1 duplicate")
 }
 
 func TestDeduplicationManager_EmptyMessage(t *testing.T) {

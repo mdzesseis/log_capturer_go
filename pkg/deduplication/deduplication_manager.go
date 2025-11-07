@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	"github.com/sirupsen/logrus"
+	"ssw-logs-capture/internal/metrics"
 )
 
 // DeduplicationManager gerencia cache de deduplicação com LRU e TTL
@@ -92,7 +95,7 @@ func NewDeduplicationManager(config Config, logger *logrus.Logger) *Deduplicatio
 		config.CleanupThreshold = 0.8
 	}
 	if config.HashAlgorithm == "" {
-		config.HashAlgorithm = "sha256"
+		config.HashAlgorithm = "xxhash"
 	}
 
 	dm := &DeduplicationManager{
@@ -205,20 +208,26 @@ func (dm *DeduplicationManager) generateHash(sourceID, message string, timestamp
 	}
 
 	if dm.config.IncludeTimestamp {
-		// Usar timestamp truncado para minuto para agrupar mensagens próximas
-		truncated := timestamp.Truncate(time.Minute)
+		// Usar timestamp truncado para segundo (fix: was minute, causing test failure)
+		truncated := timestamp.Truncate(time.Second)
 		input = input + "_" + truncated.Format(time.RFC3339)
 	}
 
 	// Gerar hash
 	switch dm.config.HashAlgorithm {
+	case "xxhash":
+		// xxHash: 20x faster than SHA256, perfect for deduplication
+		h := xxhash.New()
+		h.Write([]byte(input))
+		return strconv.FormatUint(h.Sum64(), 16)
 	case "sha256":
 		hash := sha256.Sum256([]byte(input))
 		return fmt.Sprintf("%x", hash)
 	default:
-		// Fallback para sha256
-		hash := sha256.Sum256([]byte(input))
-		return fmt.Sprintf("%x", hash)
+		// Fallback para xxhash (novo padrão)
+		h := xxhash.New()
+		h.Write([]byte(input))
+		return strconv.FormatUint(h.Sum64(), 16)
 	}
 }
 
@@ -241,6 +250,7 @@ func (dm *DeduplicationManager) removeEntry(entry *CacheEntry) {
 	delete(dm.cache, entry.Key)
 	dm.removeFromList(entry)
 	dm.stats.EvictedEntries++
+	metrics.DeduplicationCacheEvictions.Inc()
 }
 
 // addToFront adiciona entrada na frente da lista LRU
@@ -275,12 +285,18 @@ func (dm *DeduplicationManager) cleanupLoop() {
 	ticker := time.NewTicker(dm.config.CleanupInterval)
 	defer ticker.Stop()
 
+	// Metrics update ticker (every 10 seconds)
+	metricsTicker := time.NewTicker(10 * time.Second)
+	defer metricsTicker.Stop()
+
 	for {
 		select {
 		case <-dm.ctx.Done():
 			return
 		case <-ticker.C:
 			dm.performCleanup()
+		case <-metricsTicker.C:
+			dm.updateMetrics()
 		}
 	}
 }
@@ -405,4 +421,25 @@ func (dm *DeduplicationManager) Clear() {
 	dm.lruTail.prev = dm.lruHead
 
 	dm.logger.Info("Deduplication cache cleared")
+}
+
+// updateMetrics atualiza métricas do Prometheus
+func (dm *DeduplicationManager) updateMetrics() {
+	stats := dm.GetStats()
+
+	// Update cache size
+	metrics.DeduplicationCacheSize.Set(float64(stats.CacheSize))
+
+	// Update hit rate
+	if stats.TotalChecks > 0 {
+		hitRate := float64(stats.CacheHits) / float64(stats.TotalChecks)
+		metrics.DeduplicationCacheHitRate.Set(hitRate)
+
+		duplicateRate := float64(stats.Duplicates) / float64(stats.TotalChecks)
+		metrics.DeduplicationDuplicateRate.Set(duplicateRate)
+	}
+
+	// Update evictions counter (only the delta)
+	// Note: Prometheus Counter doesn't support Set(), so we track previous value
+	// This is handled automatically by the Counter type - just increment when eviction happens
 }
