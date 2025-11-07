@@ -153,6 +153,7 @@ type monitoredContainer struct {
 	labels          map[string]string
 	since           time.Time
 	stream          io.ReadCloser
+	mu              sync.Mutex     // Protects stream access
 	lastRead        time.Time
 	cancel          context.CancelFunc
 	heartbeatWg     sync.WaitGroup // Rastreia goroutine de heartbeat (vida do container)
@@ -753,16 +754,20 @@ func (cm *ContainerMonitor) stopContainerMonitoring(containerID string) {
 	cm.logger.WithFields(logrus.Fields{
 		"container_id":   containerID,
 		"container_name": mc.name,
-	}).Info("Stopped container monitoring")
+	}).Info("Stopping container monitoring")
 
-	// Cancelar contexto se existir
-	if mc.cancel != nil {
-		mc.cancel()
-	}
-
-	// Fechar stream se existir
+	// CRITICAL: Close stream BEFORE canceling context
+	// This interrupts the blocking stream.Read() syscall
+	mc.mu.Lock()
 	if mc.stream != nil {
 		mc.stream.Close()
+		mc.stream = nil
+	}
+	mc.mu.Unlock()
+
+	// Now cancel context to signal goroutines to exit
+	if mc.cancel != nil {
+		mc.cancel()
 	}
 
 	// Parar task
@@ -865,7 +870,10 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 				}
 			}
 
+			// Store stream reference with mutex protection
+			mc.mu.Lock()
 			mc.stream = stream
+			mc.mu.Unlock()
 
 			// Ler logs até o timeout de rotação ou erro
 			readErr := cm.readContainerLogs(streamCtx, mc, stream)
@@ -873,8 +881,16 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 			// Calculate stream age
 			streamAge := time.Since(mc.streamCreatedAt)
 
-			// Fechar stream explicitamente
-			stream.Close()
+			// CRITICAL: Close stream BEFORE canceling context
+			// This interrupts the blocking stream.Read() syscall
+			mc.mu.Lock()
+			if mc.stream != nil {
+				mc.stream.Close()
+				mc.stream = nil
+			}
+			mc.mu.Unlock()
+
+			// Now cancel context
 			streamCancel()
 
 			// CRITICAL: Wait for reader goroutine to exit before starting new rotation
