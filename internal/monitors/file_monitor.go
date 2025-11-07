@@ -739,13 +739,14 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 			fm.logger.WithError(statErr).WithField("path", mf.path).Warn("Failed to stat file for seek strategy")
 		}
 
-		// If we have a saved position, use it (takes precedence)
+		// If we have a saved position, validate and use it (takes precedence)
 		if mf.position > 0 {
-			if _, err := file.Seek(mf.position, 0); err != nil {
+			validatedOffset, err := fm.validateAndSeek(file, mf.path, mf.position, statErr, fileInfo)
+			if err != nil {
 				fm.logger.WithError(err).WithField("path", mf.path).Warn("Failed to seek to saved position, falling back to strategy")
 				mf.position = 0
 			} else {
-				// Successfully seeked to saved position
+				mf.position = validatedOffset
 				fm.logger.WithFields(logrus.Fields{
 					"path":     mf.path,
 					"position": mf.position,
@@ -948,6 +949,39 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 	}
 }
 
+
+// validateAndSeek validates saved offset against current file size and seeks to valid position
+func (fm *FileMonitor) validateAndSeek(file *os.File, filePath string, savedOffset int64, statErr error, fileInfo os.FileInfo) (int64, error) {
+	// If we couldn't stat the file, we can't validate
+	if statErr != nil {
+		return 0, fmt.Errorf("cannot validate offset without file stat: %w", statErr)
+	}
+
+	fileSize := fileInfo.Size()
+
+	// Validation: offset > size indicates truncation or corruption
+	if savedOffset > fileSize {
+		fm.logger.WithFields(logrus.Fields{
+			"file":         filePath,
+			"saved_offset": savedOffset,
+			"file_size":    fileSize,
+		}).Warn("Offset exceeds file size (truncation or corruption detected), resetting to beginning")
+
+		// Record metric for offset reset
+		metrics.RecordPositionOffsetReset(filePath, "truncation")
+
+		// Reset to beginning
+		return 0, nil
+	}
+
+	// Seek to validated position
+	newOffset, err := file.Seek(savedOffset, io.SeekStart)
+	if err != nil {
+		return 0, fmt.Errorf("seek failed: %w", err)
+	}
+
+	return newOffset, nil
+}
 
 // getSourceID gera um ID único para o arquivo
 func (fm *FileMonitor) getSourceID(path string) string {

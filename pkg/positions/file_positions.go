@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"ssw-logs-capture/internal/metrics"
 )
 
 type FilePosition struct {
@@ -83,10 +84,18 @@ func (fpm *FilePositionManager) LoadPositions() error {
 }
 
 func (fpm *FilePositionManager) SavePositions() error {
+	// Phase 1: Read data under RLock
 	fpm.mu.RLock()
-	defer fpm.mu.RUnlock()
+	if !fpm.dirty {
+		fpm.mu.RUnlock()
+		return nil
+	}
+	positions := fpm.deepCopyPositions()
+	positionCount := len(positions)
+	fpm.mu.RUnlock()
 
-	data, err := json.MarshalIndent(fpm.positions, "", "  ")
+	// Phase 2: Write to disk (no lock held)
+	data, err := json.MarshalIndent(positions, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal positions: %w", err)
 	}
@@ -101,15 +110,45 @@ func (fpm *FilePositionManager) SavePositions() error {
 		return fmt.Errorf("failed to rename positions file: %w", err)
 	}
 
+	// Phase 3: Update state under Lock
+	fpm.mu.Lock()
 	fpm.dirty = false
 	fpm.lastFlush = time.Now()
+	fpm.mu.Unlock()
+
+	// Record metrics
+	metrics.RecordPositionSaveSuccess()
+	metrics.UpdatePositionLag("file", 0)
 
 	fpm.logger.Debug("Saved file positions", map[string]interface{}{
-		"count": len(fpm.positions),
+		"count": positionCount,
 		"file":  fpm.filename,
 	})
 
 	return nil
+}
+
+// deepCopyPositions creates a deep copy of positions map
+// MUST be called with fpm.mu.RLock() held
+func (fpm *FilePositionManager) deepCopyPositions() map[string]*FilePosition {
+	positions := make(map[string]*FilePosition, len(fpm.positions))
+	for path, pos := range fpm.positions {
+		// FilePosition is a struct, so this creates a value copy
+		posCopy := &FilePosition{
+			FilePath:     pos.FilePath,
+			Offset:       pos.Offset,
+			Size:         pos.Size,
+			LastModified: pos.LastModified,
+			LastRead:     pos.LastRead,
+			Inode:        pos.Inode,
+			Device:       pos.Device,
+			LogCount:     pos.LogCount,
+			BytesRead:    pos.BytesRead,
+			Status:       pos.Status,
+		}
+		positions[path] = posCopy
+	}
+	return positions
 }
 
 func (fpm *FilePositionManager) GetPosition(filePath string) *FilePosition {
@@ -159,6 +198,8 @@ func (fpm *FilePositionManager) UpdatePosition(filePath string, offset int64, si
 		})
 		// Reset offset for rotated file
 		pos.Offset = 0
+		// Record metric
+		metrics.RecordPositionRotation(filePath)
 	}
 
 	// Check if file was truncated
@@ -170,6 +211,8 @@ func (fpm *FilePositionManager) UpdatePosition(filePath string, offset int64, si
 		})
 		// Reset offset for truncated file
 		pos.Offset = 0
+		// Record metric
+		metrics.RecordPositionTruncation(filePath)
 	}
 
 	pos.Offset = offset

@@ -593,6 +593,72 @@ var (
 		},
 		[]string{"sink"},
 	)
+
+	// =============================================================================
+	// POSITION SYSTEM METRICS (Phase 1)
+	// =============================================================================
+
+	// Position rotation detected (inode change)
+	PositionRotationDetected = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_rotation_detected_total",
+			Help: "File rotations detected via inode change",
+		},
+		[]string{"file_path"},
+	)
+
+	// Position truncation detected (offset > size)
+	PositionTruncationDetected = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_truncation_detected_total",
+			Help: "File truncations detected (offset > size)",
+		},
+		[]string{"file_path"},
+	)
+
+	// Position save success
+	PositionSaveSuccess = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_save_success_total",
+			Help: "Successful position saves to disk",
+		},
+	)
+
+	// Position save failed
+	PositionSaveFailed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_save_failed_total",
+			Help: "Failed position saves to disk",
+		},
+		[]string{"error_type"},
+	)
+
+	// Position lag (seconds since last save)
+	PositionLagSeconds = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_lag_seconds",
+			Help: "Seconds since last successful position save",
+		},
+		[]string{"manager_type"}, // file|container
+	)
+
+	// Position flush trigger tracking
+	PositionFlushTrigger = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_flush_trigger_total",
+			Help: "Position flushes by trigger type",
+		},
+		[]string{"trigger_type"}, // updates|timeout|shutdown
+	)
+
+	// Position offset reset
+	PositionOffsetReset = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_offset_reset_total",
+			Help: "Position offset resets due to truncation or corruption",
+		},
+		[]string{"file_path", "reason"}, // reason: truncation|corruption
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -694,6 +760,14 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(TimestampMaxAcceptableAge)
 		safeRegister(LokiErrorTypeTotal)
 		safeRegister(TimestampLearningEventsTotal)
+		// Position system metrics (Phase 1)
+		safeRegister(PositionRotationDetected)
+		safeRegister(PositionTruncationDetected)
+		safeRegister(PositionSaveSuccess)
+		safeRegister(PositionSaveFailed)
+		safeRegister(PositionLagSeconds)
+		safeRegister(PositionFlushTrigger)
+		safeRegister(PositionOffsetReset)
 	})
 
 	mux := http.NewServeMux()
@@ -1085,4 +1159,43 @@ func RecordTimestampLearningEvent(sink string) {
 // RecordLokiRateLimit records a Loki rate limit event (helper for existing use)
 func RecordLokiRateLimit(sink string) {
 	RecordLokiErrorType(sink, "rate_limit")
+}
+
+// =============================================================================
+// POSITION SYSTEM METRICS HELPERS (Phase 1)
+// =============================================================================
+
+// RecordPositionRotation records a file rotation detection
+func RecordPositionRotation(filePath string) {
+	PositionRotationDetected.WithLabelValues(filePath).Inc()
+}
+
+// RecordPositionTruncation records a file truncation detection
+func RecordPositionTruncation(filePath string) {
+	PositionTruncationDetected.WithLabelValues(filePath).Inc()
+}
+
+// RecordPositionSaveSuccess records a successful position save
+func RecordPositionSaveSuccess() {
+	PositionSaveSuccess.Inc()
+}
+
+// RecordPositionSaveFailed records a failed position save
+func RecordPositionSaveFailed(errorType string) {
+	PositionSaveFailed.WithLabelValues(errorType).Inc()
+}
+
+// UpdatePositionLag updates the position lag gauge
+func UpdatePositionLag(managerType string, lagSeconds float64) {
+	PositionLagSeconds.WithLabelValues(managerType).Set(lagSeconds)
+}
+
+// RecordPositionFlushTrigger records a position flush by trigger type
+func RecordPositionFlushTrigger(triggerType string) {
+	PositionFlushTrigger.WithLabelValues(triggerType).Inc()
+}
+
+// RecordPositionOffsetReset records an offset reset event
+func RecordPositionOffsetReset(filePath, reason string) {
+	PositionOffsetReset.WithLabelValues(filePath, reason).Inc()
 }

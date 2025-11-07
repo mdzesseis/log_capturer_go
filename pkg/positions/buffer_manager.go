@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"ssw-logs-capture/internal/metrics"
 )
 
 type BufferConfig struct {
@@ -15,6 +16,8 @@ type BufferConfig struct {
 	ForceFlushOnExit    bool         `yaml:"force_flush_on_exit" json:"force_flush_on_exit"`
 	CleanupInterval     time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
 	MaxPositionAge      time.Duration `yaml:"max_position_age" json:"max_position_age"`
+	FlushBatchSize      int          `yaml:"flush_batch_size" json:"flush_batch_size"`      // Number of updates before forcing flush
+	AdaptiveFlushEnabled bool         `yaml:"adaptive_flush_enabled" json:"adaptive_flush_enabled"` // Enable adaptive flush
 }
 
 type PositionBufferManager struct {
@@ -31,6 +34,11 @@ type PositionBufferManager struct {
 	cleanupTicker *time.Ticker
 	tickerMutex   sync.RWMutex // Protege acesso aos tickers
 
+	// Adaptive flush state
+	updatesSinceFlush int
+	lastFlushTime     time.Time
+	flushMutex        sync.Mutex // Protects flush-related fields
+
 	stats struct {
 		mu                    sync.RWMutex
 		totalFlushes         int64
@@ -41,6 +49,9 @@ type PositionBufferManager struct {
 		totalErrors          int64
 		memoryLimitReached   int64
 		positionsDropped     int64
+		flushTriggerUpdates  int64 // Flushes triggered by update count
+		flushTriggerTimeout  int64 // Flushes triggered by timeout
+		flushTriggerShutdown int64 // Flushes triggered by shutdown
 	}
 }
 
@@ -54,23 +65,33 @@ func NewPositionBufferManager(
 
 	if config == nil {
 		config = &BufferConfig{
-			FlushInterval:       30 * time.Second,
-			MaxMemoryBuffer:     1000,
-			MaxMemoryPositions:  5000, // Limite de posições em memória para evitar sobrecarga
-			ForceFlushOnExit:    true,
-			CleanupInterval:     5 * time.Minute,
-			MaxPositionAge:      24 * time.Hour,
+			FlushInterval:        5 * time.Second,  // Reduced from 30s to 5s
+			MaxMemoryBuffer:      1000,
+			MaxMemoryPositions:   5000, // Limite de posições em memória para evitar sobrecarga
+			ForceFlushOnExit:     true,
+			CleanupInterval:      5 * time.Minute,
+			MaxPositionAge:       24 * time.Hour,
+			FlushBatchSize:       100,  // Flush after 100 updates
+			AdaptiveFlushEnabled: true, // Enable adaptive flush by default
 		}
 	}
 
-	return &PositionBufferManager{
+	// Set defaults if not provided
+	if config.FlushBatchSize == 0 {
+		config.FlushBatchSize = 100
+	}
+
+	pbm := &PositionBufferManager{
 		containerManager: containerManager,
 		fileManager:      fileManager,
 		config:           config,
 		logger:           logger,
 		ctx:              ctx,
 		cancel:           cancel,
+		lastFlushTime:    time.Now(),
 	}
+
+	return pbm
 }
 
 func (pbm *PositionBufferManager) Start() error {
@@ -128,7 +149,7 @@ func (pbm *PositionBufferManager) Stop() error {
 
 	// Force final flush if configured
 	if pbm.config.ForceFlushOnExit {
-		if err := pbm.Flush(); err != nil {
+		if err := pbm.flushWithTrigger("shutdown"); err != nil {
 			pbm.logger.Error("Failed final flush on exit", map[string]interface{}{
 				"error": err.Error(),
 			})
@@ -141,6 +162,10 @@ func (pbm *PositionBufferManager) Stop() error {
 }
 
 func (pbm *PositionBufferManager) Flush() error {
+	return pbm.flushWithTrigger("manual")
+}
+
+func (pbm *PositionBufferManager) flushWithTrigger(triggerType string) error {
 	start := time.Now()
 
 	var errors []error
@@ -167,17 +192,37 @@ func (pbm *PositionBufferManager) Flush() error {
 
 	duration := time.Since(start)
 
+	// Reset adaptive flush state
+	pbm.flushMutex.Lock()
+	pbm.updatesSinceFlush = 0
+	pbm.lastFlushTime = time.Now()
+	pbm.flushMutex.Unlock()
+
+	// Update statistics
 	pbm.stats.mu.Lock()
 	pbm.stats.totalFlushes++
 	pbm.stats.lastFlushDuration = duration
 	if len(errors) > 0 {
 		pbm.stats.totalErrors++
 	}
+	// Track flush trigger type
+	switch triggerType {
+	case "updates":
+		pbm.stats.flushTriggerUpdates++
+		metrics.RecordPositionFlushTrigger("updates")
+	case "timeout":
+		pbm.stats.flushTriggerTimeout++
+		metrics.RecordPositionFlushTrigger("timeout")
+	case "shutdown":
+		pbm.stats.flushTriggerShutdown++
+		metrics.RecordPositionFlushTrigger("shutdown")
+	}
 	pbm.stats.mu.Unlock()
 
 	if len(errors) == 0 {
 		pbm.logger.Debug("Successfully flushed positions", map[string]interface{}{
-			"duration_ms": duration.Milliseconds(),
+			"duration_ms":  duration.Milliseconds(),
+			"trigger_type": triggerType,
 		})
 	}
 
@@ -186,6 +231,39 @@ func (pbm *PositionBufferManager) Flush() error {
 	}
 
 	return nil
+}
+
+// maybeFlush checks if adaptive flush should trigger
+func (pbm *PositionBufferManager) maybeFlush() {
+	if !pbm.config.AdaptiveFlushEnabled {
+		return
+	}
+
+	pbm.flushMutex.Lock()
+	defer pbm.flushMutex.Unlock()
+
+	// Check if we should flush based on update count
+	if pbm.updatesSinceFlush >= pbm.config.FlushBatchSize {
+		pbm.flushMutex.Unlock() // Release lock before flush
+		if err := pbm.flushWithTrigger("updates"); err != nil {
+			pbm.logger.Error("Adaptive flush (updates) failed", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+		pbm.flushMutex.Lock() // Re-acquire for defer
+		return
+	}
+
+	// Check if we should flush based on time elapsed
+	if time.Since(pbm.lastFlushTime) >= pbm.config.FlushInterval {
+		pbm.flushMutex.Unlock() // Release lock before flush
+		if err := pbm.flushWithTrigger("timeout"); err != nil {
+			pbm.logger.Error("Adaptive flush (timeout) failed", map[string]interface{}{
+				"error": err.Error(),
+			})
+		}
+		pbm.flushMutex.Lock() // Re-acquire for defer
+	}
 }
 
 func (pbm *PositionBufferManager) flushLoop() {
@@ -288,6 +366,13 @@ func (pbm *PositionBufferManager) UpdateContainerPosition(containerID string, si
 	pbm.stats.mu.Lock()
 	pbm.stats.totalUpdates++
 	pbm.stats.mu.Unlock()
+
+	// Increment update counter and check for adaptive flush
+	pbm.flushMutex.Lock()
+	pbm.updatesSinceFlush++
+	pbm.flushMutex.Unlock()
+
+	pbm.maybeFlush()
 }
 
 func (pbm *PositionBufferManager) UpdateFilePosition(filePath string, offset int64, size int64, lastModified time.Time, inode uint64, device uint64, bytesRead int64, logCount int64) {
@@ -296,6 +381,13 @@ func (pbm *PositionBufferManager) UpdateFilePosition(filePath string, offset int
 	pbm.stats.mu.Lock()
 	pbm.stats.totalUpdates++
 	pbm.stats.mu.Unlock()
+
+	// Increment update counter and check for adaptive flush
+	pbm.flushMutex.Lock()
+	pbm.updatesSinceFlush++
+	pbm.flushMutex.Unlock()
+
+	pbm.maybeFlush()
 }
 
 func (pbm *PositionBufferManager) GetContainerPosition(containerID string) *ContainerPosition {
