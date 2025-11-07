@@ -1,0 +1,2701 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>monitors: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">ssw-logs-capture/internal/monitors/container_monitor.go (5.4%)</option>
+				
+				<option value="file1">ssw-logs-capture/internal/monitors/file_monitor.go (0.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package monitors
+
+import (
+        "context"
+        "fmt"
+        "io"
+        "net"
+        "os"
+        "strings"
+        "sync"
+        "time"
+
+        "ssw-logs-capture/internal/metrics"
+        "ssw-logs-capture/pkg/docker"
+        "ssw-logs-capture/pkg/positions"
+        "ssw-logs-capture/pkg/selfguard"
+        "ssw-logs-capture/pkg/types"
+        "ssw-logs-capture/pkg/validation"
+
+        dockerTypes "github.com/docker/docker/api/types"
+        "github.com/docker/docker/api/types/events"
+        "github.com/docker/docker/api/types/filters"
+        "github.com/google/uuid"
+        "github.com/sirupsen/logrus"
+)
+
+// StreamPool manages container log stream lifecycle and enforces limits
+type StreamPool struct {
+        maxStreams      int
+        activeStreams   map[string]*streamInfo
+        streamSemaphore chan struct{}
+        mu              sync.RWMutex
+}
+
+// streamInfo tracks metadata about an active stream
+type streamInfo struct {
+        containerID   string
+        containerName string
+        createdAt     time.Time
+        lastActive    time.Time
+}
+
+// NewStreamPool creates a new stream pool with the specified capacity
+func NewStreamPool(maxStreams int) *StreamPool <span class="cov4" title="8">{
+        return &amp;StreamPool{
+                maxStreams:      maxStreams,
+                activeStreams:   make(map[string]*streamInfo),
+                streamSemaphore: make(chan struct{}, maxStreams),
+        }
+}</span>
+
+// AcquireSlot attempts to acquire a slot in the stream pool
+func (sp *StreamPool) AcquireSlot(containerID, containerName string) error <span class="cov10" title="163">{
+        select </span>{
+        case sp.streamSemaphore &lt;- struct{}{}:<span class="cov9" title="110">
+                sp.mu.Lock()
+                sp.activeStreams[containerID] = &amp;streamInfo{
+                        containerID:   containerID,
+                        containerName: containerName,
+                        createdAt:     time.Now(),
+                        lastActive:    time.Now(),
+                }
+                activeCount := len(sp.activeStreams)
+                sp.mu.Unlock()
+
+                // Update metrics
+                metrics.UpdateActiveStreams(activeCount)
+                metrics.UpdateStreamPoolUtilization(activeCount, sp.maxStreams)
+                return nil</span>
+        default:<span class="cov8" title="53">
+                return fmt.Errorf("stream pool at capacity (%d/%d)", sp.maxStreams, sp.maxStreams)</span>
+        }
+}
+
+// ReleaseSlot releases a slot in the stream pool
+func (sp *StreamPool) ReleaseSlot(containerID string) <span class="cov8" title="56">{
+        sp.mu.Lock()
+        delete(sp.activeStreams, containerID)
+        activeCount := len(sp.activeStreams)
+        sp.mu.Unlock()
+
+        &lt;-sp.streamSemaphore
+
+        // Update metrics
+        metrics.UpdateActiveStreams(activeCount)
+        metrics.UpdateStreamPoolUtilization(activeCount, sp.maxStreams)
+}</span>
+
+// UpdateActivity updates the last active time for a stream
+func (sp *StreamPool) UpdateActivity(containerID string) <span class="cov1" title="1">{
+        sp.mu.Lock()
+        defer sp.mu.Unlock()
+
+        if info, exists := sp.activeStreams[containerID]; exists </span><span class="cov1" title="1">{
+                info.lastActive = time.Now()
+        }</span>
+}
+
+// GetActiveCount returns the current number of active streams
+func (sp *StreamPool) GetActiveCount() int <span class="cov5" title="14">{
+        sp.mu.RLock()
+        defer sp.mu.RUnlock()
+        return len(sp.activeStreams)
+}</span>
+
+// ContainerMonitor monitora containers Docker
+type ContainerMonitor struct {
+        config          types.DockerConfig
+        dispatcher         types.Dispatcher
+        logger             *logrus.Logger
+        taskManager        types.TaskManager
+        positionManager    *positions.PositionBufferManager
+        timestampValidator *validation.TimestampValidator
+        feedbackGuard      *selfguard.FeedbackGuard
+
+        dockerPool    *docker.PoolManager
+        containers    map[string]*monitoredContainer
+        streamPool    *StreamPool
+        mutex         sync.RWMutex
+
+        rotationInterval time.Duration
+
+        ctx       context.Context
+        cancel    context.CancelFunc
+        isRunning bool
+}
+
+// monitoredContainer representa um container sendo monitorado
+type monitoredContainer struct {
+        id              string
+        name            string
+        image           string
+        labels          map[string]string
+        since           time.Time
+        stream          io.ReadCloser
+        lastRead        time.Time
+        cancel          context.CancelFunc
+        heartbeatWg     sync.WaitGroup // Rastreia goroutine de heartbeat
+        streamCreatedAt time.Time      // When current stream was created
+        rotationCount   int            // Number of rotations performed
+}
+
+// NewContainerMonitor cria um novo monitor de containers
+func NewContainerMonitor(config types.DockerConfig, timestampConfig types.TimestampValidationConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*ContainerMonitor, error) <span class="cov0" title="0">{
+        // Converter config para o formato do validation package
+        validationConfig := validation.Config{
+                Enabled:             timestampConfig.Enabled,
+                MaxPastAgeSeconds:   timestampConfig.MaxPastAgeSeconds,
+                MaxFutureAgeSeconds: timestampConfig.MaxFutureAgeSeconds,
+                ClampEnabled:        timestampConfig.ClampEnabled,
+                ClampDLQ:            timestampConfig.ClampDLQ,
+                InvalidAction:       timestampConfig.InvalidAction,
+                DefaultTimezone:     timestampConfig.DefaultTimezone,
+                AcceptedFormats:     timestampConfig.AcceptedFormats,
+        }
+        timestampValidator := validation.NewTimestampValidator(validationConfig, logger, nil)
+
+        // Criar feedback guard com configuração padrão
+        feedbackConfig := selfguard.Config{
+                Enabled:                  false,
+                SelfIDShort:              "log_capturer_go",
+                SelfContainerName:        "log_capturer_go",
+                SelfNamespace:            "ssw",
+                AutoDetectSelf:           true,
+                SelfLogAction:            "drop",
+                ExcludeContainerPatterns: []string{"log_capturer_go"},
+                ExcludeMessagePatterns:   []string{".*ssw-logs-capture.*"},
+        }
+        feedbackGuard := selfguard.NewFeedbackGuard(feedbackConfig, logger)
+
+        if !config.Enabled </span><span class="cov0" title="0">{
+                return &amp;ContainerMonitor{
+                        config:             config,
+                        dispatcher:         dispatcher,
+                        logger:             logger,
+                        taskManager:        taskManager,
+                        positionManager:    positionManager,
+                        timestampValidator: timestampValidator,
+                        feedbackGuard:      feedbackGuard,
+                        isRunning:          false,
+                }, nil
+        }</span>
+
+        // Criar pool de conexões Docker
+        <span class="cov0" title="0">poolConfig := docker.PoolConfig{
+                PoolSize:            5, // Default pool size
+                SocketPath:          config.SocketPath,
+                MaxRetries:          3,
+                RetryDelay:          5 * time.Second,
+                HealthCheckInterval: 30 * time.Second,
+                ConnectionTimeout:   30 * time.Second,
+                IdleTimeout:        5 * time.Minute,
+        }
+
+        dockerPool, err := docker.NewPoolManager(poolConfig, logger)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create docker connection pool: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">ctx, cancel := context.WithCancel(context.Background())
+
+        // Initialize stream pool with max 50 concurrent streams
+        streamPool := NewStreamPool(50)
+
+        // Set rotation interval to 5 minutes
+        rotationInterval := 5 * time.Minute
+
+        return &amp;ContainerMonitor{
+                config:             config,
+                dispatcher:         dispatcher,
+                logger:             logger,
+                taskManager:        taskManager,
+                positionManager:    positionManager,
+                timestampValidator: timestampValidator,
+                feedbackGuard:      feedbackGuard,
+                dockerPool:         dockerPool,
+                containers:         make(map[string]*monitoredContainer),
+                streamPool:         streamPool,
+                rotationInterval:   rotationInterval,
+                ctx:                ctx,
+                cancel:             cancel,
+        }, nil</span>
+}
+
+// Start inicia o monitor de containers
+func (cm *ContainerMonitor) Start(ctx context.Context) error <span class="cov0" title="0">{
+        if !cm.config.Enabled </span><span class="cov0" title="0">{
+                cm.logger.Info("Container monitor disabled")
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">cm.mutex.Lock()
+        defer cm.mutex.Unlock()
+
+        if cm.isRunning </span><span class="cov0" title="0">{
+                return fmt.Errorf("container monitor already running")
+        }</span>
+
+        <span class="cov0" title="0">cm.isRunning = true
+        cm.logger.Info("Starting container monitor")
+
+        // Verificar conectividade com Docker
+        if err := cm.checkDockerConnection(); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("docker connection check failed: %w", err)
+        }</span>
+
+        // Iniciar task de monitoramento principal
+        <span class="cov0" title="0">if err := cm.taskManager.StartTask(ctx, "container_monitor", cm.monitorLoop); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to start container monitor task: %w", err)
+        }</span>
+
+        // Iniciar task de monitoramento de eventos
+        <span class="cov0" title="0">if err := cm.taskManager.StartTask(ctx, "container_events", cm.eventsLoop); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to start container events task: %w", err)
+        }</span>
+
+        // Iniciar task de health check
+        <span class="cov0" title="0">if err := cm.taskManager.StartTask(ctx, "container_health_check", cm.healthCheckLoop); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to start container health check task: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Stop para o monitor de containers
+func (cm *ContainerMonitor) Stop() error <span class="cov0" title="0">{
+        cm.mutex.Lock()
+        defer cm.mutex.Unlock()
+
+        if !cm.isRunning </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">cm.logger.Info("Stopping container monitor")
+        cm.isRunning = false
+
+        // Cancelar contexto
+        cm.cancel()
+
+        // Parar tasks
+        cm.taskManager.StopTask("container_monitor")
+        cm.taskManager.StopTask("container_events")
+        cm.taskManager.StopTask("container_health_check")
+
+        // Parar monitoramento de containers - coletamos IDs primeiro para evitar concurrent map iteration/write
+        containerIDs := make([]string, 0, len(cm.containers))
+        for _, mc := range cm.containers </span><span class="cov0" title="0">{
+                containerIDs = append(containerIDs, mc.id)
+        }</span>
+        <span class="cov0" title="0">for _, id := range containerIDs </span><span class="cov0" title="0">{
+                cm.stopContainerMonitoring(id)
+        }</span>
+
+        // Fechar cliente Docker
+        <span class="cov0" title="0">if cm.dockerPool != nil </span><span class="cov0" title="0">{
+                cm.dockerPool.Close()
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// IsHealthy verifica se o monitor está saudável
+func (cm *ContainerMonitor) IsHealthy() bool <span class="cov0" title="0">{
+        cm.mutex.RLock()
+        defer cm.mutex.RUnlock()
+        return cm.isRunning &amp;&amp; cm.dockerPool != nil
+}</span>
+
+// GetStatus retorna o status do monitor
+func (cm *ContainerMonitor) GetStatus() types.MonitorStatus <span class="cov0" title="0">{
+        cm.mutex.RLock()
+        defer cm.mutex.RUnlock()
+
+        return types.MonitorStatus{
+                Name:      "container_monitor",
+                IsRunning: cm.isRunning,
+                IsHealthy: cm.isRunning &amp;&amp; cm.dockerPool != nil,
+        }
+}</span>
+
+// checkDockerConnection verifica conectividade com Docker
+func (cm *ContainerMonitor) checkDockerConnection() error <span class="cov0" title="0">{
+        // O pool manager já gerencia as conexões e health checks
+        // Apenas retornar nil aqui pois o pool cuida da conectividade
+        return nil
+}</span>
+
+// monitorLoop loop principal de monitoramento
+func (cm *ContainerMonitor) monitorLoop(ctx context.Context) error <span class="cov0" title="0">{
+        // Varredura inicial de containers - única vez
+        cm.logger.Info("Performing initial container discovery scan")
+        if err := cm.scanContainers(); err != nil </span><span class="cov0" title="0">{
+                cm.logger.WithError(err).Error("Initial container scan failed")
+        }</span> else<span class="cov0" title="0"> {
+                cm.logger.WithField("containers", len(cm.containers)).Info("Initial container discovery completed")
+        }</span>
+
+        // Após varredura inicial, apenas aguardar contexto ser cancelado
+        // A descoberta agora é totalmente orientada a eventos
+        <span class="cov0" title="0">ticker := time.NewTicker(30 * time.Second)
+        defer ticker.Stop()
+
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        return nil</span>
+                case &lt;-ticker.C:<span class="cov0" title="0">
+                        // Apenas heartbeat - sem scanning periódico
+                        cm.taskManager.Heartbeat("container_monitor")</span>
+                }
+        }
+}
+
+// eventsLoop monitora eventos do Docker
+func (cm *ContainerMonitor) eventsLoop(ctx context.Context) error <span class="cov0" title="0">{
+        cm.logger.Info("Starting Docker events listener for container discovery")
+
+        // Filtrar apenas eventos de containers
+        eventFilters := filters.NewArgs()
+        eventFilters.Add("type", "container")
+
+        eventChan, errChan := cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
+                Filters: eventFilters,
+        })
+
+        heartbeatTicker := time.NewTicker(30 * time.Second)
+        defer heartbeatTicker.Stop()
+
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        cm.logger.Info("Docker events listener stopped")
+                        return nil</span>
+
+                case event := &lt;-eventChan:<span class="cov0" title="0">
+                        cm.handleDockerEvent(event)</span>
+
+                case err := &lt;-errChan:<span class="cov0" title="0">
+                        if err != nil </span><span class="cov0" title="0">{
+                                cm.logger.WithError(err).Error("Docker events stream error - attempting to reconnect")
+                                metrics.RecordError("container_monitor", "events_error")
+
+                                // Aguardar antes de reconectar
+                                select </span>{
+                                case &lt;-ctx.Done():<span class="cov0" title="0">
+                                        return nil</span>
+                                case &lt;-time.After(5 * time.Second):<span class="cov0" title="0">
+                                        // Recriar stream de eventos
+                                        eventChan, errChan = cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
+                                                Filters: eventFilters,
+                                        })
+                                        cm.logger.Info("Docker events stream reconnected")</span>
+                                }
+                        }
+
+                case &lt;-heartbeatTicker.C:<span class="cov0" title="0">
+                        cm.taskManager.Heartbeat("container_events")</span>
+                }
+        }
+}
+
+// healthCheckLoop verifica saúde dos containers monitorados
+func (cm *ContainerMonitor) healthCheckLoop(ctx context.Context) error <span class="cov0" title="0">{
+        ticker := time.NewTicker(cm.config.HealthCheckDelay)
+        defer ticker.Stop()
+
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        return nil</span>
+                case &lt;-ticker.C:<span class="cov0" title="0">
+                        cm.healthCheckContainers()</span>
+                }
+
+                // Heartbeat
+                <span class="cov0" title="0">cm.taskManager.Heartbeat("container_health_check")</span>
+        }
+}
+
+// scanContainers escaneia containers em execução
+func (cm *ContainerMonitor) scanContainers() error <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(cm.ctx, 30*time.Second)
+        defer cancel()
+
+        containers, err := cm.dockerPool.ContainerList(ctx, dockerTypes.ContainerListOptions{})
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to list containers: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">cm.mutex.Lock()
+        defer cm.mutex.Unlock()
+
+        // Containers em execução
+        runningContainers := make(map[string]bool)
+        for _, dockerContainer := range containers </span><span class="cov0" title="0">{
+                containerID := dockerContainer.ID[:12]
+                runningContainers[containerID] = true
+
+                // Verificar se já está sendo monitorado
+                if _, exists := cm.containers[containerID]; !exists </span><span class="cov0" title="0">{
+                        cm.startContainerMonitoring(dockerContainer)
+                }</span>
+        }
+
+        // Parar monitoramento de containers que não estão mais em execução
+        // Coletamos IDs primeiro para evitar concurrent map iteration/write
+        <span class="cov0" title="0">toRemove := make([]string, 0)
+        for id := range cm.containers </span><span class="cov0" title="0">{
+                if !runningContainers[id] </span><span class="cov0" title="0">{
+                        toRemove = append(toRemove, id)
+                }</span>
+        }
+        <span class="cov0" title="0">for _, id := range toRemove </span><span class="cov0" title="0">{
+                cm.stopContainerMonitoring(id)
+        }</span>
+
+        // Atualizar métricas
+        <span class="cov0" title="0">metrics.SetActiveTasks("container_monitors", "running", len(cm.containers))
+
+        return nil</span>
+}
+
+// handleDockerEvent processa eventos do Docker de forma reativa
+func (cm *ContainerMonitor) handleDockerEvent(event events.Message) <span class="cov0" title="0">{
+        containerID := event.Actor.ID[:12]
+        containerName := event.Actor.Attributes["name"]
+
+        cm.logger.WithFields(logrus.Fields{
+                "event":          event.Action,
+                "container_id":   containerID,
+                "container_name": containerName,
+        }).Debug("Received Docker event")
+
+        switch event.Action </span>{
+        case "start":<span class="cov0" title="0">
+                // Container iniciado - adicionar diretamente
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": containerName,
+                }).Info("Container started - adding to monitoring")
+
+                // Aguardar um pouco para garantir que container está pronto
+                taskName := "container_add_" + containerID
+                cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error </span><span class="cov0" title="0">{
+                        defer cm.taskManager.StopTask(taskName) // Limpar task após conclusão
+
+                        select </span>{
+                        case &lt;-time.After(1 * time.Second):<span class="cov0" title="0">
+                                // Buscar informações completas do container
+                                return cm.addContainerByID(containerID)</span>
+                        case &lt;-ctx.Done():<span class="cov0" title="0">
+                                return ctx.Err()</span>
+                        }
+                })
+
+        case "die", "stop":<span class="cov0" title="0">
+                // Container parado
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": containerName,
+                }).Info("Container stopped - removing from monitoring")
+
+                cm.mutex.Lock()
+                cm.stopContainerMonitoring(containerID)
+                cm.mutex.Unlock()
+
+                metrics.RecordContainerEvent("stopped", containerID)</span>
+
+        case "destroy":<span class="cov0" title="0">
+                // Container removido - limpar posições
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": containerName,
+                }).Info("Container destroyed - cleaning up positions")
+
+                if cm.positionManager != nil </span><span class="cov0" title="0">{
+                        cm.positionManager.SetContainerStatus(containerID, "removed")
+                }</span>
+
+                <span class="cov0" title="0">metrics.RecordContainerEvent("destroyed", containerID)</span>
+
+        case "pause":<span class="cov0" title="0">
+                // Container pausado - apenas log
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": containerName,
+                }).Debug("Container paused - monitoring continues")
+
+                metrics.RecordContainerEvent("paused", containerID)</span>
+
+        case "unpause":<span class="cov0" title="0">
+                // Container despausado - apenas log
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": containerName,
+                }).Debug("Container unpaused - monitoring continues")
+
+                metrics.RecordContainerEvent("unpaused", containerID)</span>
+        }
+}
+
+// addContainerByID adiciona um container específico para monitoramento por ID
+func (cm *ContainerMonitor) addContainerByID(containerID string) error <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(cm.ctx, 10*time.Second)
+        defer cancel()
+
+        // Buscar informações do container
+        containers, err := cm.dockerPool.ContainerList(ctx, dockerTypes.ContainerListOptions{
+                All:     true,
+                Filters: filters.NewArgs(filters.Arg("id", containerID)),
+        })
+
+        if err != nil </span><span class="cov0" title="0">{
+                cm.logger.WithError(err).WithField("container_id", containerID).Error("Failed to fetch container info")
+                return fmt.Errorf("failed to list container %s: %w", containerID, err)
+        }</span>
+
+        <span class="cov0" title="0">if len(containers) == 0 </span><span class="cov0" title="0">{
+                cm.logger.WithField("container_id", containerID).Warn("Container not found")
+                return fmt.Errorf("container %s not found", containerID)
+        }</span>
+
+        <span class="cov0" title="0">dockerContainer := containers[0]
+
+        // Verificar se já está sendo monitorado
+        cm.mutex.Lock()
+        defer cm.mutex.Unlock()
+
+        if _, exists := cm.containers[containerID]; exists </span><span class="cov0" title="0">{
+                cm.logger.WithField("container_id", containerID).Debug("Container already being monitored")
+                return nil
+        }</span>
+
+        // Adicionar monitoramento
+        <span class="cov0" title="0">cm.startContainerMonitoring(dockerContainer)
+
+        return nil</span>
+}
+
+// shouldMonitorContainer verifica se um container deve ser monitorado baseado nos filtros
+func (cm *ContainerMonitor) shouldMonitorContainer(dockerContainer dockerTypes.Container) bool <span class="cov0" title="0">{
+        name := strings.TrimPrefix(dockerContainer.Names[0], "/")
+        labels := dockerContainer.Labels
+
+        // Verificar nomes incluídos
+        if len(cm.config.IncludeNames) &gt; 0 </span><span class="cov0" title="0">{
+                found := false
+                for _, includeName := range cm.config.IncludeNames </span><span class="cov0" title="0">{
+                        if strings.Contains(name, includeName) </span><span class="cov0" title="0">{
+                                found = true
+                                break</span>
+                        }
+                }
+                <span class="cov0" title="0">if !found </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+        }
+
+        // Verificar nomes excluídos
+        <span class="cov0" title="0">for _, excludeName := range cm.config.ExcludeNames </span><span class="cov0" title="0">{
+                if strings.Contains(name, excludeName) </span><span class="cov0" title="0">{
+                        return false
+                }</span>
+        }
+
+        // Verificar labels incluídas
+        <span class="cov0" title="0">if len(cm.config.IncludeLabels) &gt; 0 </span><span class="cov0" title="0">{
+                for key, value := range cm.config.IncludeLabels </span><span class="cov0" title="0">{
+                        labelValue, exists := labels[key]
+                        if !exists </span><span class="cov0" title="0">{
+                                return false
+                        }</span>
+                        <span class="cov0" title="0">if value != "" &amp;&amp; labelValue != value </span><span class="cov0" title="0">{
+                                return false
+                        }</span>
+                }
+        }
+
+        // Verificar labels excluídas
+        <span class="cov0" title="0">for key, value := range cm.config.ExcludeLabels </span><span class="cov0" title="0">{
+                labelValue, exists := labels[key]
+                if exists </span><span class="cov0" title="0">{
+                        if value == "" || labelValue == value </span><span class="cov0" title="0">{
+                                return false
+                        }</span>
+                }
+        }
+
+        <span class="cov0" title="0">return true</span>
+}
+
+// startContainerMonitoring inicia monitoramento de um container
+func (cm *ContainerMonitor) startContainerMonitoring(dockerContainer dockerTypes.Container) <span class="cov0" title="0">{
+        containerID := dockerContainer.ID[:12]
+
+        // Verificar se deve monitorar este container
+        if !cm.shouldMonitorContainer(dockerContainer) </span><span class="cov0" title="0">{
+                cm.logger.WithFields(logrus.Fields{
+                        "container_id":   containerID,
+                        "container_name": strings.TrimPrefix(dockerContainer.Names[0], "/"),
+                        "image":          dockerContainer.Image,
+                }).Debug("Container filtered out, skipping monitoring")
+                return
+        }</span>
+
+        // Extrair nome e imagem
+        <span class="cov0" title="0">name := strings.TrimPrefix(dockerContainer.Names[0], "/")
+        image := dockerContainer.Image
+
+        // Criar labels básicos
+        labels := map[string]string{
+                "container_id":   containerID,
+                "container_name": name,
+                "image":          image,
+        }
+
+        // Filtrar apenas labels essenciais do Docker para evitar excesso (Loki limite: 15)
+        essentialDockerLabels := []string{
+                "com.docker.compose.service",
+                "com.docker.compose.container-number",
+        }
+
+        for _, essential := range essentialDockerLabels </span><span class="cov0" title="0">{
+                if value, exists := dockerContainer.Labels[essential]; exists </span><span class="cov0" title="0">{
+                        // Usar nome simplificado para economizar espaço
+                        switch essential </span>{
+                        case "com.docker.compose.service":<span class="cov0" title="0">
+                                labels["compose_service"] = value</span>
+                        case "com.docker.compose.container-number":<span class="cov0" title="0">
+                                labels["instance"] = value</span>
+                        }
+
+                        // Parar se já temos muitos labels (deixar espaço para labels do pipeline)
+                        <span class="cov0" title="0">if len(labels) &gt;= 10 </span><span class="cov0" title="0">{
+                                break</span>
+                        }
+                }
+        }
+
+        // Get position-based since time, using container creation time for new containers
+        <span class="cov0" title="0">sinceTime := time.Now()
+        if cm.positionManager != nil </span><span class="cov0" title="0">{
+                // Usar data de criação do container para containers novos
+                createdTime := time.Unix(dockerContainer.Created, 0)
+                sinceTime = cm.positionManager.GetContainerSinceWithCreated(containerID, createdTime)
+                cm.positionManager.SetContainerStatus(containerID, "active")
+        }</span>
+
+        <span class="cov0" title="0">mc := &amp;monitoredContainer{
+                id:       containerID,
+                name:     name,
+                image:    image,
+                labels:   labels,
+                since:    sinceTime,
+                lastRead: time.Now(),
+        }
+
+        cm.containers[containerID] = mc
+
+        // Iniciar task de monitoramento do container
+        taskName := "container_" + containerID
+        cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error </span><span class="cov0" title="0">{
+                return cm.monitorContainer(ctx, mc)
+        }</span>)
+
+        // Atualizar métricas
+        <span class="cov0" title="0">metrics.SetContainerMonitored(containerID, name, image, true)
+        metrics.UpdateTotalContainersMonitored(len(cm.containers))
+
+        cm.logger.WithFields(logrus.Fields{
+                "container_id":   containerID,
+                "container_name": name,
+                "image":          image,
+        }).Info("Started container monitoring")</span>
+}
+
+// stopContainerMonitoring para monitoramento de um container
+func (cm *ContainerMonitor) stopContainerMonitoring(containerID string) <span class="cov0" title="0">{
+        mc, exists := cm.containers[containerID]
+        if !exists </span><span class="cov0" title="0">{
+                return
+        }</span>
+
+        <span class="cov0" title="0">cm.logger.WithFields(logrus.Fields{
+                "container_id":   containerID,
+                "container_name": mc.name,
+        }).Info("Stopped container monitoring")
+
+        // Cancelar contexto se existir
+        if mc.cancel != nil </span><span class="cov0" title="0">{
+                mc.cancel()
+        }</span>
+
+        // Fechar stream se existir
+        <span class="cov0" title="0">if mc.stream != nil </span><span class="cov0" title="0">{
+                mc.stream.Close()
+        }</span>
+
+        // Parar task
+        <span class="cov0" title="0">taskName := "container_" + containerID
+        cm.taskManager.StopTask(taskName)
+
+        // Update container status in position manager
+        if cm.positionManager != nil </span><span class="cov0" title="0">{
+                cm.positionManager.SetContainerStatus(containerID, "stopped")
+        }</span>
+
+        // Remover do mapa
+        <span class="cov0" title="0">delete(cm.containers, containerID)
+
+        // Atualizar métricas
+        metrics.SetContainerMonitored(containerID, mc.name, mc.image, false)
+        metrics.UpdateTotalContainersMonitored(len(cm.containers))
+
+        cm.logger.WithFields(logrus.Fields{
+                "container_id":   containerID,
+                "container_name": mc.name,
+        }).Info("Stopped container monitoring")</span>
+}
+
+// monitorContainer monitora logs de um container específico com rotation automática
+func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredContainer) error <span class="cov0" title="0">{
+        // Acquire slot in stream pool
+        if err := cm.streamPool.AcquireSlot(mc.id, mc.name); err != nil </span><span class="cov0" title="0">{
+                cm.logger.WithError(err).WithFields(logrus.Fields{
+                        "container_id":   mc.id,
+                        "container_name": mc.name,
+                }).Warn("Cannot monitor container - stream pool at capacity")
+                metrics.RecordStreamError("pool_full", mc.id)
+                return err
+        }</span>
+        <span class="cov0" title="0">defer cm.streamPool.ReleaseSlot(mc.id)
+
+        containerCtx, cancel := context.WithCancel(ctx)
+        mc.cancel = cancel
+        defer func() </span><span class="cov0" title="0">{
+                cancel()
+                // Aguardar heartbeat goroutine terminar
+                mc.heartbeatWg.Wait()
+        }</span>()
+
+        // Enviar heartbeat em goroutine separada com ticker gerenciado internamente
+        <span class="cov0" title="0">taskName := "container_" + mc.id
+        mc.heartbeatWg.Add(1)
+        go func() </span><span class="cov0" title="0">{
+                defer mc.heartbeatWg.Done()
+                // Criar ticker DENTRO da goroutine para garantir limpeza adequada
+                heartbeatTicker := time.NewTicker(30 * time.Second)
+                defer heartbeatTicker.Stop()
+
+                for </span><span class="cov0" title="0">{
+                        select </span>{
+                        case &lt;-containerCtx.Done():<span class="cov0" title="0">
+                                return</span>
+                        case &lt;-heartbeatTicker.C:<span class="cov0" title="0">
+                                cm.taskManager.Heartbeat(taskName)</span>
+                        }
+                }
+        }()
+
+        // Configurar opções de logs iniciais
+        <span class="cov0" title="0">logOptions := dockerTypes.ContainerLogsOptions{
+                ShowStdout: true,
+                ShowStderr: true,
+                Follow:     true,
+                Since:      mc.since.Format(time.RFC3339),
+                Timestamps: true,
+        }
+
+        // Loop de rotação de streams
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-containerCtx.Done():<span class="cov0" title="0">
+                        return nil</span>
+                default:<span class="cov0" title="0">
+                        // Create context with rotation timeout
+                        streamCtx, streamCancel := context.WithTimeout(containerCtx, cm.rotationInterval)
+
+                        // Record stream creation time
+                        mc.streamCreatedAt = time.Now()
+
+                        // Abrir stream de logs
+                        stream, err := cm.dockerPool.ContainerLogs(streamCtx, mc.id, logOptions)
+                        if err != nil </span><span class="cov0" title="0">{
+                                streamCancel()
+                                cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to open log stream")
+                                metrics.RecordStreamError("open_failed", mc.id)
+
+                                // Aguardar antes de tentar novamente
+                                select </span>{
+                                case &lt;-containerCtx.Done():<span class="cov0" title="0">
+                                        return nil</span>
+                                case &lt;-time.After(5 * time.Second):<span class="cov0" title="0">
+                                        continue</span>
+                                }
+                        }
+
+                        <span class="cov0" title="0">mc.stream = stream
+
+                        // Ler logs até o timeout de rotação ou erro
+                        readErr := cm.readContainerLogs(streamCtx, mc, stream)
+
+                        // Calculate stream age
+                        streamAge := time.Since(mc.streamCreatedAt)
+
+                        // Fechar stream explicitamente
+                        stream.Close()
+                        streamCancel()
+
+                        // Check if this was a planned rotation (timeout) or an error
+                        if readErr == context.DeadlineExceeded </span><span class="cov0" title="0">{
+                                // Planned rotation
+                                mc.rotationCount++
+                                metrics.RecordStreamRotation(mc.id, mc.name, streamAge.Seconds())
+
+                                cm.logger.WithFields(logrus.Fields{
+                                        "container_id":     mc.id,
+                                        "container_name":   mc.name,
+                                        "rotation_count":   mc.rotationCount,
+                                        "stream_age_secs":  int(streamAge.Seconds()),
+                                }).Debug("Stream rotated successfully")
+                        }</span> else<span class="cov0" title="0"> if readErr != nil </span><span class="cov0" title="0">{
+                                // Error occurred
+                                if readErr == context.Canceled </span><span class="cov0" title="0">{
+                                        // Parent context cancelled, exit gracefully
+                                        cm.logger.WithField("container_id", mc.id).Debug("Container monitoring stopped")
+                                        return nil
+                                }</span>
+
+                                // Other error
+                                <span class="cov0" title="0">cm.logger.WithError(readErr).WithFields(logrus.Fields{
+                                        "container_id":   mc.id,
+                                        "container_name": mc.name,
+                                        "last_read":      mc.lastRead,
+                                        "stream_age":     streamAge,
+                                }).Warn("Stream read error - will reconnect")
+                                metrics.RecordStreamError("read_failed", mc.id)</span>
+                        }
+
+                        // Verificar se container ainda existe
+                        <span class="cov0" title="0">if !cm.containerExists(mc.id) </span><span class="cov0" title="0">{
+                                return nil
+                        }</span>
+
+                        // Update log options to continue from last read position
+                        <span class="cov0" title="0">if !mc.lastRead.IsZero() </span><span class="cov0" title="0">{
+                                logOptions.Since = mc.lastRead.Format(time.RFC3339)
+                        }</span> else<span class="cov0" title="0"> {
+                                logOptions.Since = time.Now().UTC().Format(time.RFC3339)
+                        }</span>
+
+                        // Brief pause before next rotation to prevent tight loops
+                        <span class="cov0" title="0">select </span>{
+                        case &lt;-containerCtx.Done():<span class="cov0" title="0">
+                                return nil</span>
+                        case &lt;-time.After(100 * time.Millisecond):<span class="cov0" title="0"></span>
+                                // Continue to next rotation
+                        }
+                }
+        }
+}
+
+// readContainerLogs lê logs de um stream de container
+func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitoredContainer, stream io.Reader) error <span class="cov0" title="0">{
+        incomplete := ""
+        logCount := int64(0)
+        bytesRead := int64(0)
+
+        // Canal para receber dados do stream em goroutine separada
+        type readResult struct {
+                data []byte
+                err  error
+        }
+        readCh := make(chan readResult, 10) // Increased buffer to prevent blocking
+
+        // Goroutine para ler do stream - TRACKED WITH WAITGROUP
+        mc.heartbeatWg.Add(1) // Track this goroutine
+        go func() </span><span class="cov0" title="0">{
+                defer mc.heartbeatWg.Done() // Always cleanup
+                for </span><span class="cov0" title="0">{
+                        localBuf := make([]byte, 8192)
+                        n, err := stream.Read(localBuf)
+
+                        // Copiar apenas os bytes lidos
+                        var data []byte
+                        if n &gt; 0 </span><span class="cov0" title="0">{
+                                data = make([]byte, n)
+                                copy(data, localBuf[:n])
+                        }</span>
+
+                        <span class="cov0" title="0">select </span>{
+                        case readCh &lt;- readResult{data: data, err: err}:<span class="cov0" title="0">
+                                if err != nil </span><span class="cov0" title="0">{
+                                        return // Sair se houver erro (incluindo EOF)
+                                }</span>
+                        case &lt;-ctx.Done():<span class="cov0" title="0">
+                                return</span> // Context cancelado, sair
+                        }
+                }
+        }()
+
+        <span class="cov0" title="0">for </span><span class="cov0" title="0">{
+                // Aguardar dados do stream OU cancelamento do context
+                var result readResult
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        return ctx.Err()</span>
+                case result = &lt;-readCh:<span class="cov0" title="0"></span>
+                        // Dados recebidos, processar abaixo
+                }
+
+                <span class="cov0" title="0">data := result.data
+                err := result.err
+
+                if len(data) &gt; 0 </span><span class="cov0" title="0">{
+                        bytesRead += int64(len(data))
+
+                        // Processar dados lidos
+                        dataStr := incomplete + string(data)
+                        lines := strings.Split(dataStr, "\n")
+
+                        // Última linha pode estar incompleta
+                        incomplete = lines[len(lines)-1]
+                        lines = lines[:len(lines)-1]
+
+                        // Processar linhas completas
+                        for _, line := range lines </span><span class="cov0" title="0">{
+                                if line == "" </span><span class="cov0" title="0">{
+                                        continue</span>
+                                }
+
+                                // Remover header do Docker (8 bytes) se presente
+                                <span class="cov0" title="0">if len(line) &gt; 8 &amp;&amp; (line[0] == 1 || line[0] == 2) </span><span class="cov0" title="0">{
+                                        line = line[8:]
+                                }</span>
+
+                                // Parse timestamp se presente
+                                <span class="cov0" title="0">if strings.Contains(line, "T") &amp;&amp; len(line) &gt; 30 </span><span class="cov0" title="0">{
+                                        if spaceIdx := strings.Index(line, " "); spaceIdx &gt; 0 &amp;&amp; spaceIdx &lt; 35 </span><span class="cov0" title="0">{
+                                                line = line[spaceIdx+1:]
+                                        }</span>
+                                }
+
+                                <span class="cov0" title="0">line = strings.TrimSpace(line)
+                                if line == "" </span><span class="cov0" title="0">{
+                                        continue</span>
+                                }
+
+                                // Enviar para dispatcher com labels padrão
+                                <span class="cov0" title="0">sourceID := mc.id
+                                standardLabels := addStandardLabels(mc.labels)
+
+                                // Criar entry para validações
+                                traceID := uuid.New().String()
+                                entry := &amp;types.LogEntry{
+                                        TraceID:     traceID,
+                                        Timestamp:   time.Now().UTC(), // Force UTC to prevent Loki "timestamp too new" errors
+                                        Message:     line,
+                                        SourceType:  "docker",
+                                        SourceID:    sourceID,
+                                        Labels:      standardLabels,
+                                        ProcessedAt: time.Now().UTC(),
+                                }
+
+                                // Verificar se é self-log usando feedback guard (temporariamente desabilitado)
+                                /*
+                                if cm.feedbackGuard != nil {
+                                        guardResult := cm.feedbackGuard.CheckEntry(entry)
+                                        if guardResult.IsSelfLog &amp;&amp; guardResult.Action == "drop" {
+                                                cm.logger.WithFields(logrus.Fields{
+                                                        "container_id":   mc.id,
+                                                        "container_name": mc.name,
+                                                        "reason":         guardResult.Reason,
+                                                        "match_pattern":  guardResult.MatchPattern,
+                                                }).Debug("Self-log dropped by feedback guard")
+                                                continue
+                                        }
+                                }
+                                */
+
+                                // Validar timestamp se o timestamp validator estiver disponível
+                                if cm.timestampValidator != nil </span><span class="cov0" title="0">{
+                                        result := cm.timestampValidator.ValidateTimestamp(entry)
+                                        if !result.Valid &amp;&amp; result.Action == "rejected" </span><span class="cov0" title="0">{
+                                                cm.logger.WithFields(logrus.Fields{
+                                                        "container_id":   mc.id,
+                                                        "container_name": mc.name,
+                                                        "reason":         result.Reason,
+                                                        "line":           line,
+                                                }).Warn("Container log line rejected due to invalid timestamp")
+                                                continue</span>
+                                        }
+                                }
+
+                                <span class="cov0" title="0">if err := cm.dispatcher.Handle(ctx, "docker", sourceID, line, standardLabels); err != nil </span><span class="cov0" title="0">{
+                                        cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to dispatch container log")
+                                        metrics.RecordError("container_monitor", "dispatch_error")
+                                }</span> else<span class="cov0" title="0"> {
+                                        logCount++
+                                        // CRÍTICO: Só atualizar lastRead quando efetivamente processamos um log
+                                        mc.lastRead = time.Now()
+
+                                        // Log periódico para debug (a cada 10 logs para não fazer spam)
+                                        if logCount%10 == 0 </span><span class="cov0" title="0">{
+                                                cm.logger.WithFields(logrus.Fields{
+                                                        "container_id":   mc.id,
+                                                        "container_name": mc.name,
+                                                        "logs_processed": logCount,
+                                                        "last_read":      mc.lastRead,
+                                                }).Debug("Container logs processed")
+                                        }</span>
+                                }
+
+                                // Métricas
+                                <span class="cov0" title="0">metrics.RecordLogProcessed("docker", sourceID, "container_monitor")</span>
+                        }
+
+                        // Update position if we processed logs successfully
+                        <span class="cov0" title="0">if logCount &gt; 0 &amp;&amp; cm.positionManager != nil </span><span class="cov0" title="0">{
+                                cm.positionManager.UpdateContainerPosition(mc.id, mc.lastRead, logCount, bytesRead)
+                                // Reset counters for next batch
+                                logCount = 0
+                                bytesRead = 0
+                        }</span>
+                }
+
+                // Handle read errors
+                <span class="cov0" title="0">if err != nil </span><span class="cov0" title="0">{
+                        if err == io.EOF </span><span class="cov0" title="0">{
+                                return nil
+                        }</span>
+                        <span class="cov0" title="0">return err</span>
+                }
+        }
+}
+
+// containerExists verifica se um container ainda existe
+func (cm *ContainerMonitor) containerExists(containerID string) bool <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(cm.ctx, 5*time.Second)
+        defer cancel()
+
+        _, err := cm.dockerPool.ContainerInspect(ctx, containerID)
+        return err == nil
+}</span>
+
+// checkContainerRecentLogs verifica se container teve logs recentes via API
+func (cm *ContainerMonitor) checkContainerRecentLogs(containerID string) bool <span class="cov0" title="0">{
+        ctx, cancel := context.WithTimeout(cm.ctx, 5*time.Second)
+        defer cancel()
+
+        // Verificar logs dos últimos 30 segundos
+        since := time.Now().Add(-30 * time.Second).Format(time.RFC3339)
+
+        logOptions := dockerTypes.ContainerLogsOptions{
+                ShowStdout: true,
+                ShowStderr: true,
+                Since:      since,
+                Tail:       "1", // Apenas verificar se há pelo menos 1 log
+        }
+
+        stream, err := cm.dockerPool.ContainerLogs(ctx, containerID, logOptions)
+        if err != nil </span><span class="cov0" title="0">{
+                return false
+        }</span>
+        <span class="cov0" title="0">defer stream.Close()
+
+        // Ler até 1KB para verificar se há conteúdo
+        buf := make([]byte, 1024)
+        n, _ := stream.Read(buf)
+        return n &gt; 0</span>
+}
+
+// healthCheckContainers verifica saúde dos containers monitorados
+func (cm *ContainerMonitor) healthCheckContainers() <span class="cov0" title="0">{
+        cm.mutex.RLock()
+        containers := make([]*monitoredContainer, 0, len(cm.containers))
+        for _, mc := range cm.containers </span><span class="cov0" title="0">{
+                containers = append(containers, mc)
+        }</span>
+        <span class="cov0" title="0">cm.mutex.RUnlock()
+
+        for _, mc := range containers </span><span class="cov0" title="0">{
+                // Verificar se o container ainda existe
+                if !cm.containerExists(mc.id) </span><span class="cov0" title="0">{
+                        cm.mutex.Lock()
+                        cm.stopContainerMonitoring(mc.id)
+                        cm.mutex.Unlock()
+                        continue</span>
+                }
+
+                // Verificar se logs foram lidos recentemente (relaxar o tempo para containers com pouca atividade)
+                <span class="cov0" title="0">timeSinceLastRead := time.Since(mc.lastRead)
+                if timeSinceLastRead &gt; 10*time.Minute </span><span class="cov0" title="0">{
+                        // Verificar se container realmente tem logs recentes
+                        hasRecentLogs := cm.checkContainerRecentLogs(mc.id)
+
+                        logLevel := logrus.DebugLevel
+                        message := "Container has been quiet - normal for low activity containers"
+
+                        if hasRecentLogs </span><span class="cov0" title="0">{
+                                logLevel = logrus.WarnLevel
+                                message = "Container has recent logs but our stream is not capturing them - possible stream disconnection"
+
+                                // Se detectou desconexão de stream, forçar reconexão
+                                if timeSinceLastRead &gt; 15*time.Minute </span><span class="cov0" title="0">{
+                                        cm.logger.WithFields(logrus.Fields{
+                                                "container_id":   mc.id,
+                                                "container_name": mc.name,
+                                                "minutes_since_read": int(timeSinceLastRead.Minutes()),
+                                        }).Warn("Forcing container stream reconnection due to prolonged disconnection")
+
+                                        // Parar e reiniciar monitoramento do container
+                                        cm.mutex.Lock()
+                                        cm.stopContainerMonitoring(mc.id)
+
+                                        // Obter informações atualizadas do container
+                                        containers, err := cm.dockerPool.ContainerList(context.Background(), dockerTypes.ContainerListOptions{
+                                                All: true,
+                                                Filters: filters.NewArgs(filters.Arg("id", mc.id)),
+                                        })
+
+                                        if err != nil || len(containers) == 0 </span><span class="cov0" title="0">{
+                                                cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to get container info for reconnection")
+                                                cm.mutex.Unlock()
+                                                continue</span>
+                                        }
+
+                                        // Reiniciar monitoramento com informações atualizadas
+                                        <span class="cov0" title="0">cm.startContainerMonitoring(containers[0])
+                                        cm.mutex.Unlock()
+
+                                        cm.logger.WithFields(logrus.Fields{
+                                                "container_id":   mc.id,
+                                                "container_name": mc.name,
+                                        }).Info("Container stream reconnection completed")
+                                        continue</span>
+                                }
+                        }
+
+                        <span class="cov0" title="0">cm.logger.WithFields(logrus.Fields{
+                                "container_id":        mc.id,
+                                "container_name":      mc.name,
+                                "minutes_since_read":  int(timeSinceLastRead.Minutes()),
+                                "last_read":           mc.lastRead,
+                                "since_time":          mc.since,
+                                "has_recent_logs":     hasRecentLogs,
+                        }).Log(logLevel, message)</span>
+                }
+        }
+}
+
+// getHostIP obtém o IP do host
+func getHostIP() string <span class="cov0" title="0">{
+        // Tentar obter IP através de interface de rede
+        interfaces, err := net.Interfaces()
+        if err != nil </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+
+        <span class="cov0" title="0">for _, iface := range interfaces </span><span class="cov0" title="0">{
+                if iface.Flags&amp;net.FlagUp == 0 || iface.Flags&amp;net.FlagLoopback != 0 </span><span class="cov0" title="0">{
+                        continue</span> // Interface down ou loopback
+                }
+
+                <span class="cov0" title="0">addrs, err := iface.Addrs()
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">for _, addr := range addrs </span><span class="cov0" title="0">{
+                        if ipnet, ok := addr.(*net.IPNet); ok &amp;&amp; !ipnet.IP.IsLoopback() </span><span class="cov0" title="0">{
+                                if ipnet.IP.To4() != nil </span><span class="cov0" title="0">{
+                                        return ipnet.IP.String()
+                                }</span>
+                        }
+                }
+        }
+
+        <span class="cov0" title="0">return "unknown"</span>
+}
+
+// getHostname obtém o nome do host
+func getHostname() string <span class="cov0" title="0">{
+        hostname, err := os.Hostname()
+        if err != nil </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+        <span class="cov0" title="0">return hostname</span>
+}
+
+// addStandardLabels adiciona labels padrão para logs de containers
+func addStandardLabels(labels map[string]string) map[string]string <span class="cov0" title="0">{
+        // Criar um novo mapa copiando as labels existentes
+        result := make(map[string]string)
+
+        // Copiar apenas labels permitidas (filtrar labels indesejadas do Docker Compose)
+        forbiddenLabels := map[string]bool{
+                "test_label":                               true,
+                "service_name":                             true,
+                "project":                                  true,
+                "log_type":                                 true,
+                "maintainer":                               true,
+                "job":                                      true,
+                "environment":                              true,
+                "com.docker.compose.project":               true,
+                "com.docker.compose.project.config_files": true,
+                "com.docker.compose.project.working_dir":   true,
+                "com.docker.compose.config-hash":           true,
+                "com.docker.compose.version":               true,
+                "com.docker.compose.oneoff":                true,
+                "com.docker.compose.depends_on":            true,
+                "com.docker.compose.image":                 true,
+                "org.opencontainers.image.source":          true,
+        }
+
+        for k, v := range labels </span><span class="cov0" title="0">{
+                if !forbiddenLabels[k] </span><span class="cov0" title="0">{
+                        result[k] = v
+                }</span>
+        }
+
+        // Labels padrão obrigatórias (sobrescrevem as existentes)
+        <span class="cov0" title="0">result["service"] = "ssw-log-capturer"
+        result["source"] = "docker"
+        result["instance"] = getHostIP()
+        result["instance_name"] = getHostname()
+
+        return result</span>
+}</pre>
+		
+		<pre class="file" id="file1" style="display: none">package monitors
+
+import (
+        "bufio"
+        "context"
+        "crypto/sha256"
+        "fmt"
+        "io"
+        "net"
+        "os"
+        "path/filepath"
+        "strings"
+        "sync"
+        "syscall"
+        "time"
+
+        "ssw-logs-capture/internal/metrics"
+        "ssw-logs-capture/pkg/positions"
+        "ssw-logs-capture/pkg/selfguard"
+        "ssw-logs-capture/pkg/types"
+        "ssw-logs-capture/pkg/validation"
+
+        "github.com/fsnotify/fsnotify"
+        "github.com/google/uuid"
+        "github.com/sirupsen/logrus"
+)
+
+
+// FileMonitor monitora arquivos de log
+type FileMonitor struct {
+        config         types.FileConfig
+        dispatcher       types.Dispatcher
+        logger           *logrus.Logger
+        taskManager      types.TaskManager
+        positionManager    *positions.PositionBufferManager
+        timestampValidator *validation.TimestampValidator
+        feedbackGuard      *selfguard.FeedbackGuard
+
+        watcher         *fsnotify.Watcher
+        files           map[string]*monitoredFile
+        lastQuietLogTime map[string]time.Time  // Rate limiting for quiet file logs
+        specificFiles   map[string]bool // Arquivos específicos do pipeline (precedência)
+        mutex           sync.RWMutex
+        wg              sync.WaitGroup // Rastreia goroutines de descoberta
+
+        ctx          context.Context
+        cancel       context.CancelFunc
+        isRunning    bool
+}
+
+// monitoredFile representa um arquivo sendo monitorado
+type monitoredFile struct {
+        path        string
+        file        *os.File
+        reader      *bufio.Reader
+        position    int64
+        labels      map[string]string
+        lastModTime time.Time
+        lastRead    time.Time
+}
+
+// NewFileMonitor cria um novo monitor de arquivos
+func NewFileMonitor(config types.FileConfig, timestampConfig types.TimestampValidationConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*FileMonitor, error) <span class="cov0" title="0">{
+        watcher, err := fsnotify.NewWatcher()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create file watcher: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">ctx, cancel := context.WithCancel(context.Background())
+
+        // Converter config para o formato do validation package
+        validationConfig := validation.Config{
+                Enabled:             timestampConfig.Enabled,
+                MaxPastAgeSeconds:   timestampConfig.MaxPastAgeSeconds,
+                MaxFutureAgeSeconds: timestampConfig.MaxFutureAgeSeconds,
+                ClampEnabled:        timestampConfig.ClampEnabled,
+                ClampDLQ:            timestampConfig.ClampDLQ,
+                InvalidAction:       timestampConfig.InvalidAction,
+                DefaultTimezone:     timestampConfig.DefaultTimezone,
+                AcceptedFormats:     timestampConfig.AcceptedFormats,
+        }
+        timestampValidator := validation.NewTimestampValidator(validationConfig, logger, nil)
+
+        // Criar feedback guard com configuração padrão
+        feedbackConfig := selfguard.Config{
+                Enabled:                false,
+                SelfIDShort:            "log_capturer_go",
+                SelfContainerName:      "log_capturer_go",
+                SelfNamespace:          "ssw",
+                AutoDetectSelf:         true,
+                SelfLogAction:          "drop",
+                ExcludePathPatterns:    []string{".*/app/logs/.*"},
+                ExcludeMessagePatterns: []string{".*ssw-logs-capture.*"},
+        }
+        feedbackGuard := selfguard.NewFeedbackGuard(feedbackConfig, logger)
+
+        fm := &amp;FileMonitor{
+                config:             config,
+                dispatcher:         dispatcher,
+                logger:             logger,
+                taskManager:        taskManager,
+                positionManager:    positionManager,
+                timestampValidator: timestampValidator,
+                feedbackGuard:      feedbackGuard,
+                watcher:            watcher,
+                files:              make(map[string]*monitoredFile),
+                lastQuietLogTime:   make(map[string]time.Time),
+                specificFiles:      make(map[string]bool),
+                ctx:                ctx,
+                cancel:             cancel,
+        }
+
+        return fm, nil</span>
+}
+
+// Start inicia o monitor de arquivos
+func (fm *FileMonitor) Start(ctx context.Context) error <span class="cov0" title="0">{
+        if !fm.config.Enabled </span><span class="cov0" title="0">{
+                fm.logger.Info("File monitor disabled")
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">fm.mutex.Lock()
+        defer fm.mutex.Unlock()
+
+        if fm.isRunning </span><span class="cov0" title="0">{
+                return fmt.Errorf("file monitor already running")
+        }</span>
+
+        <span class="cov0" title="0">fm.isRunning = true
+        fm.logger.Info("Starting file monitor")
+
+        // Iniciar position manager (se disponível)
+        if fm.positionManager != nil </span><span class="cov0" title="0">{
+                if err := fm.positionManager.Start(); err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to start position manager: %w", err)
+                }</span>
+        } else<span class="cov0" title="0"> {
+                fm.logger.Warn("Position manager not available, position tracking will be disabled")
+        }</span>
+
+        // Iniciar descoberta automática de arquivos em background após 2 segundos
+        <span class="cov0" title="0">fm.wg.Add(1)
+        go func() </span><span class="cov0" title="0">{
+                defer fm.wg.Done()
+                fm.logger.Info("Starting file discovery goroutine")
+
+                // Aguardar 2 segundos ou até o contexto ser cancelado
+                select </span>{
+                case &lt;-time.After(2 * time.Second):<span class="cov0" title="0"></span>
+                        // Continuar com a descoberta
+                case &lt;-fm.ctx.Done():<span class="cov0" title="0">
+                        fm.logger.Info("File discovery goroutine cancelled during startup delay")
+                        return</span>
+                }
+
+                <span class="cov0" title="0">fm.logger.Info("Beginning automatic file discovery")
+                if err := fm.discoverFiles(); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).Warn("Failed to discover files during startup")
+                }</span> else<span class="cov0" title="0"> {
+                        fm.logger.Info("Automatic file discovery completed successfully")
+                }</span>
+
+                <span class="cov0" title="0">fm.logger.Info("File discovery goroutine completed")</span>
+        }()
+
+        // Iniciar task de monitoramento principal
+        <span class="cov0" title="0">if err := fm.taskManager.StartTask(ctx, "file_monitor", fm.monitorLoop); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to start file monitor task: %w", err)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// Stop para o monitor de arquivos
+func (fm *FileMonitor) Stop() error <span class="cov0" title="0">{
+        fm.mutex.Lock()
+        if !fm.isRunning </span><span class="cov0" title="0">{
+                fm.mutex.Unlock()
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">fm.logger.Info("Stopping file monitor")
+        fm.isRunning = false
+        fm.mutex.Unlock() // Unlock early to allow goroutines to finish
+
+        // Cancelar contexto
+        fm.cancel()
+
+        // Aguardar goroutines terminarem com timeout
+        done := make(chan struct{})
+        go func() </span><span class="cov0" title="0">{
+                fm.wg.Wait()
+                close(done)
+        }</span>()
+
+        <span class="cov0" title="0">select </span>{
+        case &lt;-done:<span class="cov0" title="0">
+                fm.logger.Info("All file monitor goroutines stopped cleanly")</span>
+        case &lt;-time.After(10 * time.Second):<span class="cov0" title="0">
+                fm.logger.Warn("Timeout waiting for file monitor goroutines to stop")</span>
+        }
+
+        // Parar tasks
+        <span class="cov0" title="0">fm.taskManager.StopTask("file_monitor")
+
+        // Parar position manager
+        if fm.positionManager != nil </span><span class="cov0" title="0">{
+                fm.positionManager.Stop()
+        }</span>
+
+        // Fechar watcher
+        <span class="cov0" title="0">if fm.watcher != nil </span><span class="cov0" title="0">{
+                fm.watcher.Close()
+        }</span>
+
+        // Fechar arquivos abertos
+        <span class="cov0" title="0">for _, file := range fm.files </span><span class="cov0" title="0">{
+                if file.file != nil </span><span class="cov0" title="0">{
+                        file.file.Close()
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// IsHealthy verifica se o monitor está saudável
+func (fm *FileMonitor) IsHealthy() bool <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        defer fm.mutex.RUnlock()
+        return fm.isRunning
+}</span>
+
+// GetStatus retorna o status do monitor
+func (fm *FileMonitor) GetStatus() types.MonitorStatus <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        defer fm.mutex.RUnlock()
+
+        return types.MonitorStatus{
+                Name:      "file_monitor",
+                IsRunning: fm.isRunning,
+                IsHealthy: fm.isRunning,
+        }
+}</span>
+
+// AddFile adiciona um arquivo para monitoramento
+func (fm *FileMonitor) AddFile(filePath string, labels map[string]string) error <span class="cov0" title="0">{
+        fm.mutex.Lock()
+        defer fm.mutex.Unlock()
+
+        // Verificar se arquivo existe
+        info, err := os.Stat(filePath)
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to stat file %s: %w", filePath, err)
+        }</span>
+
+        <span class="cov0" title="0">if info.IsDir() </span><span class="cov0" title="0">{
+                return fmt.Errorf("path %s is a directory", filePath)
+        }</span>
+
+        // Verificar se já está sendo monitorado
+        <span class="cov0" title="0">if _, exists := fm.files[filePath]; exists </span><span class="cov0" title="0">{
+                return fmt.Errorf("file %s is already being monitored", filePath)
+        }</span>
+
+        // Criar monitoredFile
+        <span class="cov0" title="0">mf := &amp;monitoredFile{
+                path:        filePath,
+                labels:      labels,
+                lastModTime: info.ModTime(),
+                lastRead:    time.Now(),
+        }
+
+        // Carregar posição salva se existir
+        if fm.positionManager != nil </span><span class="cov0" title="0">{
+                mf.position = fm.positionManager.GetFileOffset(filePath)
+        }</span>
+
+        <span class="cov0" title="0">fm.files[filePath] = mf
+
+        // Adicionar ao watcher
+        if err := fm.watcher.Add(filePath); err != nil </span><span class="cov0" title="0">{
+                delete(fm.files, filePath)
+                return fmt.Errorf("failed to add file to watcher: %w", err)
+        }</span>
+
+        // Atualizar métrica
+        <span class="cov0" title="0">sourceID := fm.getSourceID(filePath)
+        metrics.SetFileMonitored(filePath, "file", true)
+
+        // Atualizar total de arquivos monitorados
+        metrics.UpdateTotalFilesMonitored(len(fm.files))
+
+        fm.logger.WithFields(logrus.Fields{
+                "path":      filePath,
+                "source_id": sourceID,
+                "position":  mf.position,
+                "size":      info.Size(),
+        }).Info("File added to monitoring")
+
+        // Read initial content if file has data
+        if info.Size() &gt; mf.position </span><span class="cov0" title="0">{
+                fm.logger.WithFields(logrus.Fields{
+                        "path": filePath,
+                        "size": info.Size(),
+                        "position": mf.position,
+                }).Info("Reading initial content from file")
+                fm.wg.Add(1) // Track this goroutine
+                go func() </span><span class="cov0" title="0">{
+                        defer fm.wg.Done() // Always cleanup
+                        time.Sleep(100 * time.Millisecond) // Small delay to ensure setup is complete
+                        fm.readFile(mf)
+                }</span>()
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// RemoveFile remove um arquivo do monitoramento
+func (fm *FileMonitor) RemoveFile(filePath string) error <span class="cov0" title="0">{
+        fm.mutex.Lock()
+        defer fm.mutex.Unlock()
+
+        mf, exists := fm.files[filePath]
+        if !exists </span><span class="cov0" title="0">{
+                return fmt.Errorf("file %s is not being monitored", filePath)
+        }</span>
+
+        // Remover do watcher
+        <span class="cov0" title="0">fm.watcher.Remove(filePath)
+
+        // Fechar arquivo se estiver aberto
+        if mf.file != nil </span><span class="cov0" title="0">{
+                mf.file.Close()
+        }</span>
+
+        // Remover do mapa
+        <span class="cov0" title="0">delete(fm.files, filePath)
+
+        // Atualizar métrica
+        metrics.SetFileMonitored(filePath, "file", false)
+
+        // Atualizar total de arquivos monitorados
+        metrics.UpdateTotalFilesMonitored(len(fm.files))
+
+        fm.logger.WithField("path", filePath).Info("File removed from monitoring")
+        return nil</span>
+}
+
+// GetMonitoredFiles retorna lista de arquivos monitorados
+func (fm *FileMonitor) GetMonitoredFiles() []map[string]string <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        defer fm.mutex.RUnlock()
+
+        result := make([]map[string]string, 0, len(fm.files))
+        for path := range fm.files </span><span class="cov0" title="0">{
+                result = append(result, map[string]string{
+                        "task_name": fm.getTaskName(path),
+                        "filepath":  path,
+                })
+        }</span>
+
+        <span class="cov0" title="0">return result</span>
+}
+
+// monitorLoop loop principal de monitoramento
+func (fm *FileMonitor) monitorLoop(ctx context.Context) error <span class="cov0" title="0">{
+        // Use a faster ticker for polling
+        ticker := time.NewTicker(fm.config.PollInterval)
+        defer ticker.Stop()
+
+        // Also create a separate ticker for active polling
+        pollTicker := time.NewTicker(2 * time.Second)
+        defer pollTicker.Stop()
+
+        for </span><span class="cov0" title="0">{
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        return nil</span>
+                case event := &lt;-fm.watcher.Events:<span class="cov0" title="0">
+                        fm.handleFileEvent(event)</span>
+                case err := &lt;-fm.watcher.Errors:<span class="cov0" title="0">
+                        fm.logger.WithError(err).Error("File watcher error")
+                        metrics.RecordError("file_monitor", "watcher_error")</span>
+                case &lt;-ticker.C:<span class="cov0" title="0">
+                        fm.healthCheckFiles()</span>
+                case &lt;-pollTicker.C:<span class="cov0" title="0">
+                        // Active polling - check all files for changes
+                        fm.pollAllFiles()</span>
+                }
+
+                // Heartbeat
+                <span class="cov0" title="0">fm.taskManager.Heartbeat("file_monitor")</span>
+        }
+}
+
+// pollAllFiles actively polls all monitored files for changes
+func (fm *FileMonitor) pollAllFiles() <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        files := make([]*monitoredFile, 0, len(fm.files))
+        for _, mf := range fm.files </span><span class="cov0" title="0">{
+                files = append(files, mf)
+        }</span>
+        <span class="cov0" title="0">fm.mutex.RUnlock()
+
+        for _, mf := range files </span><span class="cov0" title="0">{
+                info, err := os.Stat(mf.path)
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                // Check if file has grown (new content)
+                <span class="cov0" title="0">if info.Size() &gt; mf.position </span><span class="cov0" title="0">{
+                        fm.logger.WithFields(logrus.Fields{
+                                "path": mf.path,
+                                "old_position": mf.position,
+                                "new_size": info.Size(),
+                        }).Debug("File has new content, reading...")
+                        fm.readFile(mf)
+                }</span>
+        }
+}
+
+// healthCheckFiles verifica a saúde dos arquivos monitorados sem reler o conteúdo.
+func (fm *FileMonitor) healthCheckFiles() <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        files := make([]*monitoredFile, 0, len(fm.files))
+        for _, mf := range fm.files </span><span class="cov0" title="0">{
+                files = append(files, mf)
+        }</span>
+        <span class="cov0" title="0">fm.mutex.RUnlock()
+
+        for _, mf := range files </span><span class="cov0" title="0">{
+                info, err := os.Stat(mf.path)
+                if err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", mf.path).Warn("Health check: failed to stat file. It might have been removed.")
+                        // A lógica de remoção pode ser acionada aqui se necessário
+                        continue</span>
+                }
+
+                // Lógica para verificar se o arquivo foi rotacionado ou truncado silenciosamente
+                // Esta é uma verificação de segurança caso o fsnotify falhe.
+                <span class="cov0" title="0">if info.Size() &lt; mf.position </span><span class="cov0" title="0">{
+                        fm.logger.WithFields(logrus.Fields{
+                                "path": mf.path,
+                                "stored_position": mf.position,
+                                "actual_size": info.Size(),
+                        }).Warn("Health check detected file truncation. Forcing re-read.")
+                        mf.position = 0 // Reseta a posição
+                        fm.readFile(mf) // Força a releitura
+                }</span>
+        }
+}
+
+// handleFileEvent processa eventos do file watcher
+func (fm *FileMonitor) handleFileEvent(event fsnotify.Event) <span class="cov0" title="0">{
+        // Log all events for debugging
+        fm.logger.WithFields(logrus.Fields{
+                "event": event.String(),
+                "op": event.Op.String(),
+                "file": event.Name,
+        }).Debug("File event received")
+
+        // Process WRITE, CREATE, and CHMOD events
+        if event.Op&amp;fsnotify.Write == fsnotify.Write ||
+           event.Op&amp;fsnotify.Create == fsnotify.Create ||
+           event.Op&amp;fsnotify.Chmod == fsnotify.Chmod </span><span class="cov0" title="0">{
+                fm.mutex.RLock()
+                mf, exists := fm.files[event.Name]
+                fm.mutex.RUnlock()
+
+                if exists </span><span class="cov0" title="0">{
+                        fm.logger.WithField("path", event.Name).Debug("Reading file after event")
+                        fm.readFile(mf)
+                }</span>
+        }
+}
+
+// shouldLogQuietFile checks if enough time has passed to log quiet file message again
+func (fm *FileMonitor) shouldLogQuietFile(filePath string) bool <span class="cov0" title="0">{
+        fm.mutex.Lock()
+        defer fm.mutex.Unlock()
+
+        lastLogTime, exists := fm.lastQuietLogTime[filePath]
+        now := time.Now()
+
+        // Log only once per hour for each file
+        if !exists || now.Sub(lastLogTime) &gt;= time.Hour </span><span class="cov0" title="0">{
+                fm.lastQuietLogTime[filePath] = now
+                return true
+        }</span>
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// pollFiles verifica arquivos periodicamente
+func (fm *FileMonitor) pollFiles() <span class="cov0" title="0">{
+        fm.mutex.RLock()
+        files := make([]*monitoredFile, 0, len(fm.files))
+        for _, mf := range fm.files </span><span class="cov0" title="0">{
+                files = append(files, mf)
+        }</span>
+        <span class="cov0" title="0">fileCount := len(fm.files)
+        fm.mutex.RUnlock()
+
+        // Se não há arquivos sendo monitorados, tentar descoberta automática
+        if fileCount == 0 &amp;&amp; len(fm.config.WatchDirectories) &gt; 0 </span><span class="cov0" title="0">{
+                fm.logger.Info("No files being monitored, triggering automatic file discovery")
+                if err := fm.discoverFiles(); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).Warn("Failed to discover files during periodic check")
+                }</span>
+                <span class="cov0" title="0">return</span>
+        }
+
+        <span class="cov0" title="0">for _, mf := range files </span><span class="cov0" title="0">{
+                // Verificar se arquivo foi modificado
+                info, err := os.Stat(mf.path)
+                if err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", mf.path).Warn("Failed to stat file")
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">if info.ModTime().After(mf.lastModTime) </span><span class="cov0" title="0">{
+                        mf.lastModTime = info.ModTime()
+                        fm.readFile(mf)
+                }</span>
+
+                // Health check - verificar se arquivo não foi lido há muito tempo
+                <span class="cov0" title="0">timeSinceLastRead := time.Since(mf.lastRead)
+                if timeSinceLastRead &gt; 15*time.Minute </span><span class="cov0" title="0">{
+                        // Verificar se arquivo tem conteúdo novo ou foi modificado recentemente
+                        hasRecentChanges := info.ModTime().After(time.Now().Add(-10 * time.Minute))
+
+                        logLevel := logrus.DebugLevel
+                        message := "File has been quiet - normal for low activity files"
+
+                        if hasRecentChanges </span><span class="cov0" title="0">{
+                                logLevel = logrus.WarnLevel
+                                message = "File has recent changes but stream is not capturing them - possible file monitor disconnection"
+
+                                // Se detectou desconexão de arquivo, forçar reconexão
+                                if timeSinceLastRead &gt; 20*time.Minute </span><span class="cov0" title="0">{
+                                        fm.logger.WithFields(logrus.Fields{
+                                                "path": mf.path,
+                                                "minutes_since_read": int(timeSinceLastRead.Minutes()),
+                                        }).Warn("Forcing file monitor reconnection due to prolonged disconnection")
+
+                                        // Fechar arquivo atual e forçar reabertura
+                                        if mf.file != nil </span><span class="cov0" title="0">{
+                                                mf.file.Close()
+                                                mf.file = nil
+                                                mf.reader = nil
+                                        }</span>
+
+                                        // Tentar ler o arquivo novamente
+                                        <span class="cov0" title="0">fm.readFile(mf)
+
+                                        fm.logger.WithField("path", mf.path).Info("File monitor reconnection completed")
+                                        continue</span>
+                                }
+                        }
+
+                        // Only log quiet file messages once per hour to reduce log spam
+                        <span class="cov0" title="0">if logLevel == logrus.DebugLevel &amp;&amp; fm.shouldLogQuietFile(mf.path) </span><span class="cov0" title="0">{
+                                fm.logger.WithFields(logrus.Fields{
+                                        "path":               mf.path,
+                                        "minutes_since_read": int(timeSinceLastRead.Minutes()),
+                                        "last_read":          mf.lastRead,
+                                        "last_mod_time":      info.ModTime(),
+                                        "has_recent_changes": hasRecentChanges,
+                                }).Log(logLevel, message)
+                        }</span> else<span class="cov0" title="0"> if logLevel != logrus.DebugLevel </span><span class="cov0" title="0">{
+                                // Always log warning/error level messages (like reconnection attempts)
+                                fm.logger.WithFields(logrus.Fields{
+                                        "path":               mf.path,
+                                        "minutes_since_read": int(timeSinceLastRead.Minutes()),
+                                        "last_read":          mf.lastRead,
+                                        "last_mod_time":      info.ModTime(),
+                                        "has_recent_changes": hasRecentChanges,
+                                }).Log(logLevel, message)
+                        }</span>
+                }
+        }
+}
+
+// readFile lê novas linhas de um arquivo
+func (fm *FileMonitor) readFile(mf *monitoredFile) <span class="cov0" title="0">{
+        // Abrir arquivo se necessário
+        if mf.file == nil </span><span class="cov0" title="0">{
+                file, err := os.Open(mf.path)
+                if err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to open file")
+                        metrics.RecordError("file_monitor", "file_open_error")
+                        return
+                }</span>
+
+                // Garantir fechamento em caso de erro
+                <span class="cov0" title="0">defer func() </span><span class="cov0" title="0">{
+                        if mf.file == nil &amp;&amp; file != nil </span><span class="cov0" title="0">{
+                                file.Close()
+                        }</span>
+                }()
+
+                <span class="cov0" title="0">mf.file = file
+                mf.reader = bufio.NewReader(file)
+
+                // Buscar posição salva
+                if _, err := file.Seek(mf.position, 0); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", mf.path).Warn("Failed to seek to saved position")
+                        mf.position = 0
+                        if _, seekErr := file.Seek(0, 0); seekErr != nil </span><span class="cov0" title="0">{
+                                fm.logger.WithError(seekErr).WithField("path", mf.path).Error("Failed to seek to beginning")
+                                // Fechar arquivo em caso de erro fatal
+                                mf.file.Close()
+                                mf.file = nil
+                                mf.reader = nil
+                                return
+                        }</span>
+                }
+        }
+
+        // Ler linhas
+        <span class="cov0" title="0">startTime := time.Now()
+        linesRead := 0
+
+        for </span><span class="cov0" title="0">{
+                line, err := mf.reader.ReadString('\n')
+                if err != nil </span><span class="cov0" title="0">{
+                        if err == io.EOF </span><span class="cov0" title="0">{
+                                // Fim do arquivo
+                                break</span>
+                        }
+                        <span class="cov0" title="0">fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to read line")
+                        metrics.RecordError("file_monitor", "read_error")
+                        break</span>
+                }
+
+                // Remover newline
+                <span class="cov0" title="0">line = strings.TrimSuffix(line, "\n")
+                if line == "" </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                // Processar linha com labels padrão
+                <span class="cov0" title="0">sourceID := fm.getSourceID(mf.path)
+                standardLabels := addStandardLabelsFile(mf.labels)
+
+                // Criar entry para validações
+                traceID := uuid.New().String()
+                entry := &amp;types.LogEntry{
+                        TraceID:     traceID,
+                        Timestamp:   time.Now().UTC(), // Force UTC to prevent Loki "timestamp too new" errors
+                        Message:     line,
+                        SourceType:  "file",
+                        SourceID:    sourceID,
+                        Labels:      standardLabels,
+                        ProcessedAt: time.Now().UTC(),
+                }
+
+                // Verificar se é self-log usando feedback guard (temporariamente desabilitado)
+                /*
+                if fm.feedbackGuard != nil {
+                        guardResult := fm.feedbackGuard.CheckEntry(entry)
+                        if guardResult.IsSelfLog &amp;&amp; guardResult.Action == "drop" {
+                                fm.logger.WithFields(logrus.Fields{
+                                        "path":          mf.path,
+                                        "reason":        guardResult.Reason,
+                                        "match_pattern": guardResult.MatchPattern,
+                                }).Debug("Self-log dropped by feedback guard")
+                                continue
+                        }
+                }
+                */
+
+                // Validar timestamp se o timestamp validator estiver disponível
+                if fm.timestampValidator != nil </span><span class="cov0" title="0">{
+                        result := fm.timestampValidator.ValidateTimestamp(entry)
+                        if !result.Valid &amp;&amp; result.Action == "rejected" </span><span class="cov0" title="0">{
+                                fm.logger.WithFields(logrus.Fields{
+                                        "path":   mf.path,
+                                        "reason": result.Reason,
+                                        "line":   line,
+                                }).Warn("Log line rejected due to invalid timestamp")
+                                continue</span>
+                        }
+                }
+
+                <span class="cov0" title="0">if err := fm.dispatcher.Handle(fm.ctx, "file", sourceID, line, standardLabels); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to dispatch log line")
+                        metrics.RecordError("file_monitor", "dispatch_error")
+                }</span>
+
+                <span class="cov0" title="0">linesRead++
+                mf.position += int64(len(line)) + 1</span> // +1 para o newline
+        }
+
+        <span class="cov0" title="0">mf.lastRead = time.Now()
+
+        // Atualizar posição no position manager
+        if fm.positionManager != nil &amp;&amp; linesRead &gt; 0 </span><span class="cov0" title="0">{
+                // Get file info for inode and device
+                info, err := os.Stat(mf.path)
+                if err == nil </span><span class="cov0" title="0">{
+                        // Get file size
+                        fileSize := info.Size()
+                        lastModTime := info.ModTime()
+
+                        // Get inode and device (will be 0 on non-Unix systems, but that's ok)
+                        var inode, device uint64
+                        if stat, ok := info.Sys().(*syscall.Stat_t); ok </span><span class="cov0" title="0">{
+                                inode = stat.Ino
+                                device = stat.Dev
+                        }</span>
+
+                        <span class="cov0" title="0">bytesRead := int64(linesRead * 10) // Rough estimate, could be improved
+                        if fm.positionManager != nil </span><span class="cov0" title="0">{
+                        fm.positionManager.UpdateFilePosition(
+                                mf.path,
+                                mf.position,
+                                fileSize,
+                                lastModTime,
+                                inode,
+                                device,
+                                bytesRead,
+                                int64(linesRead),
+                        )
+                        }</span>
+                }
+        }
+
+        // Métricas
+        <span class="cov0" title="0">if linesRead &gt; 0 </span><span class="cov0" title="0">{
+                duration := time.Since(startTime)
+                metrics.RecordProcessingDuration("file_monitor", "read_file", duration)
+                metrics.RecordLogProcessed("file", fm.getSourceID(mf.path), "file_monitor")
+        }</span>
+}
+
+
+// getSourceID gera um ID único para o arquivo
+func (fm *FileMonitor) getSourceID(path string) string <span class="cov0" title="0">{
+        hash := sha256.Sum256([]byte(path))
+        return fmt.Sprintf("%x", hash)[:12]
+}</span>
+
+// getTaskName gera nome da task para o arquivo
+func (fm *FileMonitor) getTaskName(path string) string <span class="cov0" title="0">{
+        return "file_" + fm.getSourceID(path)
+}</span>
+
+// getMapKeys helper function to get keys from a map
+func getMapKeys(m map[string]interface{}) []string <span class="cov0" title="0">{
+        keys := make([]string, 0, len(m))
+        for k := range m </span><span class="cov0" title="0">{
+                keys = append(keys, k)
+        }</span>
+        <span class="cov0" title="0">return keys</span>
+}
+
+// discoverFiles descobre arquivos automaticamente baseado em watch_directories
+func (fm *FileMonitor) discoverFiles() error <span class="cov0" title="0">{
+        // Debug log to see config state
+        fm.logger.WithFields(logrus.Fields{
+                "has_pipeline_config": fm.config.PipelineConfig != nil,
+                "pipeline_config_len": len(fm.config.PipelineConfig),
+        }).Debug("Starting file discovery")
+
+        // Se tem pipeline configurado, processar ele primeiro
+        if fm.config.PipelineConfig != nil </span><span class="cov0" title="0">{
+                fm.logger.Info("Processing file pipeline configuration")
+
+                // Processar arquivos específicos do pipeline
+                if err := fm.processSpecificFiles(); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).Warn("Failed to process specific files from pipeline")
+                }</span>
+
+                // Processar diretórios do pipeline
+                <span class="cov0" title="0">if err := fm.processPipelineDirectories(); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).Warn("Failed to process directories from pipeline")
+                }</span>
+        } else<span class="cov0" title="0"> {
+                // Usar configuração default de files_config
+                fm.logger.Info("No pipeline configured, using default directories from files_config")
+                for _, directory := range fm.config.WatchDirectories </span><span class="cov0" title="0">{
+                        fm.logger.WithField("directory", directory).Info("Scanning directory for log files")
+
+                        if err := fm.scanDirectory(directory); err != nil </span><span class="cov0" title="0">{
+                                fm.logger.WithError(err).WithField("directory", directory).Error("Failed to scan directory")
+                                continue</span>
+                        }
+                }
+        }
+
+        <span class="cov0" title="0">fm.logger.WithField("monitored_files", len(fm.files)).Info("File discovery completed")
+        return nil</span>
+}
+
+// processSpecificFiles processa arquivos específicos do pipeline
+func (fm *FileMonitor) processSpecificFiles() error <span class="cov0" title="0">{
+        if fm.config.PipelineConfig == nil </span><span class="cov0" title="0">{
+                fm.logger.Warn("PipelineConfig is nil in processSpecificFiles")
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">fm.logger.WithField("pipeline_config_keys", fmt.Sprintf("%v", getMapKeys(fm.config.PipelineConfig))).
+                Debug("PipelineConfig contents")
+
+        // Obter lista de arquivos do pipeline config
+        filesInterface, ok := fm.config.PipelineConfig["files"]
+        if !ok </span><span class="cov0" title="0">{
+                fm.logger.Debug("No 'files' section found in pipeline config")
+                return nil
+        }</span>
+
+        // Converter para slice de interface{}
+        <span class="cov0" title="0">filesSlice, ok := filesInterface.([]interface{})
+        if !ok </span><span class="cov0" title="0">{
+                fm.logger.WithField("type", fmt.Sprintf("%T", filesInterface)).Warn("'files' section is not an array")
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">fm.logger.WithField("count", len(filesSlice)).Info("Processing specific files from pipeline")
+
+        // Processar cada arquivo
+        for _, fileInterface := range filesSlice </span><span class="cov0" title="0">{
+                // Try both map[string]interface{} and map[interface{}]interface{} since YAML can return either
+                var fileMap map[string]interface{}
+
+                switch v := fileInterface.(type) </span>{
+                case map[string]interface{}:<span class="cov0" title="0">
+                        fileMap = v</span>
+                case map[interface{}]interface{}:<span class="cov0" title="0">
+                        // Convert map[interface{}]interface{} to map[string]interface{}
+                        fileMap = make(map[string]interface{})
+                        for key, value := range v </span><span class="cov0" title="0">{
+                                if keyStr, ok := key.(string); ok </span><span class="cov0" title="0">{
+                                        fileMap[keyStr] = value
+                                }</span>
+                        }
+                default:<span class="cov0" title="0">
+                        fm.logger.WithField("type", fmt.Sprintf("%T", fileInterface)).Warn("File entry is not a map")
+                        continue</span>
+                }
+
+                // Extrair path
+                <span class="cov0" title="0">pathInterface, ok := fileMap["path"]
+                if !ok </span><span class="cov0" title="0">{
+                        fm.logger.Warn("File entry missing 'path' field")
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">path, ok := pathInterface.(string)
+                if !ok </span><span class="cov0" title="0">{
+                        fm.logger.WithField("type", fmt.Sprintf("%T", pathInterface)).Warn("File path is not a string")
+                        continue</span>
+                }
+
+                // Verificar se está habilitado
+                <span class="cov0" title="0">enabledInterface, ok := fileMap["enabled"]
+                if ok </span><span class="cov0" title="0">{
+                        enabled, ok := enabledInterface.(bool)
+                        if ok &amp;&amp; !enabled </span><span class="cov0" title="0">{
+                                fm.logger.WithField("path", path).Info("File is disabled in pipeline, skipping")
+                                continue</span>
+                        }
+                }
+                <span class="cov0" title="0">fm.logger.WithField("path", path).Info("File is enabled in pipeline, adding to monitoring")
+
+                // Extrair labels
+                labels := make(map[string]string)
+                labelsInterface, ok := fileMap["labels"]
+                if ok </span><span class="cov0" title="0">{
+                        switch labelsValue := labelsInterface.(type) </span>{
+                        case map[string]interface{}:<span class="cov0" title="0">
+                                for key, valueInterface := range labelsValue </span><span class="cov0" title="0">{
+                                        if value, ok := valueInterface.(string); ok </span><span class="cov0" title="0">{
+                                                labels[key] = value
+                                        }</span>
+                                }
+                        case map[interface{}]interface{}:<span class="cov0" title="0">
+                                for keyInterface, valueInterface := range labelsValue </span><span class="cov0" title="0">{
+                                        if key, ok := keyInterface.(string); ok </span><span class="cov0" title="0">{
+                                                if value, ok := valueInterface.(string); ok </span><span class="cov0" title="0">{
+                                                        labels[key] = value
+                                                }</span>
+                                        }
+                                }
+                        }
+                }
+
+                // Marcar como arquivo específico para evitar duplicação
+                <span class="cov0" title="0">fm.specificFiles[path] = true
+
+                // Adicionar arquivo para monitoramento
+                if err := fm.AddFile(path, labels); err != nil </span><span class="cov0" title="0">{
+                        fm.logger.WithError(err).WithField("path", path).Warn("Failed to add specific file from pipeline")
+                }</span> else<span class="cov0" title="0"> {
+                        fm.logger.WithField("path", path).Info("Added specific file from pipeline")
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// processPipelineDirectories processa diretórios do pipeline
+func (fm *FileMonitor) processPipelineDirectories() error <span class="cov0" title="0">{
+        if fm.config.PipelineConfig == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        // Obter lista de diretórios do pipeline config
+        <span class="cov0" title="0">dirsInterface, ok := fm.config.PipelineConfig["directories"]
+        if !ok </span><span class="cov0" title="0">{
+                fm.logger.Debug("No 'directories' section found in pipeline config")
+                return nil
+        }</span>
+
+        // Converter para slice de interface{}
+        <span class="cov0" title="0">dirsSlice, ok := dirsInterface.([]interface{})
+        if !ok </span><span class="cov0" title="0">{
+                // Tentar como array de strings simples (compatibilidade)
+                if dirsStringSlice, ok := dirsInterface.([]string); ok </span><span class="cov0" title="0">{
+                        for _, dir := range dirsStringSlice </span><span class="cov0" title="0">{
+                                fm.logger.WithField("directory", dir).Info("Scanning directory from pipeline")
+                                if err := fm.scanDirectory(dir); err != nil </span><span class="cov0" title="0">{
+                                        fm.logger.WithError(err).WithField("directory", dir).Warn("Failed to scan directory from pipeline")
+                                }</span>
+                        }
+                        <span class="cov0" title="0">return nil</span>
+                }
+                <span class="cov0" title="0">fm.logger.WithField("type", fmt.Sprintf("%T", dirsInterface)).Warn("'directories' section is not an array")
+                return nil</span>
+        }
+
+        <span class="cov0" title="0">fm.logger.WithField("count", len(dirsSlice)).Info("Processing directories from pipeline")
+
+        // Processar cada diretório
+        for _, dirInterface := range dirsSlice </span><span class="cov0" title="0">{
+                // Pode ser string simples ou mapa com configurações
+                switch dir := dirInterface.(type) </span>{
+                case string:<span class="cov0" title="0">
+                        // Diretório simples
+                        fm.logger.WithField("directory", dir).Info("Scanning directory from pipeline")
+                        if err := fm.scanDirectory(dir); err != nil </span><span class="cov0" title="0">{
+                                fm.logger.WithError(err).WithField("directory", dir).Warn("Failed to scan directory from pipeline")
+                        }</span>
+
+                case map[string]interface{}:<span class="cov0" title="0">
+                        // Diretório com configurações
+                        pathInterface, ok := dir["path"]
+                        if !ok </span><span class="cov0" title="0">{
+                                fm.logger.Warn("Directory entry missing 'path' field")
+                                continue</span>
+                        }
+
+                        <span class="cov0" title="0">path, ok := pathInterface.(string)
+                        if !ok </span><span class="cov0" title="0">{
+                                fm.logger.WithField("type", fmt.Sprintf("%T", pathInterface)).Warn("Directory path is not a string")
+                                continue</span>
+                        }
+
+                        // Verificar se está habilitado
+                        <span class="cov0" title="0">enabledInterface, ok := dir["enabled"]
+                        if ok </span><span class="cov0" title="0">{
+                                enabled, ok := enabledInterface.(bool)
+                                if ok &amp;&amp; !enabled </span><span class="cov0" title="0">{
+                                        fm.logger.WithField("path", path).Debug("Directory is disabled in pipeline")
+                                        continue</span>
+                                }
+                        }
+
+                        <span class="cov0" title="0">fm.logger.WithField("directory", path).Info("Scanning directory from pipeline")
+                        if err := fm.scanDirectory(path); err != nil </span><span class="cov0" title="0">{
+                                fm.logger.WithError(err).WithField("directory", path).Warn("Failed to scan directory from pipeline")
+                        }</span>
+
+                default:<span class="cov0" title="0">
+                        fm.logger.WithField("type", fmt.Sprintf("%T", dirInterface)).Warn("Unknown directory entry type")</span>
+                }
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// scanDirectory escaneia um diretório procurando por arquivos que correspondem aos padrões
+func (fm *FileMonitor) scanDirectory(directory string) error <span class="cov0" title="0">{
+        return filepath.Walk(directory, func(path string, info os.FileInfo, err error) error </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov0" title="0">{
+                        // Ignorar erros de permissão e continuar
+                        if os.IsPermission(err) </span><span class="cov0" title="0">{
+                                fm.logger.WithField("path", path).Debug("Permission denied, skipping")
+                                return nil
+                        }</span>
+                        <span class="cov0" title="0">return err</span>
+                }
+
+                // Pular diretórios
+                <span class="cov0" title="0">if info.IsDir() </span><span class="cov0" title="0">{
+                        // Verificar se o diretório está na lista de exclusão
+                        if fm.matchesExcludeDirectories(path) </span><span class="cov0" title="0">{
+                                fm.logger.WithField("path", path).Debug("Skipping excluded directory")
+                                return filepath.SkipDir
+                        }</span>
+
+                        // Se não for recursivo, pular subdiretórios
+                        <span class="cov0" title="0">if !fm.config.Recursive &amp;&amp; path != directory </span><span class="cov0" title="0">{
+                                return filepath.SkipDir
+                        }</span>
+                        <span class="cov0" title="0">return nil</span>
+                }
+
+                // Verificar se é arquivo específico do pipeline (tem precedência)
+                <span class="cov0" title="0">if fm.specificFiles[path] </span><span class="cov0" title="0">{
+                        fm.logger.WithField("path", path).Debug("Skipping file - already configured as specific file in pipeline")
+                        return nil
+                }</span>
+
+                // Verificar se o arquivo corresponde aos padrões de inclusão
+                <span class="cov0" title="0">if fm.matchesIncludePatterns(path) &amp;&amp; !fm.matchesExcludePatterns(path) </span><span class="cov0" title="0">{
+                        // Verificar se o arquivo já está sendo monitorado
+                        fm.mutex.RLock()
+                        _, exists := fm.files[path]
+                        fm.mutex.RUnlock()
+
+                        if !exists </span><span class="cov0" title="0">{
+                                labels := fm.generateLabelsForFile(path)
+                                if err := fm.AddFile(path, labels); err != nil </span><span class="cov0" title="0">{
+                                        fm.logger.WithError(err).WithField("path", path).Warn("Failed to add discovered file")
+                                }</span> else<span class="cov0" title="0"> {
+                                        fm.logger.WithField("path", path).Info("Auto-discovered and added file for monitoring")
+                                }</span>
+                        }
+                }
+
+                <span class="cov0" title="0">return nil</span>
+        })
+}
+
+// scanPipelineDirectory escaneia um diretório do pipeline
+func (fm *FileMonitor) scanPipelineDirectory(dirEntry types.FilePipelineDirEntry) error <span class="cov0" title="0">{
+        return filepath.Walk(dirEntry.Path, func(path string, info os.FileInfo, err error) error </span><span class="cov0" title="0">{
+                if err != nil </span><span class="cov0" title="0">{
+                        // Ignorar erros de permissão
+                        if os.IsPermission(err) </span><span class="cov0" title="0">{
+                                fm.logger.WithField("path", path).Debug("Permission denied, skipping")
+                                return nil
+                        }</span>
+                        <span class="cov0" title="0">return err</span>
+                }
+
+                // Pular diretórios
+                <span class="cov0" title="0">if info.IsDir() </span><span class="cov0" title="0">{
+                        // Verificar exclusões específicas do diretório
+                        if fm.matchesPipelineExcludeDirectories(path, dirEntry.ExcludeDirectories) </span><span class="cov0" title="0">{
+                                fm.logger.WithField("path", path).Debug("Skipping excluded directory from pipeline")
+                                return filepath.SkipDir
+                        }</span>
+
+                        // Se não for recursivo, pular subdiretórios
+                        <span class="cov0" title="0">if !dirEntry.Recursive &amp;&amp; path != dirEntry.Path </span><span class="cov0" title="0">{
+                                return filepath.SkipDir
+                        }</span>
+                        <span class="cov0" title="0">return nil</span>
+                }
+
+                // Verificar se é arquivo específico do pipeline (tem precedência)
+                <span class="cov0" title="0">if fm.specificFiles[path] </span><span class="cov0" title="0">{
+                        fm.logger.WithField("path", path).Debug("Skipping file - already configured as specific file in pipeline")
+                        return nil
+                }</span>
+
+                // Verificar padrões do diretório
+                <span class="cov0" title="0">if fm.matchesPipelinePatterns(path, dirEntry.Patterns) &amp;&amp;
+                   !fm.matchesPipelineExcludePatterns(path, dirEntry.ExcludePatterns) </span><span class="cov0" title="0">{
+
+                        // Verificar se já está sendo monitorado
+                        fm.mutex.RLock()
+                        _, exists := fm.files[path]
+                        fm.mutex.RUnlock()
+
+                        if !exists </span><span class="cov0" title="0">{
+                                // Usar labels default do diretório
+                                labels := make(map[string]string)
+                                for k, v := range dirEntry.DefaultLabels </span><span class="cov0" title="0">{
+                                        labels[k] = v
+                                }</span>
+                                // Adicionar informações do arquivo
+                                <span class="cov0" title="0">labels["file_path"] = path
+                                labels["file_name"] = filepath.Base(path)
+
+                                if err := fm.AddFile(path, labels); err != nil </span><span class="cov0" title="0">{
+                                        fm.logger.WithError(err).WithField("path", path).Warn("Failed to add file from pipeline directory")
+                                }</span> else<span class="cov0" title="0"> {
+                                        fm.logger.WithFields(logrus.Fields{
+                                                "path":   path,
+                                                "labels": labels,
+                                        }).Info("Added file from pipeline directory")
+                                }</span>
+                        }
+                }
+
+                <span class="cov0" title="0">return nil</span>
+        })
+}
+
+// matchesIncludePatterns verifica se o arquivo corresponde aos padrões de inclusão
+func (fm *FileMonitor) matchesIncludePatterns(filePath string) bool <span class="cov0" title="0">{
+        fileName := filepath.Base(filePath)
+
+        for _, pattern := range fm.config.IncludePatterns </span><span class="cov0" title="0">{
+                matched, err := filepath.Match(pattern, fileName)
+                if err == nil &amp;&amp; matched </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+
+                // Para padrões sem wildcards, verificar match exato do nome
+                <span class="cov0" title="0">if pattern == fileName </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// matchesExcludePatterns verifica se o arquivo corresponde aos padrões de exclusão
+func (fm *FileMonitor) matchesExcludePatterns(filePath string) bool <span class="cov0" title="0">{
+        fileName := filepath.Base(filePath)
+
+        for _, pattern := range fm.config.ExcludePatterns </span><span class="cov0" title="0">{
+                matched, err := filepath.Match(pattern, fileName)
+                if err == nil &amp;&amp; matched </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// matchesExcludeDirectories verifica se o diretório está na lista de exclusão
+func (fm *FileMonitor) matchesExcludeDirectories(dirPath string) bool <span class="cov0" title="0">{
+        // Normalizar o caminho removendo trailing slashes
+        dirPath = strings.TrimSuffix(dirPath, "/")
+
+        for _, excludeDir := range fm.config.ExcludeDirectories </span><span class="cov0" title="0">{
+                // Normalizar o padrão de exclusão
+                excludeDir = strings.TrimSuffix(excludeDir, "/")
+
+                // Remover wildcard no final se houver
+                excludePattern := strings.TrimSuffix(excludeDir, "/*")
+
+                // Verificar match exato
+                if dirPath == excludePattern </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+
+                // Verificar se é um subdiretório do padrão excluído
+                <span class="cov0" title="0">if strings.HasPrefix(dirPath, excludePattern+"/") </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// matchesPipelinePatterns verifica se arquivo corresponde aos padrões do pipeline
+func (fm *FileMonitor) matchesPipelinePatterns(filePath string, patterns []string) bool <span class="cov0" title="0">{
+        fileName := filepath.Base(filePath)
+
+        for _, pattern := range patterns </span><span class="cov0" title="0">{
+                matched, err := filepath.Match(pattern, fileName)
+                if err == nil &amp;&amp; matched </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+
+                // Match exato para padrões sem wildcards
+                <span class="cov0" title="0">if pattern == fileName </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// matchesPipelineExcludePatterns verifica exclusões do pipeline
+func (fm *FileMonitor) matchesPipelineExcludePatterns(filePath string, patterns []string) bool <span class="cov0" title="0">{
+        fileName := filepath.Base(filePath)
+
+        for _, pattern := range patterns </span><span class="cov0" title="0">{
+                matched, err := filepath.Match(pattern, fileName)
+                if err == nil &amp;&amp; matched </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// matchesPipelineExcludeDirectories verifica exclusões de diretórios do pipeline
+func (fm *FileMonitor) matchesPipelineExcludeDirectories(dirPath string, excludeDirs []string) bool <span class="cov0" title="0">{
+        dirPath = strings.TrimSuffix(dirPath, "/")
+
+        for _, excludeDir := range excludeDirs </span><span class="cov0" title="0">{
+                excludeDir = strings.TrimSuffix(excludeDir, "/")
+                excludePattern := strings.TrimSuffix(excludeDir, "/*")
+
+                // Match exato
+                if dirPath == excludePattern </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+
+                // Match de subdiretório
+                <span class="cov0" title="0">if strings.HasSuffix(dirPath, "/"+excludePattern) </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+
+                // Match se contém o padrão
+                <span class="cov0" title="0">if strings.Contains(dirPath, "/"+excludePattern+"/") </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+
+// generateLabelsForFile gera labels automáticos para um arquivo descoberto
+func (fm *FileMonitor) generateLabelsForFile(filePath string) map[string]string <span class="cov0" title="0">{
+        labels := make(map[string]string)
+        fileName := filepath.Base(filePath)
+
+        // Labels padrão
+        labels["source"] = "file"
+        labels["file_path"] = filePath
+        labels["file_name"] = fileName
+
+        // Label padrão de serviço
+        labels["service"] = "ssw-log-capturer"
+
+        return labels
+}</span>
+
+// getHostIPFile obtém o IP do host (versão para file monitor)
+func getHostIPFile() string <span class="cov0" title="0">{
+        // Tentar obter IP através de interface de rede
+        interfaces, err := net.Interfaces()
+        if err != nil </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+
+        <span class="cov0" title="0">for _, iface := range interfaces </span><span class="cov0" title="0">{
+                if iface.Flags&amp;net.FlagUp == 0 || iface.Flags&amp;net.FlagLoopback != 0 </span><span class="cov0" title="0">{
+                        continue</span> // Interface down ou loopback
+                }
+
+                <span class="cov0" title="0">addrs, err := iface.Addrs()
+                if err != nil </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+
+                <span class="cov0" title="0">for _, addr := range addrs </span><span class="cov0" title="0">{
+                        if ipnet, ok := addr.(*net.IPNet); ok &amp;&amp; !ipnet.IP.IsLoopback() </span><span class="cov0" title="0">{
+                                if ipnet.IP.To4() != nil </span><span class="cov0" title="0">{
+                                        return ipnet.IP.String()
+                                }</span>
+                        }
+                }
+        }
+
+        <span class="cov0" title="0">return "unknown"</span>
+}
+
+// getHostnameFile obtém o nome do host (versão para file monitor)
+func getHostnameFile() string <span class="cov0" title="0">{
+        hostname, err := os.Hostname()
+        if err != nil </span><span class="cov0" title="0">{
+                return "unknown"
+        }</span>
+        <span class="cov0" title="0">return hostname</span>
+}
+
+// addStandardLabelsFile adiciona labels padrão para logs de arquivos
+func addStandardLabelsFile(labels map[string]string) map[string]string <span class="cov0" title="0">{
+        // Criar um novo mapa copiando as labels existentes
+        result := make(map[string]string)
+
+        // Copiar apenas labels permitidas (filtrar labels indesejadas)
+        forbiddenLabels := map[string]bool{
+                "test_label":                               true,
+                "service_name":                             true,
+                "project":                                  true,
+                "log_type":                                 true,
+                "maintainer":                               true,
+                "job":                                      true,
+                "environment":                              true,
+                "com.docker.compose.project":               true,
+                "com.docker.compose.project.config_files": true,
+                "com.docker.compose.project.working_dir":   true,
+                "com.docker.compose.config-hash":           true,
+                "com.docker.compose.version":               true,
+                "com.docker.compose.oneoff":                true,
+                "com.docker.compose.depends_on":            true,
+                "com.docker.compose.image":                 true,
+                "org.opencontainers.image.source":          true,
+        }
+
+        for k, v := range labels </span><span class="cov0" title="0">{
+                if !forbiddenLabels[k] </span><span class="cov0" title="0">{
+                        result[k] = v
+                }</span>
+        }
+
+        // Labels padrão obrigatórias (sobrescrevem as existentes)
+        <span class="cov0" title="0">result["service"] = "ssw-log-capturer"
+        result["source"] = "file"
+        result["instance"] = getHostIPFile()
+        result["instance_name"] = getHostnameFile()
+
+        return result</span>
+}</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>

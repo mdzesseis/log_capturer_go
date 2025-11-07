@@ -479,7 +479,7 @@ func (sm *SLOManager) evaluateSLI(ctx context.Context, sli *SLI) error {
 
 	// Record measurement
 	measurement := SLIMeasurement{
-		Timestamp: time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Value:     value,
 		Target:    sli.Target,
 		Status:    sli.Status,

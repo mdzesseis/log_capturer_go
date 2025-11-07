@@ -189,7 +189,7 @@ func (rm *ResourceMonitor) collectMetrics() Metrics {
 	runtime.ReadMemStats(&memStats)
 
 	metrics := Metrics{
-		Timestamp:       time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Goroutines:      runtime.NumGoroutine(),
 		MemoryAllocMB:   int64(memStats.Alloc / 1024 / 1024),
 		MemoryTotalMB:   int64(memStats.TotalAlloc / 1024 / 1024),
@@ -229,7 +229,7 @@ func (rm *ResourceMonitor) checkThresholds(metrics Metrics) {
 	// Check goroutine threshold
 	if rm.config.GoroutineThreshold > 0 && metrics.Goroutines > rm.config.GoroutineThreshold {
 		rm.sendAlert(Alert{
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Type:         "goroutine",
 			Severity:     rm.determineSeverity(metrics.Goroutines, rm.config.GoroutineThreshold),
 			Message:      fmt.Sprintf("Goroutine count (%d) exceeded threshold (%d)", metrics.Goroutines, rm.config.GoroutineThreshold),
@@ -242,7 +242,7 @@ func (rm *ResourceMonitor) checkThresholds(metrics Metrics) {
 	// Check memory threshold
 	if rm.config.MemoryThresholdMB > 0 && metrics.MemoryAllocMB > rm.config.MemoryThresholdMB {
 		rm.sendAlert(Alert{
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Type:         "memory",
 			Severity:     rm.determineSeverity(int(metrics.MemoryAllocMB), int(rm.config.MemoryThresholdMB)),
 			Message:      fmt.Sprintf("Memory usage (%d MB) exceeded threshold (%d MB)", metrics.MemoryAllocMB, rm.config.MemoryThresholdMB),
@@ -255,7 +255,7 @@ func (rm *ResourceMonitor) checkThresholds(metrics Metrics) {
 	// Check file descriptor threshold
 	if rm.config.FDThreshold > 0 && metrics.FileDescriptors > rm.config.FDThreshold {
 		rm.sendAlert(Alert{
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Type:         "file_descriptor",
 			Severity:     "warning",
 			Message:      fmt.Sprintf("File descriptor count (%d) exceeded threshold (%d)", metrics.FileDescriptors, rm.config.FDThreshold),
@@ -269,7 +269,7 @@ func (rm *ResourceMonitor) checkThresholds(metrics Metrics) {
 	if rm.config.GrowthRateThreshold > 0 {
 		if metrics.GoroutineGrowth > rm.config.GrowthRateThreshold {
 			rm.sendAlert(Alert{
-				Timestamp:    time.Now(),
+				Timestamp:   time.Now().UTC(),
 				Type:         "growth",
 				Severity:     "warning",
 				Message:      fmt.Sprintf("Goroutine growth rate (%.2f%%) exceeded threshold (%.2f%%)", metrics.GoroutineGrowth, rm.config.GrowthRateThreshold),
@@ -281,7 +281,7 @@ func (rm *ResourceMonitor) checkThresholds(metrics Metrics) {
 
 		if metrics.MemoryGrowth > rm.config.GrowthRateThreshold {
 			rm.sendAlert(Alert{
-				Timestamp:    time.Now(),
+				Timestamp:   time.Now().UTC(),
 				Type:         "growth",
 				Severity:     "warning",
 				Message:      fmt.Sprintf("Memory growth rate (%.2f%%) exceeded threshold (%.2f%%)", metrics.MemoryGrowth, rm.config.GrowthRateThreshold),

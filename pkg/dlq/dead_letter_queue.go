@@ -745,7 +745,7 @@ func (am *AlertManager) checkAlerts(prevStats, currentStats Stats) {
 			am.triggerAlert(Alert{
 				Type:         AlertHighEntryRate,
 				Severity:     "warning",
-				Timestamp:    time.Now(),
+				Timestamp:   time.Now().UTC(),
 				Message:      fmt.Sprintf("DLQ receiving high volume of entries: %.2f entries/minute", entriesPerMinute),
 				CurrentValue: entriesPerMinute,
 				Threshold:    am.config.EntriesPerMinuteThreshold,
@@ -759,7 +759,7 @@ func (am *AlertManager) checkAlerts(prevStats, currentStats Stats) {
 		am.triggerAlert(Alert{
 			Type:         AlertHighTotalCount,
 			Severity:     "critical",
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Message:      fmt.Sprintf("DLQ total entries exceeded threshold: %d", currentStats.TotalEntries),
 			CurrentValue: currentStats.TotalEntries,
 			Threshold:    am.config.TotalEntriesThreshold,
@@ -772,7 +772,7 @@ func (am *AlertManager) checkAlerts(prevStats, currentStats Stats) {
 		am.triggerAlert(Alert{
 			Type:         AlertHighQueueSize,
 			Severity:     "warning",
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Message:      fmt.Sprintf("DLQ queue size high: %d/%d", currentStats.CurrentQueueSize, am.dlq.config.QueueSize),
 			CurrentValue: currentStats.CurrentQueueSize,
 			Threshold:    am.config.QueueSizeThreshold,
@@ -786,7 +786,7 @@ func (am *AlertManager) checkAlerts(prevStats, currentStats Stats) {
 		am.triggerAlert(Alert{
 			Type:         AlertWriteErrors,
 			Severity:     "error",
-			Timestamp:    time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Message:      fmt.Sprintf("DLQ write errors detected: %d new errors", newErrors),
 			CurrentValue: newErrors,
 			Threshold:    0,

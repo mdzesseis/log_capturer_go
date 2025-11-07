@@ -1,0 +1,32 @@
+=== RUN   TestStreamPool_AcquireRelease
+--- PASS: TestStreamPool_AcquireRelease (0.00s)
+=== RUN   TestStreamPool_Capacity
+--- PASS: TestStreamPool_Capacity (0.00s)
+=== RUN   TestStreamPool_Concurrent
+--- PASS: TestStreamPool_Concurrent (0.00s)
+=== RUN   TestStreamPool_UpdateActivity
+--- PASS: TestStreamPool_UpdateActivity (0.01s)
+=== RUN   TestStreamPool_ReleaseNonExistent
+--- PASS: TestStreamPool_ReleaseNonExistent (0.00s)
+=== RUN   TestStreamRotation_ContextTimeout
+--- PASS: TestStreamRotation_ContextTimeout (0.10s)
+=== RUN   TestStreamRotation_PositionPreservation
+--- PASS: TestStreamRotation_PositionPreservation (0.01s)
+=== RUN   TestStreamRotation_MetricsTracking
+--- PASS: TestStreamRotation_MetricsTracking (0.00s)
+=== RUN   TestStreamRotation_ErrorHandling
+=== RUN   TestStreamRotation_ErrorHandling/DeadlineExceeded
+=== RUN   TestStreamRotation_ErrorHandling/Canceled
+=== RUN   TestStreamRotation_ErrorHandling/OtherError
+--- PASS: TestStreamRotation_ErrorHandling (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/DeadlineExceeded (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/Canceled (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/OtherError (0.00s)
+=== RUN   TestStreamPool_ZeroCapacity
+--- PASS: TestStreamPool_ZeroCapacity (0.00s)
+=== RUN   TestStreamPool_LargeCapacity
+--- PASS: TestStreamPool_LargeCapacity (0.00s)
+=== RUN   TestStreamPool_ReleaseAndReacquire
+--- PASS: TestStreamPool_ReleaseAndReacquire (0.00s)
+PASS
+ok  	ssw-logs-capture/internal/monitors	1.143s

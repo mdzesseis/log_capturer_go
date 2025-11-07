@@ -28,6 +28,46 @@ func NewBatchProcessor(config DispatcherConfig, logger *logrus.Logger, enhancedM
 	}
 }
 
+// deepCopyBatch creates deep copies of LogEntry slice to prevent race conditions
+//
+// This helper function centralizes the deep copy logic for batch processing,
+// making it easier to optimize in the future (e.g., using sync.Pool).
+//
+// Performance characteristics:
+//   - Time complexity: O(n) where n = len(batch)
+//   - Space complexity: O(n) new allocations
+//   - Each entry is fully deep copied (including maps)
+//
+// Parameters:
+//   - batch: Source slice of dispatchItem containing entries to copy
+//
+// Returns:
+//   - []types.LogEntry: New slice with deep copied entries
+func deepCopyBatch(batch []dispatchItem) []types.LogEntry {
+	result := make([]types.LogEntry, len(batch))
+	for i, item := range batch {
+		result[i] = *item.Entry.DeepCopy()
+	}
+	return result
+}
+
+// deepCopyEntries creates deep copies of a LogEntry slice
+//
+// Similar to deepCopyBatch but works with existing LogEntry slice.
+//
+// Parameters:
+//   - entries: Source slice of LogEntry to copy
+//
+// Returns:
+//   - []types.LogEntry: New slice with deep copied entries
+func deepCopyEntries(entries []types.LogEntry) []types.LogEntry {
+	result := make([]types.LogEntry, len(entries))
+	for i, entry := range entries {
+		result[i] = *entry.DeepCopy()
+	}
+	return result
+}
+
 // ProcessBatch processes a batch of dispatch items and sends to sinks
 //
 // This method:
@@ -54,11 +94,21 @@ func (bp *BatchProcessor) ProcessBatch(
 
 	startTime := time.Now()
 
-	// Create deep copies to avoid race conditions
-	entries := make([]types.LogEntry, len(batch))
-	for i, item := range batch {
-		entries[i] = *item.Entry.DeepCopy()
-	}
+	// PERFORMANCE OPTIMIZATION: Single shared copy for read-only sink operations
+	//
+	// We create ONE deep copy of the batch that can be safely shared across
+	// multiple sinks IF those sinks only read the entries (don't modify them).
+	//
+	// Current implementation: Each sink gets its own copy (safe but expensive)
+	// Future optimization: If sink interface guarantees read-only, share this copy
+	//
+	// Trade-off analysis:
+	//   Current: N sinks × M entries × DeepCopy() = O(N*M) copies
+	//   Optimized: 1 × M entries × DeepCopy() = O(M) copies
+	//   Memory savings: ~(N-1) × batch_size × entry_size
+	//
+	// For 3 sinks, 100 entries, ~2KB/entry: 600KB → 200KB per batch
+	entries := deepCopyBatch(batch)
 
 	// TODO: Implement anomaly detection sampling here
 	// (Moved from dispatcher.go lines 837-882)
@@ -72,11 +122,23 @@ func (bp *BatchProcessor) ProcessBatch(
 
 		healthySinks++
 
-		// Deep copy for each sink to prevent race conditions
-		entriesCopy := make([]types.LogEntry, len(entries))
-		for i, entry := range entries {
-			entriesCopy[i] = *entry.DeepCopy()
-		}
+		// SAFETY: Deep copy for each sink to prevent race conditions
+		//
+		// WHY: Sinks may:
+		//   1. Modify entry fields during serialization
+		//   2. Store entries in internal queues accessed by multiple goroutines
+		//   3. Apply sink-specific transformations
+		//
+		// FUTURE OPTIMIZATION: If Sink interface is extended with ReadOnly flag,
+		// we could share the 'entries' slice for read-only sinks.
+		//
+		// Example optimization:
+		//   if sink.IsReadOnly() {
+		//       sink.Send(ctx, entries)  // Share copy
+		//   } else {
+		//       sink.Send(ctx, deepCopyEntries(entries))  // Unique copy
+		//   }
+		entriesCopy := deepCopyEntries(entries)
 
 		sendCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 		err := sink.Send(sendCtx, entriesCopy)

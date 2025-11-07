@@ -1,7 +1,7 @@
 ---
 name: continuous-tester
 description: Executa código automaticamente, detecta erros e reporta problemas
-model: haiku
+model: sonnet
 ---
 
 # Continuous Testing Agent 🔄

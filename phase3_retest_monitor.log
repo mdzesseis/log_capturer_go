@@ -1,0 +1,215 @@
+=== PHASE 3 RE-TEST - GOROUTINE MONITORING (POST-FIX) ===
+Monitoring for 10 minutes (600 seconds)
+Checking every 30 seconds
+
+=== Check 1/20 - Elapsed: 0s ===
+2025-11-06 20:12:55
+Goroutines: 531
+  (baseline set)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 462
+Container Monitor Health: 1
+File Descriptors: 245
+
+=== Check 2/20 - Elapsed: 30s ===
+2025-11-06 20:13:25
+Goroutines: 549
+  Growth: +18 (36.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 462
+Container Monitor Health: 1
+File Descriptors: 254
+
+=== Check 3/20 - Elapsed: 60s ===
+2025-11-06 20:13:55
+Goroutines: 567
+  Growth: +36 (36.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 462
+Container Monitor Health: 1
+File Descriptors: 263
+
+=== Check 4/20 - Elapsed: 90s ===
+2025-11-06 20:14:25
+Goroutines: 585
+  Growth: +54 (36.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 272
+
+=== Check 5/20 - Elapsed: 120s ===
+2025-11-06 20:14:55
+Goroutines: 609
+  Growth: +78 (39.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 284
+
+=== Check 6/20 - Elapsed: 150s ===
+2025-11-06 20:15:25
+Goroutines: 627
+  Growth: +96 (38.40/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 293
+
+=== Check 7/20 - Elapsed: 180s ===
+2025-11-06 20:15:55
+Goroutines: 645
+  Growth: +114 (38.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 302
+
+=== Check 8/20 - Elapsed: 210s ===
+2025-11-06 20:16:25
+Goroutines: 663
+  Growth: +132 (37.71/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 311
+
+=== Check 9/20 - Elapsed: 240s ===
+2025-11-06 20:16:55
+Goroutines: 683
+  Growth: +152 (38.00/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 321
+
+=== Check 10/20 - Elapsed: 270s ===
+2025-11-06 20:17:25
+Goroutines: 701
+  Growth: +170 (37.77/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 331
+
+=== Check 11/20 - Elapsed: 300s ===
+2025-11-06 20:17:55
+Goroutines: 719
+  Growth: +188 (37.60/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 340
+
+⏰ Expected first rotation around now (5 minutes elapsed)
+
+=== Check 12/20 - Elapsed: 330s ===
+2025-11-06 20:18:25
+Goroutines: 735
+  Growth: +204 (37.09/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 349
+
+=== Check 13/20 - Elapsed: 361s ===
+2025-11-06 20:18:56
+Goroutines: 755
+  Growth: +224 (37.27/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 466
+Container Monitor Health: 1
+File Descriptors: 358
+
+=== Check 14/20 - Elapsed: 391s ===
+2025-11-06 20:19:26
+Goroutines: 771
+  Growth: +240 (36.86/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 366
+
+=== Check 15/20 - Elapsed: 421s ===
+2025-11-06 20:19:56
+Goroutines: 795
+  Growth: +264 (37.66/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 379
+
+=== Check 16/20 - Elapsed: 451s ===
+2025-11-06 20:20:26
+Goroutines: 815
+  Growth: +284 (37.81/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 389
+
+=== Check 17/20 - Elapsed: 481s ===
+2025-11-06 20:20:56
+Goroutines: 833
+  Growth: +302 (37.70/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 397
+
+=== Check 18/20 - Elapsed: 511s ===
+2025-11-06 20:21:26
+Goroutines: 849
+  Growth: +318 (37.36/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 405
+
+=== Check 19/20 - Elapsed: 541s ===
+2025-11-06 20:21:56
+Goroutines: 867
+  Growth: +336 (37.29/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 414
+
+=== Check 20/20 - Elapsed: 571s ===
+2025-11-06 20:22:26
+Goroutines: 887
+  Growth: +356 (37.43/min)
+Active Streams: 8
+Total Rotations: N/A
+Logs Processed: 470
+Container Monitor Health: 1
+File Descriptors: 424
+
+=== MONITORING COMPLETE ===
+
+Final Analysis:
+Initial Goroutines: 531
+Final Goroutines: 887
+Total Growth: 356
+Growth Rate: 35.60/min
+
+❌ FAILED: Growth rate (35.60/min) exceeds target (<2/min)

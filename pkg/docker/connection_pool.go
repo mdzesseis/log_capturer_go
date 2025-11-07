@@ -3,6 +3,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -273,9 +274,25 @@ func (cp *ConnectionPool) ReturnConnection(conn *PooledConnection) {
 
 // createConnection creates a new Docker client connection
 func (cp *ConnectionPool) createConnection() (*PooledConnection, error) {
+	// Create HTTP client with connection limits to prevent goroutine leaks
+	// Docker client uses HTTP to communicate with daemon, creating goroutines per connection
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			MaxConnsPerHost:       50,  // CRITICAL: Limit total connections per host
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 30 * time.Second,
+			// Note: DisableKeepAlives not needed for Unix socket connections
+		},
+	}
+
 	dockerClient, err := client.NewClientWithOpts(
 		client.FromEnv,
 		client.WithAPIVersionNegotiation(),
+		client.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create docker client: %w", err)

@@ -305,7 +305,9 @@ func (fm *FileMonitor) AddFile(filePath string, labels map[string]string) error 
 			"size": info.Size(),
 			"position": mf.position,
 		}).Info("Reading initial content from file")
+		fm.wg.Add(1) // Track this goroutine
 		go func() {
+			defer fm.wg.Done() // Always cleanup
 			time.Sleep(100 * time.Millisecond) // Small delay to ensure setup is complete
 			fm.readFile(mf)
 		}()
@@ -647,12 +649,12 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 		traceID := uuid.New().String()
 		entry := &types.LogEntry{
 			TraceID:     traceID,
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().UTC(), // Force UTC to prevent Loki "timestamp too new" errors
 			Message:     line,
 			SourceType:  "file",
 			SourceID:    sourceID,
 			Labels:      standardLabels,
-			ProcessedAt: time.Now(),
+			ProcessedAt: time.Now().UTC(),
 		}
 
 		// Verificar se é self-log usando feedback guard (temporariamente desabilitado)

@@ -5,7 +5,6 @@ go 1.24.9
 require (
 	github.com/IBM/sarama v1.46.3
 	github.com/docker/docker v24.0.7+incompatible
-	github.com/elastic/go-elasticsearch/v8 v8.19.0
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/golang/snappy v1.0.0
 	github.com/google/uuid v1.6.0
@@ -38,7 +37,6 @@ require (
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20230731223053-c322873962e3 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
-	github.com/elastic/elastic-transport-go/v8 v8.7.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect

@@ -11,7 +11,7 @@ app:
   name: "ssw-logs-capture"
   version: "v0.0.2"
   environment: "production"
-  log_level: "debug"
+  log_level: "info"
   log_format: "json"
   log_file: ""
   operation_timeout: "1h"
@@ -96,7 +96,7 @@ file_monitor_service:
 # NOTA: O sistema agora usa descoberta orientada a eventos Docker em vez de polling
 # O campo 'reconnect_interval' ainda existe mas é usado apenas para fallback/heartbeat
 container_monitor:
-  enabled: true  # Re-enabled after circuit breaker fix
+  enabled: true  # PHASE 3: Re-enabled for integration testing
   socket_path: "unix:///var/run/docker.sock"
   health_check_delay: "30s"
   reconnect_interval: "30s"          # Agora usado apenas para heartbeat (não mais polling)
@@ -175,8 +175,8 @@ sinks:
     push_endpoint: "/loki/api/v1/push"
     tenant_id: ""
     timeout: "240s"
-    batch_size: 20000
-    batch_timeout: "40s"
+    batch_size: 500         # Reduced from 20000 to prevent Loki rejection
+    batch_timeout: "5s"     # Reduced from 40s for faster delivery
     max_request_size: 2097152
     queue_size: 25000
     # default_labels:
@@ -246,20 +246,6 @@ sinks:
     dir_permissions: "0755"
     queue_size: 25000                # Increased queue size to handle higher throughput
     worker_count: 4                  # Number of concurrent workers processing the queue
-
-  elasticsearch:
-    enabled: false
-    urls: []
-    index: ""
-    batch_size: 0
-    username: ""
-    password: ""
-
-  splunk:
-    enabled: false
-    url: ""
-    token: ""
-    index: ""
 
   kafka:
     enabled: false  # Temporarily disabled for testing file_monitor
@@ -525,113 +511,11 @@ anomaly_detection:
     include_features: true         # Incluir features (pode ser verboso)
 
 # -----------------------------------------------------------------------------
-# CONFIGURAÇÕES DE ARQUITETURA MULTI-TENANT
+# CONFIGURAÇÕES DE ARQUITETURA MULTI-TENANT (EXPERIMENTAL - DESABILITADO)
 # -----------------------------------------------------------------------------
 multi_tenant:
-  enabled: true                     # Habilitar multi-tenancy
-  default_tenant: "default"         # Tenant padrão
-  isolation_mode: "soft"            # Modo de isolamento: "soft", "hard"
-
-  # Configuração de descoberta automática de tenants
-  tenant_discovery:
-    enabled: true                   # Habilitar descoberta automática
-    update_interval: "30s"          # Intervalo de verificação
-    config_paths:                   # Caminhos para arquivos de configuração
-      - "/app/tenants"
-      - "/etc/tenants"
-    auto_create_tenants: true       # Criar tenants automaticamente
-    auto_update_tenants: true       # Atualizar tenants automaticamente
-    auto_delete_tenants: false      # Deletar tenants automaticamente
-    default_tenant_template: "/app/templates/tenant.yaml"
-    file_formats: ["yaml", "json"]  # Formatos suportados
-    validation_enabled: true        # Validar configurações
-
-  # Configuração de isolamento de recursos
-  resource_isolation:
-    enabled: true                   # Habilitar isolamento de recursos
-    cpu_isolation: true             # Isolamento de CPU
-    memory_isolation: true          # Isolamento de memória
-    disk_isolation: true            # Isolamento de disco
-    network_isolation: false       # Isolamento de rede
-    monitoring_interval: "30s"      # Intervalo de monitoramento
-    enforcement_mode: "throttle"    # Modo: "warn", "throttle", "block"
-
-    # Limites padrão para novos tenants
-    default_limits:
-      max_memory_mb: 512            # 512MB por tenant
-      max_cpu_percent: 25.0         # 25% CPU por tenant
-      max_disk_mb: 1024             # 1GB disco por tenant
-      max_connections: 100          # 100 conexões por tenant
-      max_events_per_sec: 1000      # 1000 eventos/seg por tenant
-      max_file_descriptors: 256     # 256 file descriptors por tenant
-      max_goroutines: 1000          # 1000 goroutines por tenant
-
-  # Configuração de isolamento de segurança
-  security_isolation:
-    enabled: true                   # Habilitar isolamento de segurança
-    tenant_authentication: false   # Autenticação por tenant
-    api_key_required: false         # Requer API key
-    encryption_per_tenant: false   # Criptografia por tenant
-    audit_logging_enabled: true    # Log de auditoria
-    cross_tenant_access_denied: true # Negar acesso cross-tenant
-    allowed_tenant_sources: []     # Sources permitidos
-    security_headers:               # Headers de segurança
-      "X-Content-Type-Options": "nosniff"
-      "X-Frame-Options": "DENY"
-
-  # Configuração de isolamento de métricas
-  metrics_isolation:
-    enabled: true                   # Habilitar isolamento de métricas
-    per_tenant_metrics: true        # Métricas por tenant
-    metrics_prefix: "tenant"        # Prefixo das métricas
-    tenant_labels: ["tenant_id", "tenant_name"] # Labels de tenant
-    custom_labels:                  # Labels customizados
-      environment: "production"
-      service: "log-capturer"
-    aggregation_level: "both"       # "tenant", "global", "both"
-
-  # Configuração de roteamento
-  tenant_routing:
-    enabled: true                   # Habilitar roteamento
-    routing_strategy: "label"       # "label", "header", "source", "pattern"
-    tenant_header: "X-Tenant-ID"    # Header HTTP para tenant
-    tenant_label: "tenant"          # Label para tenant
-    fallback_tenant: "default"      # Tenant de fallback
-
-    # Regras de roteamento
-    routing_rules:
-      - name: "production_logs"
-        priority: 100
-        conditions:
-          source_type: "docker"
-          label_env: "production"
-        tenant_id: "prod"
-        enabled: true
-
-      - name: "staging_logs"
-        priority: 90
-        conditions:
-          source_type: "docker"
-          label_env: "staging"
-        tenant_id: "staging"
-        enabled: true
-
-      - name: "file_logs"
-        priority: 80
-        conditions:
-          source_type: "file"
-        tenant_id: "files"
-        enabled: true
-
-    # Configuração de balanceamento de carga
-    load_balancing:
-      enabled: false                # Desabilitado por padrão
-      strategy: "round_robin"       # "round_robin", "weighted", "least_connections"
-      health_check: true            # Verificação de saúde
-      weight_distribution:          # Distribuição de pesos
-        default: 100
-        prod: 150
-        staging: 75
+  enabled: false                    # Feature não em uso - simplificado
+  default_tenant: "default"
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE SEGURANÇA (ENTERPRISE)

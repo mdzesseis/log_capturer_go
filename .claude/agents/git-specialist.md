@@ -1,7 +1,8 @@
 ---
 name: git-specialist
 description: Especialista em Git, versionamento e fluxo de trabalho
-model: haiku
+model: model: sonnet
+
 ---
 
 # Git Specialist Agent 🔀

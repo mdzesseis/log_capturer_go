@@ -74,7 +74,7 @@ func New(code, component, operation, message string) *AppError {
 		Operation:  operation,
 		StackTrace: fmt.Sprintf("%s:%d", file, line),
 		Metadata:   make(map[string]interface{}),
-		Timestamp:  time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Severity:   SeverityMedium, // Default severity
 	}
 }

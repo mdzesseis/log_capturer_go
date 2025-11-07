@@ -35,7 +35,11 @@ func TestDispatcherBatchRaceCondition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start dispatcher: %v", err)
 	}
-	defer dispatcher.Stop()
+	defer func() {
+		if err := dispatcher.Stop(); err != nil {
+			t.Errorf("Failed to stop dispatcher: %v", err)
+		}
+	}()
 
 	// Send many entries concurrently to trigger race conditions
 	var wg sync.WaitGroup

@@ -293,3 +293,83 @@ groups:
         annotations:
           summary: "Possible file descriptor leak"
           description: "File descriptor count is increasing at {{ $value }}/minute over the last 30 minutes."
+
+  - name: container_monitor_streams
+    interval: 30s
+    rules:
+      # Goroutine Leak Detected (Container Monitor Specific)
+      - alert: GoroutineLeakDetected
+        expr: rate(log_capturer_goroutines[5m]) * 60 > 2
+        for: 5m
+        labels:
+          severity: critical
+          component: container_monitor
+        annotations:
+          summary: "Goroutine leak detected"
+          description: "Goroutine growth rate is {{ $value | printf \"%.2f\" }}/min (threshold: 2/min). Immediate investigation required."
+
+      # Stream Pool At Capacity
+      - alert: StreamPoolAtCapacity
+        expr: log_capturer_container_streams_active >= 50
+        for: 2m
+        labels:
+          severity: warning
+          component: container_monitor
+        annotations:
+          summary: "Stream pool at capacity"
+          description: "All 50 stream slots are in use. System cannot handle additional containers."
+
+      # File Descriptor Leak Detected
+      - alert: FileDescriptorLeakDetected
+        expr: rate(log_capturer_file_descriptors_open[10m]) * 600 > 50
+        for: 5m
+        labels:
+          severity: warning
+          component: container_monitor
+        annotations:
+          summary: "File descriptor leak detected"
+          description: "FD growth rate is {{ $value | printf \"%.2f\" }}/10min (threshold: 50/10min). Check for unclosed streams."
+
+      # Container Monitor Unhealthy
+      - alert: ContainerMonitorUnhealthy
+        expr: log_capturer_component_health{component_name="container_monitor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: container_monitor
+        annotations:
+          summary: "Container Monitor is unhealthy"
+          description: "Component health check failed. Container log collection may be impacted."
+
+      # No Stream Rotations
+      - alert: NoStreamRotations
+        expr: increase(log_capturer_container_stream_rotations_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: container_monitor
+        annotations:
+          summary: "Stream rotations not occurring"
+          description: "No rotations detected in 10 minutes (expected every 5min). Check rotation mechanism."
+
+      # High Stream Rotation Rate
+      - alert: HighStreamRotationRate
+        expr: rate(log_capturer_container_stream_rotations_total[5m]) * 60 > 20
+        for: 5m
+        labels:
+          severity: warning
+          component: container_monitor
+        annotations:
+          summary: "Excessive stream rotations"
+          description: "Rotation rate is {{ $value | printf \"%.2f\" }}/min (threshold: 20/min). May indicate container churn."
+
+      # Stream Pool Low Capacity
+      - alert: StreamPoolLowCapacity
+        expr: log_capturer_container_streams_active > 40
+        for: 5m
+        labels:
+          severity: warning
+          component: container_monitor
+        annotations:
+          summary: "Stream pool running low on capacity"
+          description: "{{ $value }} of 50 stream slots in use (80% utilization). Consider scaling."

@@ -94,7 +94,7 @@ func (gt *GoroutineTracker) captureSnapshot() {
 
 	gt.mu.Lock()
 	sample := Sample{
-		Timestamp: time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Count:     currentCount,
 		Growth:    growth,
 		TopStacks: topStacks,

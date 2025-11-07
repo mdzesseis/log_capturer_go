@@ -199,7 +199,7 @@ func (db *DiskBuffer) Write(entry types.LogEntry) error {
 
 	// Create buffer entry with checksum
 	bufferEntry := BufferEntry{
-		Timestamp: time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Entry:     entry,
 	}
 

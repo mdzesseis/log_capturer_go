@@ -1,0 +1,8 @@
+goos: linux
+goarch: amd64
+pkg: ssw-logs-capture/internal/monitors
+cpu: 13th Gen Intel(R) Core(TM) i5-1345U
+BenchmarkStreamPool_AcquireRelease-10    	42863859	       286.0 ns/op	      96 B/op	       2 allocs/op
+BenchmarkStreamPool_Concurrent-10        	18150448	       812.1 ns/op	      96 B/op	       2 allocs/op
+PASS
+ok  	ssw-logs-capture/internal/monitors	28.091s

@@ -1,0 +1,49 @@
+FASE 5: Load Test Baseline Metrics
+Collected at: $(date)
+========================================
+
+SYSTEM HEALTH:
+Status: healthy
+Uptime: 1h32m
+Version: v0.0.2
+
+GOROUTINES:
+Current: 279
+Baseline: 6
+Growth Rate: -0.25/min
+Total Growth: 273
+Samples: 92
+
+MEMORY:
+Alloc: 77 MB
+Sys: 132 MB
+
+FILE DESCRIPTORS:
+Open: 123
+Max: 1024
+Utilization: 12.01%
+
+DISPATCHER:
+Queue Size: 0/50000
+Total Processed: 9772
+Processing Rate: 0
+Average Latency: 0
+
+CONTAINER MONITOR:
+Status: healthy
+Active Streams: Not yet available (no containers monitored)
+Stream Rotations: Not yet available
+
+SERVICES:
+- Container Monitor: healthy (enabled)
+- File Monitor: healthy (enabled)
+- Dispatcher: healthy
+- Goroutine Tracker: healthy
+
+DLQ:
+Total Entries: 0
+Write Errors: 0
+
+========================================
+READY FOR LOAD TEST
+========================================

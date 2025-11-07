@@ -437,7 +437,9 @@ func BenchmarkDispatcherHandle(b *testing.B) {
 		}
 	})
 
-	dispatcher.Stop()
+	if err := dispatcher.Stop(); err != nil {
+		b.Errorf("Failed to stop dispatcher: %v", err)
+	}
 }
 
 // BenchmarkDispatcherThroughput benchmarks throughput
@@ -495,5 +497,7 @@ func BenchmarkDispatcherThroughput(b *testing.B) {
 	duration := time.Since(start)
 	b.ReportMetric(float64(b.N)/duration.Seconds(), "entries/sec")
 
-	dispatcher.Stop()
+	if err := dispatcher.Stop(); err != nil {
+		b.Errorf("Failed to stop dispatcher: %v", err)
+	}
 }

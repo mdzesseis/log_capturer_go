@@ -68,6 +68,15 @@ type LokiSink struct {
 	// C11: HTTP Client Timeout - Request-specific timeout for cancellable requests
 	requestTimeout time.Duration
 
+	// Semaphore to limit concurrent sendBatch goroutines (prevents goroutine accumulation)
+	sendSemaphore chan struct{}
+	maxConcurrentSends int
+
+	// Worker pool for batch processing (architectural fix for goroutine leak)
+	batchQueue   chan []types.LogEntry // Queue of batches to process
+	workerCount  int                    // Number of fixed worker goroutines
+	workersWg    sync.WaitGroup         // Track worker goroutines
+
 	// Métricas de backpressure
 	backpressureCount int64
 	droppedCount      int64
@@ -96,13 +105,21 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 		}
 	}
 
-	// Configurar HTTP client
+	// Configurar HTTP client with proper connection limits to prevent goroutine leaks
+	// Each HTTP connection spawns 2 goroutines (readLoop + writeLoop)
+	// Without MaxConnsPerHost, connections accumulate indefinitely
 	httpClient := &http.Client{
 		Timeout: timeout,
 		Transport: &http.Transport{
-			MaxIdleConns:        10,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     30 * time.Second,
+			MaxIdleConns:          100, // Global idle connection pool
+			MaxIdleConnsPerHost:   10,  // Max idle connections per host
+			MaxConnsPerHost:       50,  // CRITICAL: Limit total connections per host (prevents unlimited growth)
+			IdleConnTimeout:       90 * time.Second, // How long idle connections stay open
+			TLSHandshakeTimeout:   10 * time.Second, // Timeout for TLS handshake
+			ExpectContinueTimeout: 1 * time.Second,  // Timeout for Expect: 100-continue
+			ResponseHeaderTimeout: timeout,          // Timeout waiting for response headers
+			DisableKeepAlives:     false,            // Keep connection pooling enabled for efficiency
+			ForceAttemptHTTP2:     false,            // Stick to HTTP/1.1 for simplicity
 		},
 	}
 
@@ -139,18 +156,22 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 	}
 
 	ls := &LokiSink{
-		config:          config,
-		logger:          logger,
-		httpClient:      httpClient,
-		breaker:         breaker,
-		compressor:      compressor,
-		deadLetterQueue: deadLetterQueue,
-		enhancedMetrics: enhancedMetrics,
-		queue:           make(chan types.LogEntry, queueSize),
-		batch:           make([]types.LogEntry, 0, config.BatchSize),
-		ctx:             ctx,
-		cancel:          cancel,
-		requestTimeout:  timeout, // C11: Store timeout for request-specific contexts
+		config:             config,
+		logger:             logger,
+		httpClient:         httpClient,
+		breaker:            breaker,
+		compressor:         compressor,
+		deadLetterQueue:    deadLetterQueue,
+		enhancedMetrics:    enhancedMetrics,
+		queue:              make(chan types.LogEntry, queueSize),
+		batch:              make([]types.LogEntry, 0, config.BatchSize),
+		ctx:                ctx,
+		cancel:             cancel,
+		requestTimeout:     timeout, // C11: Store timeout for request-specific contexts
+		sendSemaphore:      make(chan struct{}, 15), // Limit to 15 concurrent sendBatch goroutines
+		maxConcurrentSends: 15,
+		batchQueue:         make(chan []types.LogEntry, 100), // Queue for worker pool (100 batches buffer)
+		workerCount:        10,                                // Fixed pool of 10 workers
 	}
 
 	// Configurar adaptive batcher se habilitado
@@ -202,6 +223,37 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 	return ls
 }
 
+// startWorkers initializes the worker pool for batch processing
+func (ls *LokiSink) startWorkers() {
+	ls.logger.WithField("worker_count", ls.workerCount).Info("Starting Loki sink worker pool")
+
+	for i := 0; i < ls.workerCount; i++ {
+		ls.workersWg.Add(1)
+		go ls.worker(i)
+	}
+}
+
+// worker processes batches from the queue
+func (ls *LokiSink) worker(id int) {
+	defer ls.workersWg.Done()
+
+	ls.logger.WithField("worker_id", id).Debug("Loki sink worker started")
+
+	for {
+		select {
+		case <-ls.ctx.Done():
+			ls.logger.WithField("worker_id", id).Debug("Loki sink worker shutting down")
+			return
+
+		case batch := <-ls.batchQueue:
+			// Process batch using existing sendBatch method
+			// Note: sendBatch already handles WaitGroup tracking via sendWg
+			ls.sendWg.Add(1)
+			ls.sendBatch(batch)
+		}
+	}
+}
+
 // Start inicia o sink
 func (ls *LokiSink) Start(ctx context.Context) error {
 	if !ls.config.Enabled {
@@ -218,6 +270,9 @@ func (ls *LokiSink) Start(ctx context.Context) error {
 
 	ls.isRunning = true
 	ls.logger.WithField("url", ls.config.URL).Info("Starting Loki sink")
+
+	// Start worker pool for batch processing
+	ls.startWorkers()
 
 	// Definir como healthy no início
 	metrics.SetComponentHealth("sink", "loki", true)
@@ -441,10 +496,15 @@ func (ls *LokiSink) flushBatchUnsafe() {
 	// Limpar batch
 	ls.batch = ls.batch[:0]
 
-	// C6: Track sendBatch goroutine for proper shutdown
-	ls.sendWg.Add(1)
-	// Enviar de forma assíncrona
-	go ls.sendBatch(entries)
+	// Enqueue batch for worker pool processing (non-blocking with timeout)
+	select {
+	case ls.batchQueue <- entries:
+		// Successfully enqueued
+	case <-time.After(100 * time.Millisecond):
+		// Queue full, log warning and drop batch
+		ls.logger.WithField("batch_size", len(entries)).Warn("Batch queue full, dropping batch")
+		atomic.AddInt64(&ls.droppedCount, int64(len(entries)))
+	}
 }
 
 // sendBatch envia um batch para o Loki
@@ -917,9 +977,17 @@ func (ls *LokiSink) adaptiveBatchLoop() {
 			}
 
 			if len(batch) > 0 {
+				// Acquire semaphore slot (blocks if limit reached)
+				ls.sendSemaphore <- struct{}{}
+
 				// C6: Track sendBatch goroutine for proper shutdown
 				ls.sendWg.Add(1)
-				go ls.sendBatch(batch)
+				go func() {
+					defer func() {
+						<-ls.sendSemaphore // Release semaphore slot
+					}()
+					ls.sendBatch(batch)
+				}()
 
 				// Log básico de métricas do adaptive batcher
 				stats := ls.adaptiveBatcher.GetStats()

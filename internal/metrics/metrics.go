@@ -18,7 +18,7 @@ var (
 	// Counter para logs processados
 	LogsProcessedTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logs_processed_total",
+			Name: "log_capturer_logs_processed_total",
 			Help: "Total number of logs processed",
 		},
 		[]string{"source_type", "source_id", "pipeline"},
@@ -27,7 +27,7 @@ var (
 	// Gauge para logs por segundo
 	LogsPerSecond = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "logs_per_second",
+			Name: "log_capturer_logs_per_second",
 			Help: "Current logs per second throughput",
 		},
 		[]string{"component"},
@@ -35,14 +35,14 @@ var (
 
 	// Gauge para utilização da fila do dispatcher
 	DispatcherQueueUtilization = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "dispatcher_queue_utilization",
+		Name: "log_capturer_dispatcher_queue_utilization",
 		Help: "Current utilization of the dispatcher queue (0.0 to 1.0)",
 	})
 
 	// Histograma para duração de steps de processamento
 	ProcessingStepDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "processing_step_duration_seconds",
+			Name:    "log_capturer_processing_step_duration_seconds",
 			Help:    "Time spent in each processing step",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -52,7 +52,7 @@ var (
 	// Counter para logs enviados para sinks
 	LogsSentTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logs_sent_total",
+			Name: "log_capturer_logs_sent_total",
 			Help: "Total number of logs sent to sinks",
 		},
 		[]string{"sink_type", "status"},
@@ -61,7 +61,7 @@ var (
 	// Counter para erros
 	ErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "errors_total",
+			Name: "log_capturer_errors_total",
 			Help: "Total number of errors",
 		},
 		[]string{"component", "error_type"},
@@ -70,7 +70,7 @@ var (
 	// Gauge para arquivos monitorados
 	FilesMonitored = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "files_monitored",
+			Name: "log_capturer_files_monitored",
 			Help: "Number of files being monitored",
 		},
 		[]string{"filepath", "source_type"},
@@ -79,7 +79,7 @@ var (
 	// Gauge para containers monitorados
 	ContainersMonitored = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "containers_monitored",
+			Name: "log_capturer_containers_monitored",
 			Help: "Number of containers being monitored",
 		},
 		[]string{"container_id", "container_name", "image"},
@@ -88,7 +88,7 @@ var (
 	// Gauge para utilização de filas dos sinks
 	SinkQueueUtilization = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "sink_queue_utilization",
+			Name: "log_capturer_sink_queue_utilization",
 			Help: "Queue utilization of sinks (0.0 to 1.0)",
 		},
 		[]string{"sink_type"},
@@ -97,7 +97,7 @@ var (
 	// Gauge para status de saúde dos componentes
 	ComponentHealth = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "component_health",
+			Name: "log_capturer_component_health",
 			Help: "Health status of components (1 = healthy, 0 = unhealthy)",
 		},
 		[]string{"component_type", "component_name"},
@@ -106,7 +106,7 @@ var (
 	// Histogram para latência de processamento
 	ProcessingDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "processing_duration_seconds",
+			Name:    "log_capturer_processing_duration_seconds",
 			Help:    "Time spent processing logs",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0},
 		},
@@ -116,7 +116,7 @@ var (
 	// Histogram para latência de envio para sinks
 	SinkSendDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "sink_send_duration_seconds",
+			Name:    "log_capturer_sink_send_duration_seconds",
 			Help:    "Time spent sending logs to sinks",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0},
 		},
@@ -126,7 +126,7 @@ var (
 	// Gauge para tamanho das filas
 	QueueSize = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "queue_size",
+			Name: "log_capturer_queue_size",
 			Help: "Current size of queues",
 		},
 		[]string{"component", "queue_type"},
@@ -135,7 +135,7 @@ var (
 	// Counter para heartbeats de tarefas
 	TaskHeartbeats = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "task_heartbeats_total",
+			Name: "log_capturer_task_heartbeats_total",
 			Help: "Total number of task heartbeats",
 		},
 		[]string{"task_id", "task_type"},
@@ -144,7 +144,7 @@ var (
 	// Gauge para tarefas ativas
 	ActiveTasks = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "active_tasks",
+			Name: "log_capturer_active_tasks",
 			Help: "Number of active tasks",
 		},
 		[]string{"task_type", "state"},
@@ -155,7 +155,7 @@ var (
 	// Gauge para uso de memória
 	MemoryUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "memory_usage_bytes",
+			Name: "log_capturer_memory_usage_bytes",
 			Help: "Memory usage in bytes",
 		},
 		[]string{"type"},
@@ -164,7 +164,7 @@ var (
 	// Gauge para uso de CPU
 	CPUUsage = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "cpu_usage_percent",
+			Name: "log_capturer_cpu_usage_percent",
 			Help: "CPU usage percentage",
 		},
 	)
@@ -172,7 +172,7 @@ var (
 	// Counter para garbage collection
 	GCRuns = prometheus.NewCounter(
 		prometheus.CounterOpts{
-			Name: "gc_runs_total",
+			Name: "log_capturer_gc_runs_total",
 			Help: "Total number of garbage collection runs",
 		},
 	)
@@ -180,7 +180,7 @@ var (
 	// Gauge para número de goroutines
 	Goroutines = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "goroutines",
+			Name: "log_capturer_goroutines",
 			Help: "Number of goroutines",
 		},
 	)
@@ -188,7 +188,7 @@ var (
 	// Gauge para file descriptors abertos
 	FileDescriptors = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "file_descriptors_open",
+			Name: "log_capturer_file_descriptors_open",
 			Help: "Number of open file descriptors",
 		},
 	)
@@ -196,7 +196,7 @@ var (
 	// Histogram para pausas de GC
 	GCPauseDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Name:    "gc_pause_duration_seconds",
+			Name:    "log_capturer_gc_pause_duration_seconds",
 			Help:    "GC pause duration in seconds",
 			Buckets: []float64{0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0},
 		},
@@ -205,7 +205,7 @@ var (
 	// Gauge para total de arquivos monitorados (agregado)
 	TotalFilesMonitored = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "total_files_monitored",
+			Name: "log_capturer_total_files_monitored",
 			Help: "Total number of files being monitored across all sources",
 		},
 	)
@@ -213,7 +213,7 @@ var (
 	// Gauge para total de containers monitorados (agregado)
 	TotalContainersMonitored = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "total_containers_monitored",
+			Name: "log_capturer_total_containers_monitored",
 			Help: "Total number of containers being monitored",
 		},
 	)
@@ -221,7 +221,7 @@ var (
 	// Enhanced metrics - Advanced monitoring metrics
 	DiskUsageBytes = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "disk_usage_bytes",
+			Name: "log_capturer_disk_usage_bytes",
 			Help: "Disk usage in bytes by mount point",
 		},
 		[]string{"mount_point", "device"},
@@ -229,7 +229,7 @@ var (
 
 	ResponseTimeSeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "response_time_seconds",
+			Name:    "log_capturer_response_time_seconds",
 			Help:    "Response time in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -238,7 +238,7 @@ var (
 
 	ConnectionPoolStats = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "connection_pool_stats",
+			Name: "log_capturer_connection_pool_stats",
 			Help: "Connection pool statistics",
 		},
 		[]string{"pool_name", "stat_type"},
@@ -246,7 +246,7 @@ var (
 
 	CompressionRatio = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "compression_ratio",
+			Name: "log_capturer_compression_ratio",
 			Help: "Compression ratio for different components",
 		},
 		[]string{"component", "algorithm"},
@@ -254,7 +254,7 @@ var (
 
 	BatchingStats = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "batching_stats",
+			Name: "log_capturer_batching_stats",
 			Help: "Batching statistics",
 		},
 		[]string{"component", "stat_type"},
@@ -262,7 +262,7 @@ var (
 
 	LeakDetection = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "leak_detection",
+			Name: "log_capturer_leak_detection",
 			Help: "Resource leak detection metrics",
 		},
 		[]string{"resource_type", "component"},
@@ -391,6 +391,54 @@ var (
 		},
 		[]string{"broker", "sink_name"},
 	)
+
+	// =============================================================================
+	// CONTAINER MONITOR STREAM METRICS
+	// =============================================================================
+
+	// Active container log streams
+	ActiveContainerStreams = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_container_streams_active",
+			Help: "Number of active container log streams",
+		},
+	)
+
+	// Stream rotations total
+	StreamRotationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_container_stream_rotations_total",
+			Help: "Total number of stream rotations",
+		},
+		[]string{"container_id", "container_name"},
+	)
+
+	// Stream age when rotated
+	StreamAgeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "log_capturer_container_stream_age_seconds",
+			Help:    "Age of container streams when rotated",
+			Buckets: []float64{60, 120, 180, 240, 300, 360, 420, 480, 540, 600},
+		},
+		[]string{"container_id"},
+	)
+
+	// Stream errors by type
+	StreamErrorsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_container_stream_errors_total",
+			Help: "Total stream errors by type",
+		},
+		[]string{"error_type", "container_id"},
+	)
+
+	// Stream pool utilization
+	StreamPoolUtilization = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_container_stream_pool_utilization",
+			Help: "Stream pool utilization (0.0 to 1.0)",
+		},
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -466,6 +514,12 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(KafkaMessageSizeBytes)
 		safeRegister(KafkaDLQMessagesTotal)
 		safeRegister(KafkaConnectionStatus)
+		// Container monitor stream metrics
+		safeRegister(ActiveContainerStreams)
+		safeRegister(StreamRotationsTotal)
+		safeRegister(StreamAgeSeconds)
+		safeRegister(StreamErrorsTotal)
+		safeRegister(StreamPoolUtilization)
 	})
 
 	mux := http.NewServeMux()
@@ -730,4 +784,33 @@ func UpdateTotalFilesMonitored(count int) {
 // UpdateTotalContainersMonitored updates the total count of monitored containers
 func UpdateTotalContainersMonitored(count int) {
 	TotalContainersMonitored.Set(float64(count))
+}
+
+// =============================================================================
+// CONTAINER MONITOR STREAM HELPER FUNCTIONS
+// =============================================================================
+
+// RecordStreamRotation records a stream rotation event
+func RecordStreamRotation(containerID, containerName string, ageSeconds float64) {
+	StreamRotationsTotal.WithLabelValues(containerID, containerName).Inc()
+	StreamAgeSeconds.WithLabelValues(containerID).Observe(ageSeconds)
+}
+
+// RecordStreamError records a stream error
+func RecordStreamError(errorType, containerID string) {
+	StreamErrorsTotal.WithLabelValues(errorType, containerID).Inc()
+}
+
+// UpdateActiveStreams updates the count of active streams
+func UpdateActiveStreams(count int) {
+	ActiveContainerStreams.Set(float64(count))
+}
+
+// UpdateStreamPoolUtilization updates stream pool utilization
+func UpdateStreamPoolUtilization(current, max int) {
+	if max > 0 {
+		StreamPoolUtilization.Set(float64(current) / float64(max))
+	} else {
+		StreamPoolUtilization.Set(0)
+	}
 }

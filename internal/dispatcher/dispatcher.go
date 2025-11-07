@@ -506,12 +506,16 @@ func (d *Dispatcher) Stop() error {
 
 	// Parar deduplication manager se habilitado
 	if d.config.DeduplicationEnabled && d.deduplicationManager != nil {
-		d.deduplicationManager.Stop()
+		if err := d.deduplicationManager.Stop(); err != nil {
+			d.logger.WithError(err).Warn("Failed to stop deduplication manager")
+		}
 	}
 
 	// Parar Dead Letter Queue se habilitado
 	if d.config.DLQEnabled && d.deadLetterQueue != nil {
-		d.deadLetterQueue.Stop()
+		if err := d.deadLetterQueue.Stop(); err != nil {
+			d.logger.WithError(err).Warn("Failed to stop dead letter queue")
+		}
 	}
 
 	// Cancelar contexto para sinalizar todas as goroutines
@@ -633,7 +637,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 	}
 
 	entry := types.LogEntry{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Message:     message,
 		SourceType:  sourceType,
 		SourceID:    sourceID,
@@ -706,7 +710,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
 		Entry:     *entry.DeepCopy(),
-		Timestamp: time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Retries:   0,
 	}
 
@@ -735,45 +739,12 @@ func (d *Dispatcher) GetStats() types.DispatcherStats {
 	return d.statsCollector.GetStats()
 }
 
-// PHASE 2 NOTE: Original implementation preserved for reference
-/*
-func (d *Dispatcher) GetStatsOriginal() types.DispatcherStats {
-	d.statsMutex.RLock()
-	defer d.statsMutex.RUnlock()
-
-	// Criar cópia das estatísticas - copia tudo dentro do lock para evitar race condition
-	stats := d.stats
-	// Criar nova instância do map para evitar referência compartilhada
-	stats.SinkDistribution = make(map[string]int64, len(d.stats.SinkDistribution))
-	for k, v := range d.stats.SinkDistribution {
-		stats.SinkDistribution[k] = v
-	}
-
-	return stats
-}
-*/
-
 // GetRetryQueueStats returns statistics about the retry queue
 // PHASE 2 REFACTORING: Delegates to RetryManager
 // This helps monitor goroutine leak prevention - shows how many retry slots are in use
 func (d *Dispatcher) GetRetryQueueStats() map[string]interface{} {
 	return d.retryManager.GetRetryStats()
 }
-
-// PHASE 2 NOTE: Original implementation preserved for reference
-/*
-func (d *Dispatcher) GetRetryQueueStatsOriginal() map[string]interface{} {
-	currentRetries := len(d.retrySemaphore)
-	utilization := float64(currentRetries) / float64(d.maxConcurrentRetries)
-
-	return map[string]interface{}{
-		"current_retries":       currentRetries,
-		"max_concurrent_retries": d.maxConcurrentRetries,
-		"utilization":           utilization,
-		"available_slots":       d.maxConcurrentRetries - currentRetries,
-	}
-}
-*/
 
 // sendToDLQ envia entrada para Dead Letter Queue
 func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
@@ -839,61 +810,6 @@ func (d *Dispatcher) worker(workerID int) {
 		}
 	}
 }
-
-// PHASE 2 NOTE: Original worker implementation preserved below for reference
-// This can be removed after validation of the new implementation
-/*
-func (d *Dispatcher) workerOriginal(workerID int) {
-	logger := d.logger.WithField("worker_id", workerID)
-	logger.Info("Dispatcher worker started")
-
-	batch := make([]dispatchItem, 0, d.config.BatchSize)
-	timer := time.NewTimer(d.config.BatchTimeout)
-	timer.Stop()
-
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-		// Processar batch final se houver
-		if len(batch) > 0 {
-			d.processBatch(batch, logger)
-		}
-		logger.Info("Dispatcher worker stopped")
-	}()
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-
-		case item := <-d.queue:
-			batch = append(batch, item)
-
-			// Se é o primeiro item do batch, iniciar timer
-			if len(batch) == 1 {
-				timer.Reset(d.config.BatchTimeout)
-			}
-
-			// Processar batch se estiver cheio
-			if len(batch) >= d.config.BatchSize {
-				if !timer.Stop() {
-					<-timer.C
-				}
-				d.processBatch(batch, logger)
-				batch = batch[:0]
-			}
-
-		case <-timer.C:
-			// Timeout do batch
-			if len(batch) > 0 {
-				d.processBatch(batch, logger)
-				batch = batch[:0]
-			}
-		}
-	}
-}
-*/
 
 // PHASE 2 REFACTORING: processBatchWrapper uses modular components for batch processing
 // This is the new simplified interface that delegates to BatchProcessor and RetryManager
@@ -1198,77 +1114,11 @@ func (d *Dispatcher) statsUpdater() {
 	d.statsCollector.RunStatsUpdater(d.ctx, d.retryManager.GetRetryStats)
 }
 
-// PHASE 2 NOTE: Original implementation preserved for reference
-/*
-func (d *Dispatcher) statsUpdaterOriginal() {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
-
-	var lastProcessed int64
-	lastCheck := time.Now()
-
-	for {
-		select {
-		case <-d.ctx.Done():
-			return
-		case <-ticker.C:
-			now := time.Now()
-			d.statsMutex.Lock()
-
-			currentProcessed := d.stats.TotalProcessed
-			d.stats.QueueSize = len(d.queue)
-
-			d.statsMutex.Unlock()
-
-			duration := now.Sub(lastCheck).Seconds()
-			if duration > 0 {
-				processedSinceLast := currentProcessed - lastProcessed
-				logsPerSecond := float64(processedSinceLast) / duration
-				metrics.LogsPerSecond.WithLabelValues("dispatcher").Set(logsPerSecond)
-			}
-
-			lastProcessed = currentProcessed
-			lastCheck = now
-
-			// Atualizar métricas de utilização da fila
-			queueUtilization := float64(d.stats.QueueSize) / float64(d.config.QueueSize)
-			metrics.DispatcherQueueUtilization.Set(queueUtilization)
-			metrics.SetQueueSize("dispatcher", "main", d.stats.QueueSize)
-
-			// Goroutine Leak Fix - Monitor retry queue utilization
-			retryQueueStats := d.GetRetryQueueStats()
-			currentRetries := retryQueueStats["current_retries"].(int)
-			retryUtilization := retryQueueStats["utilization"].(float64)
-
-			metrics.SetQueueSize("dispatcher", "retry", currentRetries)
-
-			// Log warning if retry queue is getting full (>80%)
-			if retryUtilization > 0.8 {
-				d.logger.WithFields(logrus.Fields{
-					"current_retries":        currentRetries,
-					"max_concurrent_retries": d.maxConcurrentRetries,
-					"utilization":            retryUtilization,
-				}).Warn("Retry queue utilization high - potential goroutine leak risk")
-			}
-		}
-	}
-}
-*/
-
 // updateStats atualiza estatísticas de forma thread-safe
 // PHASE 2 REFACTORING: Delegates to StatsCollector
 func (d *Dispatcher) updateStats(fn func(*types.DispatcherStats)) {
 	d.statsCollector.UpdateStats(fn)
 }
-
-// PHASE 2 NOTE: Original implementation preserved for reference
-/*
-func (d *Dispatcher) updateStatsOriginal(fn func(*types.DispatcherStats)) {
-	d.statsMutex.Lock()
-	defer d.statsMutex.Unlock()
-	fn(&d.stats)
-}
-*/
 
 // updateTimestampWarnings incrementa contador de warnings de timestamp
 func (d *Dispatcher) updateTimestampWarnings() {
@@ -1285,52 +1135,6 @@ func (d *Dispatcher) updateBackpressureMetrics() {
 	d.statsCollector.UpdateBackpressureMetrics(d.backpressureManager)
 }
 
-// PHASE 2 NOTE: Original implementation preserved for reference
-/*
-func (d *Dispatcher) updateBackpressureMetricsOriginal() {
-	if d.backpressureManager == nil {
-		return
-	}
-
-	// Calcular utilização da fila
-	queueUtilization := float64(len(d.queue)) / float64(cap(d.queue))
-
-	// Coletar métricas do sistema
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
-
-	// Calcular utilização de memória (assumindo 512MB como limite padrão)
-	memoryUtilization := float64(memStats.Alloc) / (512 * 1024 * 1024)
-	if memoryUtilization > 1.0 {
-		memoryUtilization = 1.0
-	}
-
-	// Para CPU e IO, usamos valores simplificados baseados na carga da fila
-	cpuUtilization := queueUtilization * 0.8    // Estimativa baseada na fila
-	ioUtilization := queueUtilization * 0.6     // Estimativa baseada na fila
-
-	// Taxa de erro baseada nas estatísticas
-	d.statsMutex.RLock()
-	totalProcessed := d.stats.TotalProcessed
-	errorCount := d.stats.ErrorCount
-	d.statsMutex.RUnlock()
-
-	var errorRate float64
-	if totalProcessed > 0 {
-		errorRate = float64(errorCount) / float64(totalProcessed)
-	}
-
-	// Atualizar métricas no manager
-	d.backpressureManager.UpdateMetrics(backpressure.Metrics{
-		QueueUtilization:  queueUtilization,
-		MemoryUtilization: memoryUtilization,
-		CPUUtilization:    cpuUtilization,
-		IOUtilization:     ioUtilization,
-		ErrorRate:         errorRate,
-	})
-}
-*/
-
 // handleLowPriorityEntry processa uma entrada de baixa prioridade sem descartar
 func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
 	// Em vez de descartar, envia para Dead Letter Queue se disponível
@@ -1342,7 +1146,7 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 		}
 
 		entry := types.LogEntry{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Message:     message,
 			SourceType:  sourceType,
 			SourceID:    sourceID,
@@ -1353,9 +1157,12 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 		// Adicionar tag indicando que foi throttled (thread-safe)
 		entry.SetLabel("throttle_reason", "backpressure_low_priority")
 
-		d.deadLetterQueue.AddEntry(entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
+		if err := d.deadLetterQueue.AddEntry(entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
 			"throttle_level": d.backpressureManager.GetLevel().String(),
-		})
+		}); err != nil {
+			d.logger.WithError(err).Warn("Failed to add throttled entry to DLQ")
+			return err
+		}
 		return nil
 	}
 
@@ -1389,7 +1196,7 @@ func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, 
 	}
 
 	entry := types.LogEntry{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Message:     message,
 		SourceType:  sourceType,
 		SourceID:    sourceID,
@@ -1417,7 +1224,7 @@ func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, 
 	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
 		Entry:     *entry.DeepCopy(),
-		Timestamp: time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Retries:   0,
 	}
 
@@ -1512,22 +1319,11 @@ func (d *Dispatcher) findSinkByName(sinkName string) types.Sink {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
 
-	// Mapear nomes de sink conhecidos
-	sinkNameMap := map[string]string{
-		"loki":           "loki",
-		"local_file":     "local_file",
-		"elasticsearch":  "elasticsearch",
-		"splunk":         "splunk",
-	}
-
-	// Se o nome não estiver no mapa, usar como está
-	normalizedName := sinkNameMap[sinkName]
-	if normalizedName == "" {
-		normalizedName = sinkName
-	}
-
 	// Para simplificar, retornamos o primeiro sink healthy que encontramos
 	// Em uma implementação mais sofisticada, poderíamos tag os sinks com nomes
+	// e fazer lookup por nome exato usando o parâmetro sinkName
+	_ = sinkName // Unused for now, but kept for future implementation
+
 	for _, sink := range d.sinks {
 		if sink.IsHealthy() {
 			return sink

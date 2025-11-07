@@ -1,0 +1,52 @@
+=== RUN   TestStreamPool_AcquireRelease
+--- PASS: TestStreamPool_AcquireRelease (0.00s)
+=== RUN   TestStreamPool_Capacity
+    container_monitor_rotation_test.go:56: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/monitors/container_monitor_rotation_test.go:56
+        	Error:      	Not equal: 
+        	            	expected: 2
+        	            	actual  : 3
+        	Test:       	TestStreamPool_Capacity
+    container_monitor_rotation_test.go:61: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/monitors/container_monitor_rotation_test.go:61
+        	Error:      	Not equal: 
+        	            	expected: 3
+        	            	actual  : 4
+        	Test:       	TestStreamPool_Capacity
+--- FAIL: TestStreamPool_Capacity (0.00s)
+=== RUN   TestStreamPool_Concurrent
+panic: test timed out after 10m0s
+	running tests:
+		TestStreamPool_Concurrent (10m0s)
+
+goroutine 146 [running]:
+testing.(*M).startAlarm.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2484 +0x605
+created by time.goFunc
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/time/sleep.go:215 +0x45
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0000036c0, {0xa4f268, 0x19}, 0xa6a030)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1859 +0x91e
+testing.runTests.func1(0xc0000036c0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2279 +0x86
+testing.tRunner(0xc0000036c0, 0xc00031fae0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0x226
+testing.runTests(0xc000010a98, {0xdefe60, 0xc, 0xc}, {0x5?, 0x0?, 0xdf9a80?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2277 +0x96d
+testing.(*M).Run(0xc0000ae5a0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2142 +0xeeb
+main.main()
+	_testmain.go:71 +0x165
+
+goroutine 7 [chan receive]:
+ssw-logs-capture/internal/monitors.(*StreamPool).ReleaseSlot(0xc0000a16e0, {0xc00007fe60, 0xa})
+	/home/mateus/log_capturer_go/internal/monitors/container_monitor.go:82 +0xd9
+ssw-logs-capture/internal/monitors.TestStreamPool_Concurrent(0xc000003dc0)
+	/home/mateus/log_capturer_go/internal/monitors/container_monitor_rotation_test.go:94 +0x4e5
+testing.tRunner(0xc000003dc0, 0xa6a030)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0x226
+created by testing.(*T).Run in goroutine 1
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x8f3
+FAIL	ssw-logs-capture/internal/monitors	600.124s
+FAIL

@@ -1,0 +1,786 @@
+# =============================================================================
+# CONFIGURAÇÃO SIMPLIFICADA - SSW LOGS CAPTURE GO
+# =============================================================================
+# Configuração baseada na estrutura esperada pelo código Go
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES GERAIS DA APLICAÇÃO
+# -----------------------------------------------------------------------------
+app:
+  name: "ssw-logs-capture"
+  version: "v0.0.2"
+  environment: "production"
+  log_level: "info"
+  log_format: "json"
+  log_file: ""
+  operation_timeout: "1h"
+
+  # default_configs: Controla se valores padrão devem ser aplicados automaticamente
+  # true  = Aplica valores padrão para configurações não especificadas (comportamento padrão)
+  # false = NÃO aplica valores padrão, usa apenas valores explicitamente configurados
+  #
+  # Quando true: Se você não especificar uma configuração, o sistema usará um valor padrão
+  # Quando false: Se você não especificar uma configuração, ela permanecerá vazia/desabilitada
+  #
+  # IMPORTANTE: Se você deixar campos comentados ou vazios com default_configs: true,
+  # o sistema NÃO aplicará defaults (respeita sua intenção de deixar vazio).
+  # Apenas campos completamente não mencionados receberão defaults.
+  #
+  # Pode ser sobrescrito pela variável de ambiente: SSW_DEFAULT_CONFIGS=true/false
+  default_configs: false
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO SERVIDOR HTTP
+# -----------------------------------------------------------------------------
+server:
+  enabled: true
+  port: 8401
+  host: "0.0.0.0"
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+  max_header_bytes: 1048576
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE MÉTRICAS
+# -----------------------------------------------------------------------------
+metrics:
+  enabled: true
+  port: 8001
+  path: "/metrics"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE PADRÕES DE ARQUIVOS (DEFAULTS)
+# -----------------------------------------------------------------------------
+# Estas configurações são DEFAULTS e só serão aplicadas se:
+# 1. file_monitor_service está enabled
+# 2. Não existe file_pipeline.yml OU o recurso não está configurado no pipeline
+files_config:
+  watch_directories:
+    - "/var/log"
+  include_patterns:
+    # - "*.log"
+    # - "*.txt"
+    # - "syslog"
+    # - "dmesg"
+    # - "kern.log"
+    # - "messages"
+  exclude_patterns:
+    - "*.gz"
+    - "*.zip"
+    - "*.old"
+    - "*.bak"
+    - "*~"
+  exclude_directories:
+    - "/var/log/monitoring_data_suite"
+    - "/app/logs"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO SERVIÇO DE MONITORAMENTO DE ARQUIVOS
+# -----------------------------------------------------------------------------
+file_monitor_service:
+  enabled: true  # Re-enabled after circuit breaker fix DE LEAK
+  pipeline_file: "/app/configs/file_pipeline.yml"
+  poll_interval: "30s"
+  read_buffer_size: 65536
+  read_interval: "100ms"
+  recursive: true
+  follow_symlinks: false
+
+# NOTE: Legacy file_monitor configuration removed. Use file_monitor_service instead.
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE MONITORAMENTO DE CONTAINERS
+# -----------------------------------------------------------------------------
+# NOTA: O sistema agora usa descoberta orientada a eventos Docker em vez de polling
+# O campo 'reconnect_interval' ainda existe mas é usado apenas para fallback/heartbeat
+container_monitor:
+  enabled: true  # PHASE 3: Re-enabled for integration testing
+  socket_path: "unix:///var/run/docker.sock"
+  health_check_delay: "30s"
+  reconnect_interval: "30s"          # Agora usado apenas para heartbeat (não mais polling)
+  max_concurrent: 25
+  include_labels: {}
+  exclude_labels: {}
+  include_names: []
+  exclude_names:
+    - "log_capturer_go"
+  include_stdout: true
+  include_stderr: true
+  tail_lines: 50
+  follow: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DO DISPATCHER
+# -----------------------------------------------------------------------------
+dispatcher:
+  queue_size: 50000
+  worker_count: 6
+  send_timeout: "120s"
+  batch_size: 500
+  batch_timeout: "10s"
+  max_retries: 3
+  retry_base_delay: "5s"
+  retry_multiplier: 2
+  retry_max_delay: "60s"
+  deduplication_enabled: true
+  deduplication_config:
+    max_cache_size: 100000
+    ttl: "1h"
+    cleanup_interval: "10m"
+    cleanup_threshold: 0.8
+    hash_algorithm: "sha256"
+    include_timestamp: false
+    include_source_id: true
+  dlq_enabled: true
+  dlq_config:
+    enabled: true
+    directory: "/tmp/dlq"
+    max_size_mb: 100
+    max_files: 10
+    retention_days: 7
+    write_timeout: "5s"
+    retry_delay: "30s"
+    max_retries: 3
+    # Configurações de reprocessamento automático
+    reprocessing_config:
+      enabled: true                    # Habilitar reprocessamento automático
+      interval: "5m"                   # Verificar DLQ a cada 5 minutos
+      max_retries: 3                   # Máximo 3 tentativas de reprocessamento
+      initial_delay: "2m"              # Delay inicial de 2 minutos
+      delay_multiplier: 2.0            # Multiplicador exponential backoff
+      max_delay: "30m"                 # Delay máximo de 30 minutos
+      batch_size: 50                   # Processar até 50 entradas por vez
+      timeout: "30s"                   # Timeout para cada tentativa
+      min_entry_age: "2m"              # Idade mínima antes de tentar reprocessar
+    alert_config:
+      enabled: true
+      entries_per_minute_threshold: 50
+      total_entries_threshold: 1000
+      queue_size_threshold: 8000
+      check_interval: "1m"
+      cooldown_period: "5m"
+      webhook_url: ""
+      email_to: ""
+      include_stats: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DOS SINKS
+# -----------------------------------------------------------------------------
+sinks:
+  loki:
+    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
+    url: "http://loki:3100"
+    push_endpoint: "/loki/api/v1/push"
+    tenant_id: ""
+    timeout: "240s"
+    batch_size: 500         # Reduced from 20000 to prevent Loki rejection
+    batch_timeout: "5s"     # Reduced from 40s for faster delivery
+    max_request_size: 2097152
+    queue_size: 25000
+    # default_labels:
+    #   service: "ssw-log-capturer"
+    # headers:
+    #   "User-Agent": "ssw-logs-capture/v0.0.2"
+    #   "Content-Type": "application/json"
+    auth:
+      type: "none"
+      username: ""
+      password: ""
+      token: ""
+    tls:
+      enabled: false
+      verify_certificate: true
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+    # Configurações específicas de backpressure e DLQ para Loki
+    backpressure_config:
+      enabled: true
+      queue_warning_threshold: 0.75    # 75% da capacidade
+      queue_critical_threshold: 0.90   # 90% da capacidade
+      queue_emergency_threshold: 0.95  # 95% da capacidade - enviar para DLQ
+      timeout_escalation: true         # Timeout escalonado baseado na utilização
+    dlq_config:
+      enabled: true
+      send_on_queue_full: false         # Enviar para DLQ quando fila cheia
+      send_on_timeout: true            # Enviar para DLQ em timeout
+      send_on_error: true              # Enviar para DLQ em erro de envio
+    # Configurações de batching adaptativo
+    adaptive_batching:
+      enabled: true                   # Desabilitado por padrão
+      min_batch_size: 10
+      max_batch_size: 50000
+      initial_batch_size: 15000
+      min_flush_delay: "50ms"
+      max_flush_delay: "10s"
+      initial_flush_delay: "1s"
+      adaptation_interval: "30s"
+      latency_threshold: "500ms"
+      throughput_target: 20000
+      buffer_size: 20000
+
+  local_file:
+    enabled: true  # Re-enabled after circuit breaker fix DE LEAK
+    directory: "/tmp/logs/output"
+    filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
+    #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
+    #filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
+    output_format: "text"
+    text_format:
+      include_timestamp: false       # Não incluir timestamp adicional
+      timestamp_format: "2006-01-02 15:04:05.000"
+      include_labels: false          # Não incluir labels como separadores
+      field_separator: " | "
+      raw_message_only: true         # Apenas a mensagem original capturada
+    rotation:
+      enabled: true
+      max_size_mb: 100
+      max_files: 10
+      retention_days: 7
+      compress: true
+    auto_sync: true
+    sync_interval: "60s"
+    file_permissions: "0644"
+    dir_permissions: "0755"
+    queue_size: 25000                # Increased queue size to handle higher throughput
+    worker_count: 4                  # Number of concurrent workers processing the queue
+
+  elasticsearch:
+    enabled: false
+    urls: []
+    index: ""
+    batch_size: 0
+    username: ""
+    password: ""
+
+  splunk:
+    enabled: false
+    url: ""
+    token: ""
+    index: ""
+
+  kafka:
+    enabled: false  # Temporarily disabled for testing file_monitor
+    brokers:
+      - "kafka:9092"                    # Kafka broker addresses
+    topic: "logs"                       # Default topic (can be overridden by routing)
+    compression: "snappy"               # Options: gzip, snappy, lz4, zstd, none
+    batch_size: 1000                    # Messages per batch
+    batch_timeout: "5s"                 # Max wait time before flushing batch
+    queue_size: 50000                   # Internal queue size
+    max_message_bytes: 1048576          # 1MB max message size
+    required_acks: 1                    # 0=none, 1=leader, -1=all replicas
+    timeout: "30s"                      # Producer timeout
+    retry_max: 3                        # Max retries on failure
+
+    # Partitioning strategy
+    partitioning:
+      enabled: true
+      strategy: "hash"                  # Options: hash, round-robin, manual
+      key_field: "tenant_id"            # Field to use for hash partitioning
+
+    # SASL/SCRAM authentication
+    auth:
+      enabled: false
+      mechanism: "SCRAM-SHA-256"        # Options: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
+      username: ""
+      password: ""
+
+    # TLS/SSL configuration
+    tls:
+      enabled: false
+      verify_certificate: true
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+
+    # Dead Letter Queue configuration
+    dlq_config:
+      enabled: true
+      topic: "logs-dlq"                 # DLQ topic name
+      send_on_error: true               # Send failed messages to DLQ
+      send_on_timeout: true             # Send timed-out messages to DLQ
+
+    # Backpressure management
+    backpressure_config:
+      enabled: true
+      queue_warning_threshold: 0.75     # 75% queue utilization
+      queue_critical_threshold: 0.90    # 90% queue utilization
+      queue_emergency_threshold: 0.95   # 95% - send to DLQ
+      timeout_escalation: true          # Escalate timeout under pressure
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE PROCESSAMENTO
+# -----------------------------------------------------------------------------
+processing:
+  enabled: true
+  pipelines_file: "/app/configs/pipelines.yaml"
+  worker_count: 6
+  queue_size: 10000
+  processing_timeout: "10s"
+  skip_failed_logs: true
+  enrich_logs: true
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE VALIDAÇÃO DE TIMESTAMP
+# -----------------------------------------------------------------------------
+timestamp_validation:
+  enabled: true
+  max_past_age_seconds: 3600     # 1 hora no passado
+  max_future_age_seconds: 30      # 30 segundos no futuro
+  clamp_enabled: true             # Habilitar clamping automático
+  clamp_dlq: false               # Enviar timestamps corrigidos para DLQ
+  invalid_action: "clamp"         # Ação: "clamp", "reject", "warn"
+  default_timezone: "UTC"         # Timezone padrão
+  accepted_formats:               # Formatos aceitos para parsing
+    - "2006-01-02T15:04:05Z07:00"  # RFC3339
+    - "2006-01-02T15:04:05.000Z"   # RFC3339Nano variant
+    - "2006-01-02T15:04:05Z"       # UTC format
+    - "2006-01-02 15:04:05"        # Simple format
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE SERVICE DISCOVERY
+# -----------------------------------------------------------------------------
+service_discovery:
+  enabled: false
+  update_interval: "30s"          # Intervalo de atualização
+  docker_enabled: false            # Descoberta de containers Docker
+  file_enabled: true            # Descoberta baseada em arquivos
+  kubernetes_enabled: false      # Descoberta Kubernetes (futuro)
+
+  # Configuração Docker Discovery
+  # docker:
+  #   socket_path: "unix:///var/run/docker.sock"
+    # require_label: "logs.capture"              # Label obrigatória
+    # pipeline_label: "logs.pipeline"            # Label para pipeline
+    # component_label: "logs.component"          # Label para componente
+    # tenant_label: "logs.tenant"                # Label para tenant
+    # required_labels:                            # Labels obrigatórias
+    #   logs.capture: "true"
+    # exclude_labels:                             # Labels para exclusão
+    #   logs.exclude: "true"
+
+  # Configuração File Discovery
+  file:
+    watch_paths:
+      - "/etc/log-services"
+      - "/app/service-configs"
+    config_files:
+      - "/etc/log-services/*.yaml"
+      - "/app/service-configs/*.json"
+    auto_detect_logs: true
+    required_labels:
+      service_type: "logs"
+
+  # Configuração Kubernetes (futuro)
+  # kubernetes:
+  #   namespace: "default"
+  #   service_account: "log-capturer"
+  #   required_annotations:
+  #     logs.capture/enabled: "true"
+  #   required_labels:
+  #     app.kubernetes.io/component: "logging"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE HOT RELOAD
+# -----------------------------------------------------------------------------
+hot_reload:
+  enabled: true
+  watch_interval: "5s"            # Intervalo de verificação periódica
+  debounce_interval: "2s"         # Intervalo de debounce para mudanças
+  validate_on_reload: true        # Validar configuração antes de aplicar
+  backup_on_reload: true          # Fazer backup antes de reload
+  backup_directory: "/app/data/config_backups"
+  max_backups: 10                 # Máximo de backups mantidos
+  failsafe_mode: true             # Continuar funcionando mesmo com erros de apply
+  watch_files:                    # Arquivos adicionais para monitorar
+    - "/app/configs/pipelines.yaml"
+    - "/app/configs/file_pipeline.yml"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE POSIÇÕES
+# -----------------------------------------------------------------------------
+positions:
+  enabled: true
+  directory: "/app/data/positions"
+  flush_interval: "10s"
+  max_memory_buffer: 2000
+  max_memory_positions: 10000
+  force_flush_on_exit: true
+  cleanup_interval: "1m"
+  max_position_age: "12h"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE LIMPEZA DE DISCO
+# -----------------------------------------------------------------------------
+cleanup:
+  enabled: true
+  check_interval: "30m"
+  critical_space_threshold: 5.0    # 5% de espaço livre
+  warning_space_threshold: 15.0    # 15% de espaço livre
+  directories:
+    - path: "/app/logs"
+      max_size_mb: 1024              # 1GB máximo
+      retention_days: 7
+      file_patterns:
+        - "*.log"
+        - "*.txt"
+      max_files: 100
+      cleanup_age_seconds: 86400     # 24 horas
+    - path: "/app/dlq"
+      max_size_mb: 512               # 512MB máximo
+      retention_days: 7
+      file_patterns:
+        - "*.json"
+      max_files: 50
+      cleanup_age_seconds: 86400
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE DETECÇÃO DE VAZAMENTOS
+# -----------------------------------------------------------------------------
+resource_monitoring:
+  enabled: true
+  check_interval: "15s"            # Check interval for resource monitoring
+  goroutine_threshold: 1000        # Alert when goroutines > 1000
+  memory_threshold_mb: 500         # Alert when memory > 500 MB
+  fd_threshold: 1000               # Alert when file descriptors > 1000
+  growth_rate_threshold: 50.0      # Alert when growth rate > 50% per interval
+  alert_on_threshold: true         # Enable threshold-based alerting
+  alert_webhook_url: ""            # Optional webhook URL for alerts
+
+  # Legacy leakdetection settings (for backward compatibility)
+  fd_leak_threshold: 20            # Reduzido de 100 para 20 - mais restritivo
+  goroutine_leak_threshold: 20     # Reduzido de 50 para 20 - detectar vazamentos cedo
+  memory_leak_threshold: 52428800  # Reduzido para 50MB - mais restritivo
+  alert_cooldown: "2m"             # Reduzido de 5m para 2m - alertas mais frequentes
+  enable_memory_profiling: true    # Habilitado para debug detalhado
+  enable_gc_optimization: true
+  max_alert_history: 200           # Aumentado histórico para análise
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE BUFFER DE DISCO
+# -----------------------------------------------------------------------------
+disk_buffer:
+  enabled: true                    # Desabilitado por padrão
+  directory: "/tmp/buffer"
+  max_file_size: 104857600          # 100MB por arquivo
+  max_total_size: 1073741824        # 1GB total
+  max_files: 50
+  compression_enabled: true
+  sync_interval: "5s"
+  cleanup_interval: "1h"
+  retention_period: "24h"
+  file_permissions: "0644"
+  dir_permissions: "0755"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE DETECÇÃO DE ANOMALIAS ML
+# -----------------------------------------------------------------------------
+anomaly_detection:
+  enabled: false                    # Mantido desabilitado - gera muito ruído nos logs
+  algorithm: "ml_ensemble"          # Tipos: "isolation_forest", "statistical", "neural_network", "ml_ensemble"
+  sensitivity_level: "medium"       # Níveis: "low", "medium", "high"
+  window_size: "5m"                 # Janela de análise (reduzido para teste)
+  min_samples: 10                   # Mínimo de amostras para treinamento (reduzido para teste)
+  model_path: "/app/data/models"    # Diretório para salvar modelos
+  save_model: true                  # Salvar modelos treinados em disco
+  training_enabled: true            # Habilitar treinamento online
+
+  # Limiares de detecção
+  thresholds:
+    volume_change: 0.5              # Mudança no volume de logs
+    pattern_deviation: 0.7          # Desvio de padrão
+    error_rate_spike: 0.8           # Pico na taxa de erros
+    latency_increase: 0.6           # Aumento na latência
+
+  # Ações ao detectar anomalias
+  actions:
+    alert_enabled: true             # Habilitar alertas
+    webhook_url: ""                 # URL do webhook (opcional)
+    auto_scale: false               # Auto-scaling (desabilitado)
+    circuit_breaker: true          # Circuit breaker (desabilitado)
+    log_level: "warn"               # Nível de log para anomalias
+    metrics_enabled: true           # Exportar métricas de anomalias
+
+    whitelist_patterns:             # Padrões normais (regex)
+      - "^INFO.*application started$"
+      - "^DEBUG.*configuration loaded$"
+      - "^INFO.*health check.*ok$"
+    blacklist_patterns:             # Padrões anômalos (regex)
+      - "(?i).*error.*out of memory.*"
+      - "(?i).*fatal.*panic.*"
+      - "(?i).*security.*breach.*"
+      - "(?i).*attack.*detected.*"
+    update_interval: "1h"           # Atualizar padrões
+
+  # Configuração de saída
+  output_config:
+    enabled: true                   # Habilitar saída
+    log_results: true               # Log dos resultados
+    metrics_enabled: true           # Habilitar métricas Prometheus
+    dlq_enabled: true               # Enviar para DLQ
+    file_output: "/app/logs/anomalies.log" # Arquivo de anomalias
+    include_features: true         # Incluir features (pode ser verboso)
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE ARQUITETURA MULTI-TENANT
+# -----------------------------------------------------------------------------
+multi_tenant:
+  enabled: true                     # Habilitar multi-tenancy
+  default_tenant: "default"         # Tenant padrão
+  isolation_mode: "soft"            # Modo de isolamento: "soft", "hard"
+
+  # Configuração de descoberta automática de tenants
+  tenant_discovery:
+    enabled: true                   # Habilitar descoberta automática
+    update_interval: "30s"          # Intervalo de verificação
+    config_paths:                   # Caminhos para arquivos de configuração
+      - "/app/tenants"
+      - "/etc/tenants"
+    auto_create_tenants: true       # Criar tenants automaticamente
+    auto_update_tenants: true       # Atualizar tenants automaticamente
+    auto_delete_tenants: false      # Deletar tenants automaticamente
+    default_tenant_template: "/app/templates/tenant.yaml"
+    file_formats: ["yaml", "json"]  # Formatos suportados
+    validation_enabled: true        # Validar configurações
+
+  # Configuração de isolamento de recursos
+  resource_isolation:
+    enabled: true                   # Habilitar isolamento de recursos
+    cpu_isolation: true             # Isolamento de CPU
+    memory_isolation: true          # Isolamento de memória
+    disk_isolation: true            # Isolamento de disco
+    network_isolation: false       # Isolamento de rede
+    monitoring_interval: "30s"      # Intervalo de monitoramento
+    enforcement_mode: "throttle"    # Modo: "warn", "throttle", "block"
+
+    # Limites padrão para novos tenants
+    default_limits:
+      max_memory_mb: 512            # 512MB por tenant
+      max_cpu_percent: 25.0         # 25% CPU por tenant
+      max_disk_mb: 1024             # 1GB disco por tenant
+      max_connections: 100          # 100 conexões por tenant
+      max_events_per_sec: 1000      # 1000 eventos/seg por tenant
+      max_file_descriptors: 256     # 256 file descriptors por tenant
+      max_goroutines: 1000          # 1000 goroutines por tenant
+
+  # Configuração de isolamento de segurança
+  security_isolation:
+    enabled: true                   # Habilitar isolamento de segurança
+    tenant_authentication: false   # Autenticação por tenant
+    api_key_required: false         # Requer API key
+    encryption_per_tenant: false   # Criptografia por tenant
+    audit_logging_enabled: true    # Log de auditoria
+    cross_tenant_access_denied: true # Negar acesso cross-tenant
+    allowed_tenant_sources: []     # Sources permitidos
+    security_headers:               # Headers de segurança
+      "X-Content-Type-Options": "nosniff"
+      "X-Frame-Options": "DENY"
+
+  # Configuração de isolamento de métricas
+  metrics_isolation:
+    enabled: true                   # Habilitar isolamento de métricas
+    per_tenant_metrics: true        # Métricas por tenant
+    metrics_prefix: "tenant"        # Prefixo das métricas
+    tenant_labels: ["tenant_id", "tenant_name"] # Labels de tenant
+    custom_labels:                  # Labels customizados
+      environment: "production"
+      service: "log-capturer"
+    aggregation_level: "both"       # "tenant", "global", "both"
+
+  # Configuração de roteamento
+  tenant_routing:
+    enabled: true                   # Habilitar roteamento
+    routing_strategy: "label"       # "label", "header", "source", "pattern"
+    tenant_header: "X-Tenant-ID"    # Header HTTP para tenant
+    tenant_label: "tenant"          # Label para tenant
+    fallback_tenant: "default"      # Tenant de fallback
+
+    # Regras de roteamento
+    routing_rules:
+      - name: "production_logs"
+        priority: 100
+        conditions:
+          source_type: "docker"
+          label_env: "production"
+        tenant_id: "prod"
+        enabled: true
+
+      - name: "staging_logs"
+        priority: 90
+        conditions:
+          source_type: "docker"
+          label_env: "staging"
+        tenant_id: "staging"
+        enabled: true
+
+      - name: "file_logs"
+        priority: 80
+        conditions:
+          source_type: "file"
+        tenant_id: "files"
+        enabled: true
+
+    # Configuração de balanceamento de carga
+    load_balancing:
+      enabled: false                # Desabilitado por padrão
+      strategy: "round_robin"       # "round_robin", "weighted", "least_connections"
+      health_check: true            # Verificação de saúde
+      weight_distribution:          # Distribuição de pesos
+        default: 100
+        prod: 150
+        staging: 75
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE SEGURANÇA (ENTERPRISE)
+# -----------------------------------------------------------------------------
+security:
+  enabled: false                    # Desabilitado por padrão
+
+  authentication:
+    enabled: false
+    method: "none"                 # Options: "none", "basic", "token", "jwt", "mtls"
+    session_timeout: "24h"
+    max_attempts: 5
+    lockout_time: "15m"
+    # users:
+    #   admin:
+    #     username: "admin"
+    #     password_hash: ""        # SHA256 hash
+    #     roles: ["admin"]
+    #     enabled: true
+    # tokens:
+    #   "your-api-token": "admin"
+
+  authorization:
+    enabled: false
+    default_role: "viewer"
+    # roles:
+    #   admin:
+    #     permissions:
+    #       - resource: "*"
+    #         action: "*"
+    #   viewer:
+    #     permissions:
+    #       - resource: "health"
+    #         action: "read"
+
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+    ca_file: ""
+    verify_client: false
+
+  rate_limiting:
+    enabled: true
+    requests_per_second: 1000
+    burst_size: 2000
+    per_ip: false
+
+  cors:
+    enabled: false
+    allowed_origins: ["*"]
+    allowed_methods: ["GET", "POST"]
+    allowed_headers: ["Content-Type"]
+    max_age: "12h"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE DISTRIBUTED TRACING
+# -----------------------------------------------------------------------------
+tracing:
+  enabled: false                    # Desabilitado por padrão
+  service_name: "ssw-logs-capture"
+  service_version: "v0.0.2"
+  environment: "production"
+  exporter: "otlp"                  # Options: "jaeger", "otlp", "console", "zipkin"
+  endpoint: "http://jaeger:4318/v1/traces"
+  sample_rate: 0.01                 # 1% sampling para produção
+  batch_timeout: "5s"
+  max_batch_size: 512
+  # headers:
+  #   "authorization": "Bearer YOUR_TRACE_TOKEN"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE SLO (Service Level Objectives)
+# -----------------------------------------------------------------------------
+slo:
+  enabled: false                    # Desabilitado por padrão
+  prometheus_url: "http://prometheus:9090"
+  evaluation_interval: "1m"
+  retention_period: "30d"
+  alert_webhook: ""
+
+  # slos:
+  #   - name: "log_ingestion_availability"
+  #     description: "Log ingestion service availability"
+  #     error_budget: 0.001         # 99.9% availability
+  #     window: "30d"
+  #     alert_on_breach: true
+  #     severity: "critical"
+  #     slis:
+  #       - name: "ingestion_success_rate"
+  #         query: "rate(logs_processed_total[5m]) / rate(logs_received_total[5m]) * 100"
+  #         target: 99.9
+  #         window: "5m"
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE GOROUTINE TRACKING
+# -----------------------------------------------------------------------------
+goroutine_tracking:
+  enabled: true
+  check_interval: "60s"             # Verificar a cada 1 minuto
+  leak_threshold: 100               # Alertar se crescer > 100 goroutines
+  max_goroutines: 10000             # Limite absoluto
+  warn_threshold: 8000              # Warning em 8000 goroutines
+  tracking_enabled: true            # Rastrear stack traces
+  stack_trace_on_leak: false        # Stack trace em leak (verbose)
+  alert_webhook: ""                 # URL para alertas
+  retention_period: "24h"           # Manter histórico por 24h
+
+# -----------------------------------------------------------------------------
+# CONFIGURAÇÕES DE OBSERVABILITY
+# -----------------------------------------------------------------------------
+observability:
+  enabled: true
+
+  # Profiling (pprof)
+  profiling:
+    enabled: false                  # Desabilitado por padrão (overhead)
+    host: "localhost"
+    port: 6060
+    endpoints:
+      - "/debug/pprof/"
+      - "/debug/pprof/heap"
+      - "/debug/pprof/goroutine"
+      - "/debug/pprof/threadcreate"
+
+  # Health checks
+  health_checks:
+    enabled: true
+    endpoint: "/health"
+    detailed_endpoint: "/health/detailed"
+    check_interval: "30s"
+    checks:
+      - name: "dispatcher"
+        enabled: true
+      - name: "sinks"
+        enabled: true
+      - name: "monitors"
+        enabled: true
+
+  # Structured logging
+  structured_logging:
+    enabled: true
+    format: "json"                  # "json" or "text"
+    level: "info"
+    include_caller: false
+    include_stacktrace: false
+    sampling:
+      enabled: false
+      initial: 100
+      thereafter: 100
+
+# -----------------------------------------------------------------------------
