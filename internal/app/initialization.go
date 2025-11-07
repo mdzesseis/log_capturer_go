@@ -115,6 +115,12 @@ func (app *App) initSinks() error {
 
 	// Local File Sink
 	if app.config.Sinks.LocalFile.Enabled {
+		// Get DLQ from dispatcher
+		var deadLetterQueue *dlq.DeadLetterQueue
+		if dispatcherImpl, ok := app.dispatcher.(*dispatcher.Dispatcher); ok {
+			deadLetterQueue = dispatcherImpl.GetDLQ()
+		}
+
 		// Convert LocalFileSinkConfig to LocalFileConfig for compatibility
 		localFileConfig := types.LocalFileConfig{
 			Enabled:                   app.config.Sinks.LocalFile.Enabled,
@@ -130,7 +136,7 @@ func (app *App) initSinks() error {
 			TextFormat:                app.config.Sinks.LocalFile.TextFormat,
 			QueueSize:                 app.config.Sinks.LocalFile.QueueSize,
 		}
-		localFileSink := sinks.NewLocalFileSink(localFileConfig, app.logger, app.enhancedMetrics)
+		localFileSink := sinks.NewLocalFileSink(localFileConfig, app.logger, app.enhancedMetrics, deadLetterQueue)
 		app.sinks = append(app.sinks, localFileSink)
 		app.dispatcher.AddSink(localFileSink)
 		app.logger.Info("Local file sink initialized")

@@ -118,6 +118,13 @@ type FileMonitorServiceConfig struct {
 	Recursive         bool                   `yaml:"recursive"`           // Enable recursive directory monitoring
 	FollowSymlinks    bool                   `yaml:"follow_symlinks"`     // Follow symbolic links
 	PipelineConfig    map[string]interface{} `yaml:"-"`                   // Loaded pipeline configuration (not from yaml)
+
+	// Task 2: New features for file monitoring
+	IgnoreOldTimestamps bool              `yaml:"ignore_old_timestamps"` // Ignore logs older than start time
+	SeekStrategy        string            `yaml:"seek_strategy"`         // Seek strategy: "beginning", "recent", "end"
+	SeekRecentBytes     int64             `yaml:"seek_recent_bytes"`     // Bytes to read when using "recent" strategy
+	MaxRetryQueueSize   int               `yaml:"max_retry_queue_size"`  // Maximum size of retry queue
+	RetryConfig         FileRetryConfig   `yaml:"retry"`                 // Retry configuration
 }
 
 // ContainerMonitorConfig contains Docker container monitoring settings.
@@ -163,22 +170,23 @@ type AuthConfig struct {
 
 // LokiSinkConfig contains Grafana Loki output settings.
 type LokiSinkConfig struct {
-	Enabled          bool                   `yaml:"enabled"`           // Enable Loki sink
-	URL              string                 `yaml:"url"`               // Loki push API URL
-	PushEndpoint     string                 `yaml:"push_endpoint"`     // Loki push endpoint
-	Username         string                 `yaml:"username"`          // Basic auth username
-	Password         string                 `yaml:"password"`          // Basic auth password
-	TenantID         string                 `yaml:"tenant_id"`         // Multi-tenant ID
-	Labels           map[string]string      `yaml:"labels"`            // Static labels to add
-	DefaultLabels    map[string]string      `yaml:"default_labels"`    // Default labels to add
-	BatchSize        int                    `yaml:"batch_size"`        // Batch size for push requests
-	BatchTimeout     string                 `yaml:"batch_timeout"`     // Batch timeout duration
-	Timeout          string                 `yaml:"timeout"`           // Request timeout
-	Compression      bool                   `yaml:"compression"`       // Enable request compression
-	QueueSize        int                    `yaml:"queue_size"`        // Internal queue size
-	Headers          map[string]string      `yaml:"headers"`           // Additional HTTP headers
-	Auth             AuthConfig             `yaml:"auth"`              // Authentication configuration
-	AdaptiveBatching AdaptiveBatchingConfig `yaml:"adaptive_batching"` // Adaptive batching configuration
+	Enabled          bool                      `yaml:"enabled"`             // Enable Loki sink
+	URL              string                    `yaml:"url"`                 // Loki push API URL
+	PushEndpoint     string                    `yaml:"push_endpoint"`       // Loki push endpoint
+	Username         string                    `yaml:"username"`            // Basic auth username
+	Password         string                    `yaml:"password"`            // Basic auth password
+	TenantID         string                    `yaml:"tenant_id"`           // Multi-tenant ID
+	Labels           map[string]string         `yaml:"labels"`              // Static labels to add
+	DefaultLabels    map[string]string         `yaml:"default_labels"`      // Default labels to add
+	BatchSize        int                       `yaml:"batch_size"`          // Batch size for push requests
+	BatchTimeout     string                    `yaml:"batch_timeout"`       // Batch timeout duration
+	Timeout          string                    `yaml:"timeout"`             // Request timeout
+	Compression      bool                      `yaml:"compression"`         // Enable request compression
+	QueueSize        int                       `yaml:"queue_size"`          // Internal queue size
+	Headers          map[string]string         `yaml:"headers"`             // Additional HTTP headers
+	Auth             AuthConfig                `yaml:"auth"`                // Authentication configuration
+	AdaptiveBatching AdaptiveBatchingConfig    `yaml:"adaptive_batching"`   // Adaptive batching configuration
+	TimestampLearning TimestampLearningConfig  `yaml:"timestamp_learning"`  // Timestamp learning configuration (Task 5)
 }
 
 // LocalFileSinkConfig contains local file output settings.
@@ -394,6 +402,21 @@ type FileConfig struct {
 	Recursive          bool          `yaml:"recursive"`
 	FollowSymlinks     bool          `yaml:"follow_symlinks"`
 	PipelineConfig     map[string]interface{} `yaml:"pipeline_config"` // Pipeline configuration
+
+	// Task 2: New features for file monitoring
+	IgnoreOldTimestamps bool              `yaml:"ignore_old_timestamps"` // Ignore logs older than start time
+	SeekStrategy        string            `yaml:"seek_strategy"`         // Seek strategy: "beginning", "recent", "end"
+	SeekRecentBytes     int64             `yaml:"seek_recent_bytes"`     // Bytes to read when using "recent" strategy
+	MaxRetryQueueSize   int               `yaml:"max_retry_queue_size"`  // Maximum size of retry queue
+	RetryConfig         FileRetryConfig   `yaml:"retry"`                 // Retry configuration
+}
+
+// FileRetryConfig defines retry behavior for file monitor
+type FileRetryConfig struct {
+	InitialDelay time.Duration `yaml:"initial_delay"` // Initial delay before first retry
+	MaxDelay     time.Duration `yaml:"max_delay"`     // Maximum delay between retries
+	Multiplier   float64       `yaml:"multiplier"`    // Backoff multiplier
+	DropPolicy   string        `yaml:"drop_policy"`   // Policy when queue full: "oldest", "newest", "random"
 }
 
 // LokiConfig represents legacy Loki configuration (alias for LokiSinkConfig).
@@ -525,4 +548,31 @@ type KubernetesDiscoveryConfig struct {
 	RequiredAnnotations map[string]string `yaml:"required_annotations"`  // Required pod annotations
 	RequiredLabels      map[string]string `yaml:"required_labels"`       // Required pod labels
 	ServiceAccount      string            `yaml:"service_account"`       // Service account for K8s API access
+}
+
+// TimestampLearningConfig contains timestamp learning and validation settings (Task 5).
+//
+// This feature prevents retry storms caused by permanent timestamp errors.
+// When file monitor reads old logs (days/months old), Loki rejects them with
+// "timestamp too old" (400 error). Without learning, system retries indefinitely,
+// causing goroutine leaks and performance degradation.
+//
+// Solution:
+//   - Learn acceptable timestamp range from Loki rejections
+//   - Validate timestamps BEFORE sending to Loki
+//   - Reject invalid timestamps immediately (NO RETRY) → DLQ
+//   - Optional: Clamp old timestamps to acceptable range
+//
+// Configuration:
+//   - Enabled: true (default) - Enable timestamp validation
+//   - DefaultMaxAge: 24h (default) - Initial max acceptable age
+//   - ClampEnabled: false (default) - If true, clamp old timestamps instead of rejecting
+//   - LearnFromErrors: true (default) - Learn threshold from Loki 400 errors
+//   - MinLearningWindow: 5m (default) - Rate limit learning updates
+type TimestampLearningConfig struct {
+	Enabled           bool   `yaml:"enabled"`             // Enable timestamp learning and validation
+	DefaultMaxAge     string `yaml:"default_max_age"`     // Default max acceptable age (e.g., "24h", "7d")
+	ClampEnabled      bool   `yaml:"clamp_enabled"`       // Enable timestamp clamping to acceptable range
+	LearnFromErrors   bool   `yaml:"learn_from_errors"`   // Learn threshold from Loki rejection errors
+	MinLearningWindow string `yaml:"min_learning_window"` // Minimum interval between learning updates
 }

@@ -88,6 +88,27 @@ file_monitor_service:
   recursive: true
   follow_symlinks: false
 
+  # Task 2: New features for enhanced file monitoring
+  # Ignore logs with timestamp older than monitor start time
+  ignore_old_timestamps: false  # Default: false (backward compatible)
+
+  # Seek strategy when opening files for the first time
+  # Options: "beginning" (default), "recent", "end"
+  seek_strategy: "beginning"
+
+  # When using "recent" strategy, number of bytes to read from end of file
+  seek_recent_bytes: 1048576  # 1MB default
+
+  # Maximum size of retry queue (limits memory usage)
+  max_retry_queue_size: 50
+
+  # Retry configuration with exponential backoff
+  retry:
+    initial_delay: "1s"     # Initial retry delay
+    max_delay: "60s"        # Maximum retry delay
+    multiplier: 2.0         # Backoff multiplier
+    drop_policy: "oldest"   # Policy when queue full: "oldest", "newest", "random"
+
 # NOTE: Legacy file_monitor configuration removed. Use file_monitor_service instead.
 
 # -----------------------------------------------------------------------------
@@ -220,6 +241,53 @@ sinks:
       latency_threshold: "500ms"
       throughput_target: 20000
       buffer_size: 20000
+
+    # -------------------------------------------------------------------------
+    # Task 5: TIMESTAMP LEARNING & ERROR-AWARE RETRY
+    # -------------------------------------------------------------------------
+    # Prevents retry storm from permanent timestamp errors
+    #
+    # PROBLEMA:
+    #   - File monitor lê logs históricos (dias/meses antigos)
+    #   - Loki rejeita: "timestamp too old for stream" (400 Bad Request)
+    #   - Sistema faz retry infinito (erro permanente, nunca vai funcionar!)
+    #   - Resultado: Queue saturada + goroutine leak → FALHA CATASTRÓFICA
+    #
+    # SOLUÇÃO:
+    #   - Aprende threshold aceitável de timestamp via rejeições do Loki
+    #   - Valida timestamps ANTES de enviar
+    #   - Rejeita imediatamente timestamps inválidos (SEM RETRY) → DLQ
+    #   - Opcional: Clamp timestamps antigos para range aceitável
+    #
+    # MÉTRICAS:
+    #   - log_capturer_timestamp_rejection_total{sink,reason}
+    #   - log_capturer_timestamp_clamped_total{sink}
+    #   - log_capturer_timestamp_max_acceptable_age_seconds{sink}
+    #   - log_capturer_loki_error_type_total{sink,error_type}
+    #
+    timestamp_learning:
+      # Habilitar validação de timestamp (recomendado: true)
+      enabled: true
+
+      # Threshold inicial de idade máxima aceitável
+      # Loki geralmente aceita logs de 24h-7d dependendo da configuração
+      # Se Loki rejeitar, o sistema aprende automaticamente o threshold correto
+      default_max_age: "24h"
+
+      # Clamping de timestamps antigos (recomendado: false)
+      # true  = Ajusta timestamps antigos para dentro do range aceitável
+      #         (ALTERA timestamp original! Use apenas se necessário)
+      # false = Rejeita timestamps inválidos e envia para DLQ
+      #         (RECOMENDADO - preserva timestamp original)
+      clamp_enabled: false
+
+      # Aprender threshold de erros do Loki (recomendado: true)
+      # Quando Loki rejeita "timestamp too old", sistema aprende o limite real
+      learn_from_errors: true
+
+      # Intervalo mínimo entre aprendizados (rate limiting)
+      # Previne atualizações muito frequentes do threshold
+      min_learning_window: "5m"
 
   local_file:
     enabled: true  # Re-enabled after circuit breaker fix DE LEAK

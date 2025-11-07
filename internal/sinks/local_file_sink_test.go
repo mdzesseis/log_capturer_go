@@ -44,7 +44,7 @@ func TestLocalFileSinkDiskSpaceNoDeadlock(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 
 	// Force lastDiskCheck to be old so check will trigger
 	sink.lastDiskCheck = time.Now().Add(-10 * time.Minute)
@@ -112,7 +112,7 @@ func TestLocalFileSinkCanWriteSizeNoDeadlock(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 
 	const goroutines = 30
 	const iterations = 50
@@ -170,7 +170,7 @@ func TestLocalFileSinkMixedDiskOperationsNoDeadlock(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 	sink.lastDiskCheck = time.Now().Add(-10 * time.Minute)
 
 	const goroutines = 20
@@ -260,7 +260,7 @@ func TestLocalFileSinkWriteWithDiskChecks(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 	ctx := context.Background()
 
 	err = sink.Start(ctx)
@@ -355,7 +355,7 @@ func TestLocalFileSinkStressTestDeadlock(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 
 	const duration = 5 * time.Second
 	const goroutines = 50
@@ -442,7 +442,7 @@ func TestLocalFileSinkFileDescriptorLimit(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 
 	// Verify initial state
 	if sink.maxOpenFiles != 5 {
@@ -530,7 +530,7 @@ func TestLocalFileSinkLRUReopensFiles(t *testing.T) {
 		},
 	}
 
-	sink := NewLocalFileSink(config, logger, nil)
+	sink := NewLocalFileSink(config, logger, nil, nil)
 
 	// Create first file
 	file1 := filepath.Join(tempDir, "file1.log")

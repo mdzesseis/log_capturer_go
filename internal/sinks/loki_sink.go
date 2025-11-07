@@ -56,6 +56,10 @@ type LokiSink struct {
 	adaptiveBatcher *batching.AdaptiveBatcher
 	useAdaptiveBatching bool
 
+	// Task 5: Timestamp learning and validation
+	timestampLearner TimestampLearner
+	name             string // Sink name for metrics
+
 	ctx          context.Context
 	cancel       context.CancelFunc
 	isRunning    bool
@@ -91,6 +95,109 @@ type LokiPayload struct {
 type LokiStream struct {
 	Stream map[string]string `json:"stream"`
 	Values [][]string        `json:"values"`
+}
+
+// LokiErrorType classifies Loki errors for retry decision
+type LokiErrorType int
+
+const (
+	LokiErrorTemporary LokiErrorType = iota // Network/transient error - RETRY
+	LokiErrorPermanent                       // Client data error - NO RETRY → DLQ
+	LokiErrorRateLimit                       // Rate limit - RETRY with backoff
+	LokiErrorServer                          // Server error (5xx) - RETRY
+)
+
+// classifyLokiError classifies error type for retry decision
+//
+// Returns:
+//   - LokiErrorPermanent: 400 errors (bad request, timestamp issues) → NO RETRY
+//   - LokiErrorRateLimit: 429 errors → RETRY with backoff
+//   - LokiErrorServer: 5xx errors → RETRY
+//   - LokiErrorTemporary: Network errors, 0 status code → RETRY
+func classifyLokiError(statusCode int, errorMsg string) LokiErrorType {
+	switch statusCode {
+	case 400:
+		// 400 Bad Request - usually permanent client errors
+		// Common patterns:
+		//   - "timestamp too old"
+		//   - "timestamp too new"
+		//   - "out of order"
+		//   - "invalid labels"
+		return LokiErrorPermanent // NO RETRY!
+
+	case 429:
+		// Rate limit - retry with backoff
+		return LokiErrorRateLimit // RETRY with backoff
+
+	case 500, 502, 503, 504:
+		// Server errors - transient issues
+		return LokiErrorServer // RETRY
+
+	case 0:
+		// Network error (no HTTP response)
+		return LokiErrorTemporary // RETRY
+
+	default:
+		// Other errors - treat as permanent if 4xx, temporary otherwise
+		if statusCode >= 400 && statusCode < 500 {
+			return LokiErrorPermanent // NO RETRY
+		}
+		return LokiErrorTemporary // RETRY
+	}
+}
+
+// errorTypeToString converts LokiErrorType to string for metrics
+func errorTypeToString(errorType LokiErrorType) string {
+	switch errorType {
+	case LokiErrorPermanent:
+		return "permanent"
+	case LokiErrorRateLimit:
+		return "rate_limit"
+	case LokiErrorServer:
+		return "server"
+	case LokiErrorTemporary:
+		return "temporary"
+	default:
+		return "unknown"
+	}
+}
+
+// parseTimestampLearningConfig converts types.TimestampLearningConfig to sinks.TimestampLearnerConfig
+func parseTimestampLearningConfig(config types.TimestampLearningConfig) TimestampLearnerConfig {
+	result := TimestampLearnerConfig{
+		Enabled:           true,             // Default: enabled
+		DefaultMaxAge:     24 * time.Hour,   // Default: 24 hours
+		ClampEnabled:      false,            // Default: disabled (don't modify timestamps)
+		LearnFromErrors:   true,             // Default: enabled
+		MinLearningWindow: 5 * time.Minute,  // Default: 5 minutes
+	}
+
+	// Apply user configuration
+	if !config.Enabled {
+		result.Enabled = false
+	}
+
+	if config.DefaultMaxAge != "" {
+		if d, err := time.ParseDuration(config.DefaultMaxAge); err == nil {
+			result.DefaultMaxAge = d
+		}
+	}
+
+	if config.ClampEnabled {
+		result.ClampEnabled = true
+	}
+
+	if !config.LearnFromErrors {
+		result.LearnFromErrors = false
+	}
+
+	if config.MinLearningWindow != "" {
+		if d, err := time.ParseDuration(config.MinLearningWindow); err == nil {
+			result.MinLearningWindow = d
+		}
+	}
+
+	return result
 }
 
 // NewLokiSink cria um novo sink para Loki
@@ -172,6 +279,16 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 		maxConcurrentSends: 15,
 		batchQueue:         make(chan []types.LogEntry, 100), // Queue for worker pool (100 batches buffer)
 		workerCount:        10,                                // Fixed pool of 10 workers
+		name:               "loki",                            // Sink name for metrics
+	}
+
+	// Task 5: Initialize timestamp learner
+	tsConfig := parseTimestampLearningConfig(config.TimestampLearning)
+	ls.timestampLearner = NewTimestampLearner(tsConfig, logger)
+
+	// Report initial threshold to metrics
+	if tsConfig.Enabled {
+		metrics.UpdateTimestampMaxAge("loki", tsConfig.DefaultMaxAge.Seconds())
 	}
 
 	// Configurar adaptive batcher se habilitado
@@ -355,13 +472,86 @@ func (ls *LokiSink) Stop() error {
 	return nil
 }
 
+// validateAndFilterTimestamps validates timestamps and filters invalid entries
+//
+// Task 5: Timestamp validation layer - prevents retry storm from permanent errors
+//
+// Process:
+//   1. Validate each entry's timestamp
+//   2. If invalid: Send to DLQ immediately (NO RETRY)
+//   3. If valid: Pass through for sending
+//   4. Optional: Clamp old timestamps if configured
+//
+// Returns: Slice of valid entries ready for sending
+func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []types.LogEntry {
+	if ls.timestampLearner == nil {
+		return entries // Learner disabled, pass all entries
+	}
+
+	validEntries := make([]types.LogEntry, 0, len(entries))
+
+	for _, entry := range entries {
+		// Optional: Try to clamp timestamp first (if configured)
+		if ls.timestampLearner.ClampTimestamp(&entry) {
+			metrics.RecordTimestampClamped(ls.name)
+			ls.logger.WithFields(logrus.Fields{
+				"original_age_hours": entry.Labels["_original_age_hours"],
+				"clamped_timestamp":  entry.Timestamp.Format(time.RFC3339),
+			}).Debug("Timestamp clamped to acceptable range")
+		}
+
+		// Validate timestamp
+		if err := ls.timestampLearner.ValidateTimestamp(entry); err != nil {
+			// Timestamp invalid - send to DLQ without retry
+			reason := "validation_failed"
+			if errors.Is(err, ErrTimestampTooOld) {
+				reason = "too_old"
+			} else if errors.Is(err, ErrTimestampTooNew) {
+				reason = "too_new"
+			}
+
+			metrics.RecordTimestampRejection(ls.name, reason)
+
+			ls.logger.WithFields(logrus.Fields{
+				"timestamp":  entry.Timestamp.Format(time.RFC3339),
+				"age_hours":  time.Since(entry.Timestamp).Hours(),
+				"reason":     reason,
+				"error":      err.Error(),
+				"source_id":  entry.SourceID,
+			}).Warn("Timestamp validation failed, sending to DLQ")
+
+			// Send to DLQ immediately (NO RETRY)
+			if ls.deadLetterQueue != nil {
+				ls.deadLetterQueue.AddEntry(entry, err.Error(), "timestamp_"+reason, ls.name, 0, map[string]string{
+					"validation_error": err.Error(),
+					"timestamp":        entry.Timestamp.Format(time.RFC3339),
+					"age_hours":        fmt.Sprintf("%.1f", time.Since(entry.Timestamp).Hours()),
+				})
+			}
+
+			continue // Skip this entry
+		}
+
+		// Timestamp valid - add to valid entries
+		validEntries = append(validEntries, entry)
+	}
+
+	return validEntries
+}
+
 // Send envia logs para o sink com backpressure inteligente
 func (ls *LokiSink) Send(ctx context.Context, entries []types.LogEntry) error {
 	if !ls.config.Enabled {
 		return nil
 	}
 
-	for _, entry := range entries {
+	// Task 5: Validate timestamps BEFORE sending to prevent permanent errors
+	validEntries := ls.validateAndFilterTimestamps(entries)
+	if len(validEntries) == 0 {
+		return nil // All entries rejected by timestamp validation
+	}
+
+	for _, entry := range validEntries {
 		if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
 			// Usar adaptive batcher
 			if err := ls.adaptiveBatcher.Add(entry); err != nil {
@@ -534,20 +724,74 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 	metrics.RecordSinkSendDuration("loki", duration)
 
 	if err != nil {
-		// Different handling for data errors vs transient errors
+		// Task 5: Classify error and decide retry strategy
+		var statusCode int
+		var errorMsg string
+
+		// Extract status code from error
 		if dataErr != nil {
-			ls.logger.WithError(err).WithField("entries", len(entries)).Warn("Loki rejected batch due to data error (timestamp issue)")
-			metrics.RecordLogSent("loki", "client_error")
-			metrics.RecordError("loki_sink", "data_error")
+			statusCode = dataErr.StatusCode
+			errorMsg = dataErr.Message
 		} else {
-			ls.logger.WithError(err).WithField("entries", len(entries)).Error("Failed to send batch to Loki")
-			metrics.RecordLogSent("loki", "error")
-			metrics.RecordError("loki_sink", "send_error")
+			// Network or other error
+			statusCode = 0
+			errorMsg = err.Error()
 		}
 
-		// Enviar batch inteiro para DLQ após falha
-		for _, entry := range entries {
-			ls.sendToDLQ(entry, err.Error(), "send_failed", "loki", 1)
+		// Classify error type for retry decision
+		errorType := classifyLokiError(statusCode, errorMsg)
+		metrics.RecordLokiErrorType(ls.name, errorTypeToString(errorType))
+
+		// Handle based on error classification
+		switch errorType {
+		case LokiErrorPermanent:
+			// Permanent error (400) - NO RETRY → DLQ immediately
+			ls.logger.WithFields(logrus.Fields{
+				"error":       errorMsg,
+				"status_code": statusCode,
+				"entries":     len(entries),
+			}).Warn("Loki permanent error (400), sending to DLQ without retry")
+
+			// Learn from timestamp errors
+			if dataErr != nil && dataErr.IsTimestampError && ls.timestampLearner != nil {
+				for _, entry := range entries {
+					ls.timestampLearner.LearnFromRejection(errorMsg, entry)
+				}
+				metrics.RecordTimestampLearningEvent(ls.name)
+				// Update metrics with new threshold
+				newThreshold := ls.timestampLearner.GetMaxAcceptableAge()
+				metrics.UpdateTimestampMaxAge(ls.name, newThreshold.Seconds())
+			}
+
+			// Send to DLQ with retryCount=0 (permanent failure)
+			for _, entry := range entries {
+				ls.sendToDLQ(entry, errorMsg, "loki_permanent_error", "loki", 0)
+			}
+
+			metrics.RecordLogSent("loki", "permanent_error")
+			metrics.RecordError("loki_sink", "permanent_error")
+
+		case LokiErrorRateLimit:
+			// Rate limit (429) - will retry via normal mechanism
+			ls.logger.WithField("entries", len(entries)).Warn("Loki rate limit, will retry")
+			metrics.RecordLogSent("loki", "rate_limit")
+			metrics.RecordError("loki_sink", "rate_limit")
+
+			// Send to DLQ with retryCount=1 (will retry)
+			for _, entry := range entries {
+				ls.sendToDLQ(entry, errorMsg, "loki_rate_limit", "loki", 1)
+			}
+
+		case LokiErrorServer, LokiErrorTemporary:
+			// Server/network errors - will retry
+			ls.logger.WithError(err).WithField("entries", len(entries)).Error("Failed to send batch to Loki, will retry")
+			metrics.RecordLogSent("loki", "error")
+			metrics.RecordError("loki_sink", "send_error")
+
+			// Send to DLQ with retryCount=1 (will retry)
+			for _, entry := range entries {
+				ls.sendToDLQ(entry, errorMsg, "send_failed", "loki", 1)
+			}
 		}
 	} else {
 		ls.logger.WithField("entries", len(entries)).Debug("Batch sent to Loki successfully")

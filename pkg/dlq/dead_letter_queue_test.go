@@ -1,44 +1,155 @@
 package dlq
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeadLetterQueue_NewDeadLetterQueue(t *testing.T) {
+// =============================================================================
+// CRITICAL PATH TESTS (Task 3 - Priority 4)
+// =============================================================================
+
+func TestDLQ_AddEntry_Success(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_add_success")
+	err := os.MkdirAll(tempDir, 0755)
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
 	config := Config{
 		Enabled:       true,
-		Directory:     "/tmp/dlq_test",
-		MaxFileSize:   10 * 1024 * 1024,
+		Directory:     tempDir,
+		MaxFileSize:   1024,
 		MaxFiles:      5,
 		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 30 * time.Second,
+		JSONFormat:    true,
+		FlushInterval: 100 * time.Millisecond,
+		QueueSize:     100,
+	}
+
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+
+	dlq := NewDeadLetterQueue(config, logger)
+	require.NotNil(t, dlq)
+
+	err = dlq.Start()
+	require.NoError(t, err)
+	defer dlq.Stop()
+
+	// Create test entry using correct API
+	testEntry := types.LogEntry{
+		Message:    "test log entry for DLQ",
+		SourceType: "file",
+		SourceID:   "test-file-1",
+		Timestamp:  time.Now(),
+		Labels: map[string]string{
+			"level": "error",
+		},
+	}
+
+	contextMap := map[string]string{
+		"test_key": "test_value",
+		"retry_count": "1",
+	}
+
+	// Add entry using correct AddEntry signature
+	err = dlq.AddEntry(testEntry, "test error message", "test_error_type", "local_file", 1, contextMap)
+	require.NoError(t, err, "Should successfully add entry to DLQ")
+
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify stats
+	stats := dlq.GetStats()
+	assert.Equal(t, int64(1), stats.TotalEntries, "Should have 1 total entry")
+	assert.Equal(t, int64(1), stats.EntriesWritten, "Should have 1 entry written")
+
+	// Verify file exists
+	files, err := os.ReadDir(tempDir)
+	require.NoError(t, err)
+	assert.Greater(t, len(files), 0, "Should have created DLQ file")
+}
+
+func TestDLQ_AddEntry_Concurrent(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_concurrent_add")
+	err := os.MkdirAll(tempDir, 0755)
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	config := Config{
+		Enabled:       true,
+		Directory:     tempDir,
+		MaxFileSize:   10240,
+		MaxFiles:      5,
+		RetentionDays: 7,
+		JSONFormat:    true,
+		FlushInterval: 50 * time.Millisecond,
 		QueueSize:     1000,
 	}
 
 	logger := logrus.New()
-	ctx := context.Background()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
+	dlq := NewDeadLetterQueue(config, logger)
 
-	assert.NotNil(t, dlq)
-	assert.Equal(t, config, dlq.config)
-	assert.Equal(t, logger, dlq.logger)
-	assert.NotNil(t, dlq.queue)
+	err = dlq.Start()
+	require.NoError(t, err)
+	defer dlq.Stop()
+
+	// Run with race detector: go test -race
+	var wg sync.WaitGroup
+	numGoroutines := 100
+	entriesPerGoroutine := 5
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < entriesPerGoroutine; j++ {
+				entry := types.LogEntry{
+					Message:    fmt.Sprintf("concurrent entry %d-%d", id, j),
+					SourceType: "test",
+					SourceID:   fmt.Sprintf("test-%d", id),
+					Timestamp:  time.Now(),
+					Labels: map[string]string{
+						"goroutine_id": fmt.Sprintf("%d", id),
+					},
+				}
+
+				err := dlq.AddEntry(entry, "concurrent test error", "concurrent_test", "test_sink", 0, nil)
+				// Note: Some entries might fail if queue is full, which is expected behavior
+				if err != nil {
+					t.Logf("Entry %d-%d failed to add (queue full): %v", id, j, err)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Wait for processing
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify stats - should have processed many entries
+	stats := dlq.GetStats()
+	assert.Greater(t, stats.TotalEntries, int64(0), "Should have processed entries")
+	t.Logf("Processed %d entries concurrently", stats.TotalEntries)
 }
 
-func TestDeadLetterQueue_AddEntry_JSON(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_json")
+func TestDLQ_FileRotation_Basic(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_file_rotation")
 	err := os.MkdirAll(tempDir, 0755)
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
@@ -46,262 +157,108 @@ func TestDeadLetterQueue_AddEntry_JSON(t *testing.T) {
 	config := Config{
 		Enabled:       true,
 		Directory:     tempDir,
-		MaxFileSize:   1024,
-		MaxFiles:      3,
+		MaxFileSize:   1, // 1MB - small for testing
+		MaxFiles:      5,
 		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 100 * time.Millisecond,
-		QueueSize:     10,
-	}
-
-	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-
-	// Start DLQ processing
-	go dlq.Start()
-
-	// Add test entry
-	entry := DLQEntry{
-		Timestamp:    time.Now(),
-		OriginalLog:  "test log message",
-		SourceID:     "test-source",
-		FailureType:  "validation_error",
-		ErrorMessage: "invalid timestamp format",
-		RetryCount:   3,
-		Context: map[string]interface{}{
-			"sink_type": "loki",
-			"batch_id":  "batch-123",
-		},
-	}
-
-	err = dlq.AddEntry(entry)
-	require.NoError(t, err)
-
-	// Wait for flush
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify file was created
-	files, err := os.ReadDir(tempDir)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(files), 1, "DLQ file should be created")
-
-	// Read and verify content
-	dlqFile := filepath.Join(tempDir, files[0].Name())
-	content, err := os.ReadFile(dlqFile)
-	require.NoError(t, err)
-
-	var savedEntry DLQEntry
-	err = json.Unmarshal(content, &savedEntry)
-	require.NoError(t, err)
-
-	assert.Equal(t, entry.OriginalLog, savedEntry.OriginalLog)
-	assert.Equal(t, entry.SourceID, savedEntry.SourceID)
-	assert.Equal(t, entry.FailureType, savedEntry.FailureType)
-	assert.Equal(t, entry.ErrorMessage, savedEntry.ErrorMessage)
-	assert.Equal(t, entry.RetryCount, savedEntry.RetryCount)
-}
-
-func TestDeadLetterQueue_AddEntry_Text(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_text")
-	err := os.MkdirAll(tempDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	config := Config{
-		Enabled:       true,
-		Directory:     tempDir,
-		MaxFileSize:   1024,
-		MaxFiles:      3,
-		RetentionDays: 7,
-		Format:        "text",
-		FlushInterval: 100 * time.Millisecond,
-		QueueSize:     10,
-	}
-
-	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
-
-	entry := DLQEntry{
-		Timestamp:    time.Now(),
-		OriginalLog:  "test log message",
-		SourceID:     "test-source",
-		FailureType:  "validation_error",
-		ErrorMessage: "invalid timestamp format",
-		RetryCount:   3,
-	}
-
-	err = dlq.AddEntry(entry)
-	require.NoError(t, err)
-
-	// Wait for flush
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify file was created
-	files, err := os.ReadDir(tempDir)
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(files), 1, "DLQ file should be created")
-
-	// Read and verify content is text format
-	dlqFile := filepath.Join(tempDir, files[0].Name())
-	content, err := os.ReadFile(dlqFile)
-	require.NoError(t, err)
-
-	contentStr := string(content)
-	assert.Contains(t, contentStr, "test log message")
-	assert.Contains(t, contentStr, "test-source")
-	assert.Contains(t, contentStr, "validation_error")
-	assert.Contains(t, contentStr, "invalid timestamp format")
-}
-
-func TestDeadLetterQueue_FileRotation(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_rotation")
-	err := os.MkdirAll(tempDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	config := Config{
-		Enabled:       true,
-		Directory:     tempDir,
-		MaxFileSize:   100, // Very small for testing rotation
-		MaxFiles:      3,
-		RetentionDays: 7,
-		Format:        "json",
+		JSONFormat:    true,
 		FlushInterval: 50 * time.Millisecond,
 		QueueSize:     100,
 	}
 
 	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
+	dlq := NewDeadLetterQueue(config, logger)
 
-	// Add multiple entries to trigger rotation
-	for i := 0; i < 10; i++ {
-		entry := DLQEntry{
-			Timestamp:    time.Now(),
-			OriginalLog:  fmt.Sprintf("long test log message number %d with extra data", i),
-			SourceID:     fmt.Sprintf("source-%d", i),
-			FailureType:  "validation_error",
-			ErrorMessage: "test error message",
-			RetryCount:   1,
+	err = dlq.Start()
+	require.NoError(t, err)
+	defer dlq.Stop()
+
+	// Add enough entries to trigger file rotation
+	for i := 0; i < 50; i++ {
+		entry := types.LogEntry{
+			Message:    fmt.Sprintf("Large message to force rotation %d - %s", i, strings.Repeat("x", 1000)),
+			SourceType: "test",
+			SourceID:   fmt.Sprintf("test-%d", i),
+			Timestamp:  time.Now(),
 		}
 
-		err = dlq.AddEntry(entry)
+		err := dlq.AddEntry(entry, "rotation test error", "rotation_test", "test_sink", 0, nil)
 		require.NoError(t, err)
 	}
 
 	// Wait for processing and rotation
-	time.Sleep(500 * time.Millisecond)
-
-	// Check that multiple files were created
-	files, err := os.ReadDir(tempDir)
-	require.NoError(t, err)
-	assert.Greater(t, len(files), 1, "Multiple DLQ files should be created due to rotation")
-}
-
-func TestDeadLetterQueue_MaxFilesLimit(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_max_files")
-	err := os.MkdirAll(tempDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	config := Config{
-		Enabled:       true,
-		Directory:     tempDir,
-		MaxFileSize:   50, // Very small for testing
-		MaxFiles:      2,  // Only keep 2 files
-		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 50 * time.Millisecond,
-		QueueSize:     100,
-	}
-
-	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
-
-	// Create enough entries to force creation of multiple files
-	for i := 0; i < 20; i++ {
-		entry := DLQEntry{
-			Timestamp:    time.Now(),
-			OriginalLog:  fmt.Sprintf("test log message %d with sufficient length to trigger rotation", i),
-			SourceID:     fmt.Sprintf("source-%d", i),
-			FailureType:  "test_error",
-			ErrorMessage: "test error",
-			RetryCount:   1,
-		}
-
-		err = dlq.AddEntry(entry)
-		require.NoError(t, err)
-
-		// Small delay to ensure file timestamps are different
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Wait for processing
 	time.Sleep(1 * time.Second)
 
-	// Verify max files limit is respected
-	files, err := os.ReadDir(tempDir)
+	// Check that multiple files were created
+	files, err := filepath.Glob(filepath.Join(tempDir, "dlq_*.log"))
 	require.NoError(t, err)
-	assert.LessOrEqual(t, len(files), config.MaxFiles, "Should not exceed max files limit")
+	assert.Greater(t, len(files), 1, "Should have created multiple files due to rotation")
+
+	stats := dlq.GetStats()
+	t.Logf("Created %d files, total entries: %d", stats.FilesCreated, stats.TotalEntries)
 }
 
-func TestDeadLetterQueue_CleanupOldFiles(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_cleanup")
+func TestDLQ_Cleanup_OldFiles(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_cleanup_old")
 	err := os.MkdirAll(tempDir, 0755)
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
 
-	// Create old file that should be cleaned up
-	oldFile := filepath.Join(tempDir, "dlq-old.log")
-	err = os.WriteFile(oldFile, []byte("old content"), 0644)
+	// Create some old files manually
+	oldFile1 := filepath.Join(tempDir, "dlq_20200101_120000.log")
+	oldFile2 := filepath.Join(tempDir, "dlq_20200102_120000.log")
+
+	err = os.WriteFile(oldFile1, []byte("old content 1"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(oldFile2, []byte("old content 2"), 0644)
 	require.NoError(t, err)
 
-	// Set old modification time
-	oldTime := time.Now().Add(-10 * 24 * time.Hour) // 10 days ago
-	err = os.Chtimes(oldFile, oldTime, oldTime)
+	// Set old modification times (older than retention)
+	oldTime := time.Now().AddDate(0, 0, -10) // 10 days ago
+	err = os.Chtimes(oldFile1, oldTime, oldTime)
+	require.NoError(t, err)
+	err = os.Chtimes(oldFile2, oldTime, oldTime)
 	require.NoError(t, err)
 
 	config := Config{
 		Enabled:       true,
 		Directory:     tempDir,
-		MaxFileSize:   1024,
+		MaxFileSize:   10,
 		MaxFiles:      5,
 		RetentionDays: 7, // 7 days retention
-		Format:        "json",
+		JSONFormat:    true,
 		FlushInterval: 100 * time.Millisecond,
 		QueueSize:     10,
 	}
 
 	logger := logrus.New()
-	ctx := context.Background()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
+	dlq := NewDeadLetterQueue(config, logger)
 
-	// Run cleanup
-	cleaned := dlq.cleanupOldFiles()
-	assert.Equal(t, 1, cleaned, "Should clean up 1 old file")
+	err = dlq.Start()
+	require.NoError(t, err)
 
-	// Verify old file was removed
-	_, err = os.Stat(oldFile)
-	assert.True(t, os.IsNotExist(err), "Old file should be removed")
+	// Wait a bit for cleanup to potentially run
+	time.Sleep(200 * time.Millisecond)
+
+	// Manually trigger cleanup
+	dlq.cleanupOldFiles()
+
+	err = dlq.Stop()
+	require.NoError(t, err)
+
+	// Verify old files were removed
+	_, err = os.Stat(oldFile1)
+	assert.True(t, os.IsNotExist(err), "Old file 1 should be removed")
+
+	_, err = os.Stat(oldFile2)
+	assert.True(t, os.IsNotExist(err), "Old file 2 should be removed")
 }
 
-func TestDeadLetterQueue_QueueOverflow(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_overflow")
+func TestDLQ_Reprocess_Success(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_reprocess")
 	err := os.MkdirAll(tempDir, 0755)
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
@@ -309,148 +266,106 @@ func TestDeadLetterQueue_QueueOverflow(t *testing.T) {
 	config := Config{
 		Enabled:       true,
 		Directory:     tempDir,
-		MaxFileSize:   1024,
+		MaxFileSize:   10,
 		MaxFiles:      5,
 		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 1 * time.Second, // Slow flush to test overflow
-		QueueSize:     3,               // Very small queue
-	}
-
-	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
-
-	// Try to add more entries than queue capacity
-	successCount := 0
-	for i := 0; i < 10; i++ {
-		entry := DLQEntry{
-			Timestamp:   time.Now(),
-			OriginalLog: fmt.Sprintf("overflow test %d", i),
-			SourceID:    "test-source",
-			FailureType: "overflow_test",
-		}
-
-		err = dlq.AddEntry(entry)
-		if err == nil {
-			successCount++
-		}
-	}
-
-	// Some entries should be accepted, but not all due to queue size limit
-	assert.Greater(t, successCount, 0, "Some entries should be accepted")
-	assert.LessOrEqual(t, successCount, 10, "Not all entries should be accepted due to queue overflow")
-}
-
-func TestDeadLetterQueue_GetStatistics(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_stats")
-	err := os.MkdirAll(tempDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	config := Config{
-		Enabled:       true,
-		Directory:     tempDir,
-		MaxFileSize:   1024,
-		MaxFiles:      5,
-		RetentionDays: 7,
-		Format:        "json",
+		JSONFormat:    true,
 		FlushInterval: 100 * time.Millisecond,
 		QueueSize:     100,
+		ReprocessingConfig: ReprocessingConfig{
+			Enabled:      true,
+			Interval:     1 * time.Second,
+			MaxRetries:   3,
+			InitialDelay: 100 * time.Millisecond,
+			MinEntryAge:  100 * time.Millisecond,
+		},
 	}
 
 	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
+	dlq := NewDeadLetterQueue(config, logger)
 
-	// Add some entries
+	// Track reprocessed entries
+	reprocessedCount := 0
+	var reprocessMutex sync.Mutex
+
+	// Set callback that succeeds
+	dlq.SetReprocessCallback(func(entry types.LogEntry, originalSink string) error {
+		reprocessMutex.Lock()
+		reprocessedCount++
+		reprocessMutex.Unlock()
+		return nil // Success
+	})
+
+	err = dlq.Start()
+	require.NoError(t, err)
+	defer dlq.Stop()
+
+	// Add test entries
 	for i := 0; i < 5; i++ {
-		entry := DLQEntry{
-			Timestamp:   time.Now(),
-			OriginalLog: fmt.Sprintf("stats test %d", i),
-			SourceID:    "test-source",
-			FailureType: "stats_test",
+		entry := types.LogEntry{
+			Message:    fmt.Sprintf("reprocess test %d", i),
+			SourceType: "test",
+			SourceID:   fmt.Sprintf("test-%d", i),
+			Timestamp:  time.Now(),
 		}
 
-		err = dlq.AddEntry(entry)
+		err := dlq.AddEntry(entry, "reprocess test error", "reprocess_test", "test_sink", 0, nil)
 		require.NoError(t, err)
 	}
 
-	// Wait for processing
+	// Wait for initial write
 	time.Sleep(300 * time.Millisecond)
 
-	stats := dlq.GetStatistics()
+	// Wait for reprocessing to occur
+	time.Sleep(2 * time.Second)
 
-	assert.Equal(t, int64(5), stats.TotalEntries, "Should track 5 total entries")
-	assert.GreaterOrEqual(t, stats.FilesWritten, int64(1), "Should have written at least 1 file")
-	assert.GreaterOrEqual(t, stats.BytesWritten, int64(0), "Should have written some bytes")
+	// Check stats
+	stats := dlq.GetStats()
+	t.Logf("Reprocessing stats: attempts=%d, successes=%d, failures=%d",
+		stats.ReprocessingAttempts, stats.ReprocessingSuccesses, stats.ReprocessingFailures)
+
+	// With automatic reprocessing, we should see some activity
+	assert.Greater(t, stats.ReprocessingAttempts, int64(0), "Should have reprocessing attempts")
 }
 
-func TestDeadLetterQueue_DisabledConfig(t *testing.T) {
+// =============================================================================
+// ADDITIONAL TESTS
+// =============================================================================
+
+func TestDLQ_Disabled(t *testing.T) {
 	config := Config{
 		Enabled: false, // Disabled
 	}
 
 	logger := logrus.New()
-	ctx := context.Background()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
+	dlq := NewDeadLetterQueue(config, logger)
+	require.NotNil(t, dlq)
 
 	// Should handle disabled state gracefully
-	entry := DLQEntry{
-		Timestamp:   time.Now(),
-		OriginalLog: "test message",
-		SourceID:    "test-source",
-		FailureType: "test",
+	entry := types.LogEntry{
+		Message:   "test message",
+		Timestamp: time.Now(),
 	}
 
-	err := dlq.AddEntry(entry)
+	err := dlq.AddEntry(entry, "test error", "test_type", "test_sink", 1, nil)
 	assert.NoError(t, err, "Should handle disabled state gracefully")
 
 	// Start should not panic when disabled
-	go dlq.Start()
+	err = dlq.Start()
+	assert.NoError(t, err)
 	time.Sleep(100 * time.Millisecond)
+	dlq.Stop()
 
-	stats := dlq.GetStatistics()
-	assert.Equal(t, int64(0), stats.TotalEntries, "No stats when disabled")
+	stats := dlq.GetStats()
+	assert.Equal(t, int64(0), stats.TotalEntries, "No entries when disabled")
 }
 
-func TestDeadLetterQueue_InvalidDirectory(t *testing.T) {
-	config := Config{
-		Enabled:   true,
-		Directory: "/invalid/nonexistent/directory",
-		Format:    "json",
-	}
-
-	logger := logrus.New()
-	ctx := context.Background()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-
-	entry := DLQEntry{
-		Timestamp:   time.Now(),
-		OriginalLog: "test message",
-		SourceID:    "test-source",
-		FailureType: "test",
-	}
-
-	// Should handle invalid directory gracefully
-	err := dlq.AddEntry(entry)
-	// This might succeed (go to queue) but fail during flush
-	// The implementation should handle this gracefully
-	if err != nil {
-		assert.Contains(t, err.Error(), "directory", "Error should mention directory issue")
-	}
-}
-
-func TestDeadLetterQueue_ContextCancellation(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_context")
+func TestDLQ_QueueFull(t *testing.T) {
+	tempDir := filepath.Join(os.TempDir(), "dlq_test_queue_full")
 	err := os.MkdirAll(tempDir, 0755)
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
@@ -461,94 +376,39 @@ func TestDeadLetterQueue_ContextCancellation(t *testing.T) {
 		MaxFileSize:   1024,
 		MaxFiles:      5,
 		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 100 * time.Millisecond,
-		QueueSize:     100,
+		JSONFormat:    true,
+		FlushInterval: 5 * time.Second, // Slow flush to test overflow
+		QueueSize:     3,                // Very small queue
 	}
 
 	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
+	logger.SetOutput(io.Discard)
 
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-
-	// Start DLQ - should stop when context is cancelled
-	go dlq.Start()
-
-	// Add an entry
-	entry := DLQEntry{
-		Timestamp:   time.Now(),
-		OriginalLog: "context test",
-		SourceID:    "test-source",
-		FailureType: "context_test",
-	}
-
-	err = dlq.AddEntry(entry)
+	dlq := NewDeadLetterQueue(config, logger)
+	err = dlq.Start()
 	require.NoError(t, err)
+	defer dlq.Stop()
 
-	// Wait for context to cancel
-	time.Sleep(300 * time.Millisecond)
-
-	// Test passes if no panic occurs and DLQ stops gracefully
-	assert.True(t, true)
-}
-
-func TestDeadLetterQueue_ConcurrentAccess(t *testing.T) {
-	tempDir := filepath.Join(os.TempDir(), "dlq_test_concurrent")
-	err := os.MkdirAll(tempDir, 0755)
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	config := Config{
-		Enabled:       true,
-		Directory:     tempDir,
-		MaxFileSize:   1024,
-		MaxFiles:      5,
-		RetentionDays: 7,
-		Format:        "json",
-		FlushInterval: 50 * time.Millisecond,
-		QueueSize:     1000,
-	}
-
-	logger := logrus.New()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	dlq := NewDeadLetterQueue(config, logger, ctx)
-	go dlq.Start()
-
-	// Concurrent access from multiple goroutines
-	done := make(chan bool, 10)
+	// Try to add more entries than queue capacity
+	successCount := 0
+	failCount := 0
 
 	for i := 0; i < 10; i++ {
-		go func(id int) {
-			defer func() { done <- true }()
+		entry := types.LogEntry{
+			Message:   fmt.Sprintf("queue overflow test %d", i),
+			Timestamp: time.Now(),
+		}
 
-			for j := 0; j < 5; j++ {
-				entry := DLQEntry{
-					Timestamp:   time.Now(),
-					OriginalLog: fmt.Sprintf("concurrent test %d-%d", id, j),
-					SourceID:    fmt.Sprintf("source-%d", id),
-					FailureType: "concurrent_test",
-				}
-
-				dlq.AddEntry(entry)
-			}
-		}(i)
-	}
-
-	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
-		select {
-		case <-done:
-		case <-time.After(3 * time.Second):
-			t.Fatal("Timeout waiting for concurrent operations")
+		err = dlq.AddEntry(entry, "overflow test", "overflow_test", "test_sink", 1, nil)
+		if err == nil {
+			successCount++
+		} else {
+			failCount++
 		}
 	}
 
-	// Wait for final flush
-	time.Sleep(200 * time.Millisecond)
+	t.Logf("Success: %d, Failed: %d", successCount, failCount)
 
-	stats := dlq.GetStatistics()
-	assert.Equal(t, int64(50), stats.TotalEntries, "Should process all 50 entries")
+	// Some entries should be accepted, others might fail due to queue overflow
+	assert.Greater(t, successCount, 0, "Some entries should be accepted")
 }

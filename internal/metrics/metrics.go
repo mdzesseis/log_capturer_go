@@ -218,6 +218,71 @@ var (
 		},
 	)
 
+	// Task 2: File monitor new features metrics
+	FileMonitorOldLogsIgnored = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_old_logs_ignored_total",
+			Help: "Total number of old logs ignored by file monitor (timestamp before start)",
+		},
+		[]string{"component", "file_path"},
+	)
+
+	FileMonitorOffsetRestored = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_offset_restored_total",
+			Help: "Total number of times offset was restored from persistence",
+		},
+		[]string{"component", "file_path"},
+	)
+
+	FileMonitorRetryQueueSize = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_file_monitor_retry_queue_size",
+			Help: "Current size of the file monitor retry queue",
+		},
+		[]string{"component"},
+	)
+
+	FileMonitorDropsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_drops_total",
+			Help: "Total number of entries dropped from retry queue",
+		},
+		[]string{"component", "reason"},
+	)
+
+	FileMonitorRetryQueued = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_retry_queued_total",
+			Help: "Total number of entries added to retry queue",
+		},
+		[]string{"component"},
+	)
+
+	FileMonitorRetrySuccess = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_retry_success_total",
+			Help: "Total number of successful retries",
+		},
+		[]string{"component"},
+	)
+
+	FileMonitorRetryFailed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_retry_failed_total",
+			Help: "Total number of failed retries",
+		},
+		[]string{"component"},
+	)
+
+	FileMonitorRetryGiveUp = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_file_monitor_retry_giveup_total",
+			Help: "Total number of retries given up (max attempts exceeded)",
+		},
+		[]string{"component"},
+	)
+
 	// Enhanced metrics - Advanced monitoring metrics
 	DiskUsageBytes = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -439,6 +504,95 @@ var (
 			Help: "Stream pool utilization (0.0 to 1.0)",
 		},
 	)
+
+	// =============================================================================
+	// DLQ (DEAD LETTER QUEUE) METRICS
+	// =============================================================================
+
+	// DLQ stored entries total
+	DLQStoredEntries = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_dlq_stored_total",
+			Help: "Total entries stored in DLQ",
+		},
+		[]string{"sink", "reason"},
+	)
+
+	// DLQ entries total (gauge)
+	DLQEntriesTotal = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_dlq_entries_total",
+			Help: "Total number of entries in DLQ",
+		},
+		[]string{"sink"},
+	)
+
+	// DLQ size in bytes
+	DLQSizeBytes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_dlq_size_bytes",
+			Help: "Total size of DLQ in bytes",
+		},
+		[]string{"sink"},
+	)
+
+	// DLQ reprocess attempts
+	DLQReprocessAttempts = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_dlq_reprocess_attempts_total",
+			Help: "Total DLQ reprocessing attempts",
+		},
+		[]string{"sink", "result"}, // result: success, failure
+	)
+
+	// =============================================================================
+	// TIMESTAMP LEARNING METRICS (Task 5)
+	// =============================================================================
+
+	// Timestamp rejections total
+	TimestampRejectionTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_timestamp_rejection_total",
+			Help: "Total timestamp rejections by reason",
+		},
+		[]string{"sink", "reason"}, // reason: too_old, too_new, validation_failed
+	)
+
+	// Timestamp clamped total
+	TimestampClampedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_timestamp_clamped_total",
+			Help: "Total timestamps clamped to acceptable range",
+		},
+		[]string{"sink"},
+	)
+
+	// Timestamp max acceptable age (learned threshold)
+	TimestampMaxAcceptableAge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_timestamp_max_acceptable_age_seconds",
+			Help: "Current learned max acceptable age for timestamps",
+		},
+		[]string{"sink"},
+	)
+
+	// Loki error type classification
+	LokiErrorTypeTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_loki_error_type_total",
+			Help: "Loki errors by classified type",
+		},
+		[]string{"sink", "error_type"}, // error_type: permanent, temporary, rate_limit, server
+	)
+
+	// Timestamp learning events
+	TimestampLearningEventsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_timestamp_learning_events_total",
+			Help: "Total timestamp learning events from Loki errors",
+		},
+		[]string{"sink"},
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -493,6 +647,15 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(GCPauseDuration)
 		safeRegister(TotalFilesMonitored)
 		safeRegister(TotalContainersMonitored)
+		// Task 2: File monitor new features metrics
+		safeRegister(FileMonitorOldLogsIgnored)
+		safeRegister(FileMonitorOffsetRestored)
+		safeRegister(FileMonitorRetryQueueSize)
+		safeRegister(FileMonitorDropsTotal)
+		safeRegister(FileMonitorRetryQueued)
+		safeRegister(FileMonitorRetrySuccess)
+		safeRegister(FileMonitorRetryFailed)
+		safeRegister(FileMonitorRetryGiveUp)
 		// Enhanced metrics
 		safeRegister(DiskUsageBytes)
 		safeRegister(ResponseTimeSeconds)
@@ -520,6 +683,17 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(StreamAgeSeconds)
 		safeRegister(StreamErrorsTotal)
 		safeRegister(StreamPoolUtilization)
+		// DLQ metrics
+		safeRegister(DLQStoredEntries)
+		safeRegister(DLQEntriesTotal)
+		safeRegister(DLQSizeBytes)
+		safeRegister(DLQReprocessAttempts)
+		// Timestamp learning metrics (Task 5)
+		safeRegister(TimestampRejectionTotal)
+		safeRegister(TimestampClampedTotal)
+		safeRegister(TimestampMaxAcceptableAge)
+		safeRegister(LokiErrorTypeTotal)
+		safeRegister(TimestampLearningEventsTotal)
 	})
 
 	mux := http.NewServeMux()
@@ -813,4 +987,102 @@ func UpdateStreamPoolUtilization(current, max int) {
 	} else {
 		StreamPoolUtilization.Set(0)
 	}
+}
+
+// =============================================================================
+// TASK 2: FILE MONITOR NEW FEATURES METRICS
+// =============================================================================
+
+// RecordOldLogIgnored records an old log that was ignored
+func RecordOldLogIgnored(component, filePath string) {
+	FileMonitorOldLogsIgnored.WithLabelValues(component, filePath).Inc()
+}
+
+// RecordOffsetRestored records offset restoration from persistence
+func RecordOffsetRestored(component, filePath string) {
+	FileMonitorOffsetRestored.WithLabelValues(component, filePath).Inc()
+}
+
+// RecordRetryQueueSize updates the retry queue size gauge
+func RecordRetryQueueSize(component string, size int) {
+	FileMonitorRetryQueueSize.WithLabelValues(component).Set(float64(size))
+}
+
+// RecordDrop records an entry dropped from retry queue
+func RecordDrop(component, reason string) {
+	FileMonitorDropsTotal.WithLabelValues(component, reason).Inc()
+}
+
+// RecordRetryQueued records an entry added to retry queue
+func RecordRetryQueued(component string) {
+	FileMonitorRetryQueued.WithLabelValues(component).Inc()
+}
+
+// RecordRetrySuccess records a successful retry
+func RecordRetrySuccess(component string) {
+	FileMonitorRetrySuccess.WithLabelValues(component).Inc()
+}
+
+// RecordRetryFailed records a failed retry attempt
+func RecordRetryFailed(component string) {
+	FileMonitorRetryFailed.WithLabelValues(component).Inc()
+}
+
+// RecordRetryGiveUp records giving up on a retry
+func RecordRetryGiveUp(component string) {
+	FileMonitorRetryGiveUp.WithLabelValues(component).Inc()
+}
+
+// =============================================================================
+// DLQ METRICS HELPER FUNCTIONS
+// =============================================================================
+
+// RecordDLQStore records an entry being stored in the DLQ
+func RecordDLQStore(sink, reason string) {
+	DLQStoredEntries.WithLabelValues(sink, reason).Inc()
+}
+
+// RecordDLQReprocess records a DLQ reprocessing attempt
+func RecordDLQReprocess(sink, result string) {
+	DLQReprocessAttempts.WithLabelValues(sink, result).Inc()
+}
+
+// UpdateDLQStats updates DLQ statistics gauges
+func UpdateDLQStats(sink string, entryCount int, sizeBytes int64) {
+	DLQEntriesTotal.WithLabelValues(sink).Set(float64(entryCount))
+	DLQSizeBytes.WithLabelValues(sink).Set(float64(sizeBytes))
+}
+
+// =============================================================================
+// TIMESTAMP LEARNING METRICS HELPERS (Task 5)
+// =============================================================================
+
+// RecordTimestampRejection records a timestamp rejection
+func RecordTimestampRejection(sink, reason string) {
+	TimestampRejectionTotal.WithLabelValues(sink, reason).Inc()
+}
+
+// RecordTimestampClamped records a timestamp being clamped
+func RecordTimestampClamped(sink string) {
+	TimestampClampedTotal.WithLabelValues(sink).Inc()
+}
+
+// UpdateTimestampMaxAge updates the learned max acceptable age
+func UpdateTimestampMaxAge(sink string, ageSeconds float64) {
+	TimestampMaxAcceptableAge.WithLabelValues(sink).Set(ageSeconds)
+}
+
+// RecordLokiErrorType records a classified Loki error
+func RecordLokiErrorType(sink, errorType string) {
+	LokiErrorTypeTotal.WithLabelValues(sink, errorType).Inc()
+}
+
+// RecordTimestampLearningEvent records a timestamp learning event
+func RecordTimestampLearningEvent(sink string) {
+	TimestampLearningEventsTotal.WithLabelValues(sink).Inc()
+}
+
+// RecordLokiRateLimit records a Loki rate limit event (helper for existing use)
+func RecordLokiRateLimit(sink string) {
+	RecordLokiErrorType(sink, "rate_limit")
 }

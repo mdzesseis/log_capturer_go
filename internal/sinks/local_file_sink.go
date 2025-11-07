@@ -27,6 +27,7 @@ type LocalFileSink struct {
 	logger    *logrus.Logger
 	compressor *compression.HTTPCompressor
 	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection
+	deadLetterQueue interface{} // DLQ interface for failed entries (using interface{} to avoid import cycle)
 
 	queue     chan types.LogEntry
 	files     map[string]*logFile
@@ -60,7 +61,7 @@ type logFile struct {
 }
 
 // NewLocalFileSink cria um novo sink para arquivos locais
-func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics) *LocalFileSink {
+func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics, deadLetterQueue interface{}) *LocalFileSink {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Valores padrão para novos campos
@@ -127,16 +128,17 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger, enhan
 	compressor := compression.NewHTTPCompressor(compressionConfig, logger)
 
 	return &LocalFileSink{
-		config:        config,
-		logger:        logger,
-		compressor:    compressor,
+		config:          config,
+		logger:          logger,
+		compressor:      compressor,
 		enhancedMetrics: enhancedMetrics,
-		queue:         make(chan types.LogEntry, queueSize),
-		files:         make(map[string]*logFile),
-		ctx:           ctx,
-		cancel:        cancel,
-		maxOpenFiles:  maxOpenFiles,
-		openFileCount: 0,
+		deadLetterQueue: deadLetterQueue,
+		queue:           make(chan types.LogEntry, queueSize),
+		files:           make(map[string]*logFile),
+		ctx:             ctx,
+		cancel:          cancel,
+		maxOpenFiles:    maxOpenFiles,
+		openFileCount:   0,
 	}
 }
 
@@ -319,6 +321,37 @@ func (lfs *LocalFileSink) rotationLoop() {
 	}
 }
 
+// addToDLQ adds a failed entry to the dead letter queue if available
+func (lfs *LocalFileSink) addToDLQ(entry types.LogEntry, errorMsg, errorType string, retryCount int) {
+	if lfs.deadLetterQueue == nil {
+		return
+	}
+
+	// Use type assertion to check if it has AddEntry method
+	type DLQInterface interface {
+		AddEntry(types.LogEntry, string, string, string, int, map[string]string) error
+	}
+
+	if dlq, ok := lfs.deadLetterQueue.(DLQInterface); ok {
+		context := map[string]string{
+			"sink_type":   "local_file",
+			"error_type":  errorType,
+			"source_type": entry.SourceType,
+			"source_id":   entry.SourceID,
+		}
+
+		if err := dlq.AddEntry(entry, errorMsg, errorType, "local_file", retryCount, context); err != nil {
+			lfs.logger.WithError(err).Warn("Failed to add entry to DLQ")
+		} else {
+			lfs.logger.WithFields(logrus.Fields{
+				"source_type": entry.SourceType,
+				"source_id":   entry.SourceID,
+				"error_type":  errorType,
+			}).Debug("Entry added to DLQ")
+		}
+	}
+}
+
 // writeLogEntry escreve uma entrada de log
 func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 	// Verificação robusta de espaço em disco antes de processar
@@ -329,6 +362,9 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 			"reason":      "insufficient_disk_space",
 		}).Error("Dropping log entry due to insufficient disk space")
 		metrics.RecordError("local_file_sink", "disk_full")
+
+		// Add to DLQ
+		lfs.addToDLQ(entry, "insufficient disk space", "disk_full", 0)
 
 		// Tentar limpeza de emergência imediata
 		lfs.performEmergencyCleanup()
@@ -350,6 +386,9 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 			"reason":          "would_exceed_disk_limit",
 		}).Warn("Dropping log entry - would exceed disk limit")
 		metrics.RecordError("local_file_sink", "size_limit_exceeded")
+
+		// Add to DLQ
+		lfs.addToDLQ(entry, fmt.Sprintf("entry size %d bytes would exceed disk limit", estimatedSize), "size_limit_exceeded", 0)
 		return
 	}
 
@@ -364,6 +403,9 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 		lfs.logger.WithError(err).WithField("filename", filename).Error("Failed to get log file")
 		metrics.RecordLogSent("local_file", "error")
 		metrics.RecordError("local_file_sink", "file_error")
+
+		// Add to DLQ
+		lfs.addToDLQ(entry, fmt.Sprintf("failed to get log file: %v", err), "file_error", 0)
 		return
 	}
 
@@ -372,6 +414,9 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 		lfs.logger.WithError(err).WithField("filename", filename).Error("Failed to write log entry")
 		metrics.RecordLogSent("local_file", "error")
 		metrics.RecordError("local_file_sink", "write_error")
+
+		// Add to DLQ
+		lfs.addToDLQ(entry, fmt.Sprintf("failed to write entry: %v", err), "write_error", 0)
 		return
 	}
 

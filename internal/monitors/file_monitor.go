@@ -25,6 +25,118 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// retryEntry represents a log line that needs to be retried
+type retryEntry struct {
+	line      string
+	labels    map[string]string
+	sourceID  string
+	attempts  int
+	nextRetry time.Time
+	addedAt   time.Time
+}
+
+// retryQueue manages retry entries with size limit and exponential backoff
+type retryQueue struct {
+	mu       sync.RWMutex
+	entries  []*retryEntry
+	maxSize  int
+	policy   string // "oldest", "newest", "random"
+	config   types.FileRetryConfig
+}
+
+// newRetryQueue creates a new retry queue
+func newRetryQueue(maxSize int, config types.FileRetryConfig) *retryQueue {
+	return &retryQueue{
+		entries: make([]*retryEntry, 0, maxSize),
+		maxSize: maxSize,
+		policy:  config.DropPolicy,
+		config:  config,
+	}
+}
+
+// add adds a retry entry to the queue, applying drop policy if full
+func (rq *retryQueue) add(entry *retryEntry) bool {
+	rq.mu.Lock()
+	defer rq.mu.Unlock()
+
+	// If queue is full, apply drop policy
+	if len(rq.entries) >= rq.maxSize {
+		switch rq.policy {
+		case "oldest":
+			// Remove oldest entry (first in queue)
+			rq.entries = rq.entries[1:]
+			metrics.RecordDrop("file_monitor", "retry_queue_full_oldest")
+		case "newest":
+			// Reject new entry
+			metrics.RecordDrop("file_monitor", "retry_queue_full_newest")
+			return false
+		case "random":
+			// Remove random entry
+			if len(rq.entries) > 0 {
+				idx := time.Now().UnixNano() % int64(len(rq.entries))
+				rq.entries = append(rq.entries[:idx], rq.entries[idx+1:]...)
+			}
+			metrics.RecordDrop("file_monitor", "retry_queue_full_random")
+		default:
+			// Default to oldest
+			rq.entries = rq.entries[1:]
+			metrics.RecordDrop("file_monitor", "retry_queue_full_oldest")
+		}
+	}
+
+	rq.entries = append(rq.entries, entry)
+	return true
+}
+
+// getReady returns entries ready for retry
+func (rq *retryQueue) getReady() []*retryEntry {
+	rq.mu.RLock()
+	defer rq.mu.RUnlock()
+
+	now := time.Now()
+	var ready []*retryEntry
+
+	for _, entry := range rq.entries {
+		if now.After(entry.nextRetry) || now.Equal(entry.nextRetry) {
+			ready = append(ready, entry)
+		}
+	}
+
+	return ready
+}
+
+// remove removes an entry from the queue
+func (rq *retryQueue) remove(entry *retryEntry) {
+	rq.mu.Lock()
+	defer rq.mu.Unlock()
+
+	for i, e := range rq.entries {
+		if e == entry {
+			rq.entries = append(rq.entries[:i], rq.entries[i+1:]...)
+			return
+		}
+	}
+}
+
+// size returns current queue size
+func (rq *retryQueue) size() int {
+	rq.mu.RLock()
+	defer rq.mu.RUnlock()
+	return len(rq.entries)
+}
+
+// calculateNextRetry calculates next retry time using exponential backoff
+func (rq *retryQueue) calculateNextRetry(attempts int) time.Time {
+	delay := rq.config.InitialDelay
+	for i := 1; i < attempts; i++ {
+		delay = time.Duration(float64(delay) * rq.config.Multiplier)
+		if delay > rq.config.MaxDelay {
+			delay = rq.config.MaxDelay
+			break
+		}
+	}
+	return time.Now().Add(delay)
+}
 
 // FileMonitor monitora arquivos de log
 type FileMonitor struct {
@@ -46,6 +158,10 @@ type FileMonitor struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	isRunning    bool
+
+	// Task 2: New features
+	startTime    time.Time      // Time when monitor started (for timestamp filtering)
+	retryQueue   *retryQueue    // Retry queue with limit and backoff
 }
 
 // monitoredFile representa um arquivo sendo monitorado
@@ -108,6 +224,8 @@ func NewFileMonitor(config types.FileConfig, timestampConfig types.TimestampVali
 		specificFiles:      make(map[string]bool),
 		ctx:                ctx,
 		cancel:             cancel,
+		// Task 2: Initialize new features
+		retryQueue:         newRetryQueue(config.MaxRetryQueueSize, config.RetryConfig),
 	}
 
 	return fm, nil
@@ -128,7 +246,11 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	}
 
 	fm.isRunning = true
-	fm.logger.Info("Starting file monitor")
+
+	// Task 2: Record start time for timestamp filtering
+	fm.startTime = time.Now()
+
+	fm.logger.WithField("start_time", fm.startTime).Info("Starting file monitor")
 
 	// Iniciar position manager (se disponível)
 	if fm.positionManager != nil {
@@ -168,6 +290,13 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	if err := fm.taskManager.StartTask(ctx, "file_monitor", fm.monitorLoop); err != nil {
 		return fmt.Errorf("failed to start file monitor task: %w", err)
 	}
+
+	// Task 2: Start retry processor goroutine
+	fm.wg.Add(1)
+	go func() {
+		defer fm.wg.Done()
+		fm.processRetries()
+	}()
 
 	return nil
 }
@@ -604,17 +733,88 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 		mf.file = file
 		mf.reader = bufio.NewReader(file)
 
-		// Buscar posição salva
-		if _, err := file.Seek(mf.position, 0); err != nil {
-			fm.logger.WithError(err).WithField("path", mf.path).Warn("Failed to seek to saved position")
-			mf.position = 0
-			if _, seekErr := file.Seek(0, 0); seekErr != nil {
-				fm.logger.WithError(seekErr).WithField("path", mf.path).Error("Failed to seek to beginning")
-				// Fechar arquivo em caso de erro fatal
-				mf.file.Close()
-				mf.file = nil
-				mf.reader = nil
-				return
+		// Task 2: Apply seek strategy
+		fileInfo, statErr := file.Stat()
+		if statErr != nil {
+			fm.logger.WithError(statErr).WithField("path", mf.path).Warn("Failed to stat file for seek strategy")
+		}
+
+		// If we have a saved position, use it (takes precedence)
+		if mf.position > 0 {
+			if _, err := file.Seek(mf.position, 0); err != nil {
+				fm.logger.WithError(err).WithField("path", mf.path).Warn("Failed to seek to saved position, falling back to strategy")
+				mf.position = 0
+			} else {
+				// Successfully seeked to saved position
+				fm.logger.WithFields(logrus.Fields{
+					"path":     mf.path,
+					"position": mf.position,
+				}).Debug("Resumed from saved position")
+			}
+		}
+
+		// If no saved position, apply seek strategy
+		if mf.position == 0 && statErr == nil {
+			fileSize := fileInfo.Size()
+
+			switch fm.config.SeekStrategy {
+			case "beginning":
+				// Default: start from beginning
+				mf.position = 0
+				fm.logger.WithField("path", mf.path).Debug("Seek strategy: beginning")
+
+			case "recent":
+				// Seek to last N bytes
+				if fileSize > fm.config.SeekRecentBytes {
+					mf.position = fileSize - fm.config.SeekRecentBytes
+					if _, seekErr := file.Seek(mf.position, 0); seekErr != nil {
+						fm.logger.WithError(seekErr).WithField("path", mf.path).Warn("Failed to seek to recent position")
+						mf.position = 0
+						file.Seek(0, 0)
+					} else {
+						// Discard partial line at seek position
+						mf.reader.ReadString('\n')
+						newPos, _ := file.Seek(0, io.SeekCurrent)
+						mf.position = newPos
+
+						fm.logger.WithFields(logrus.Fields{
+							"path":         mf.path,
+							"file_size":    fileSize,
+							"seek_bytes":   fm.config.SeekRecentBytes,
+							"new_position": mf.position,
+						}).Info("Seek strategy: recent (skipped old logs)")
+					}
+				} else {
+					// File smaller than seek bytes, start from beginning
+					mf.position = 0
+					fm.logger.WithFields(logrus.Fields{
+						"path":       mf.path,
+						"file_size":  fileSize,
+						"seek_bytes": fm.config.SeekRecentBytes,
+					}).Debug("Seek strategy: recent (file too small, starting from beginning)")
+				}
+
+			case "end":
+				// Seek to end (no historical logs)
+				mf.position = fileSize
+				if _, seekErr := file.Seek(mf.position, 0); seekErr != nil {
+					fm.logger.WithError(seekErr).WithField("path", mf.path).Warn("Failed to seek to end")
+					mf.position = 0
+					file.Seek(0, 0)
+				} else {
+					fm.logger.WithFields(logrus.Fields{
+						"path":      mf.path,
+						"file_size": fileSize,
+					}).Info("Seek strategy: end (waiting for new logs only)")
+				}
+
+			default:
+				// Unknown strategy, default to beginning
+				mf.position = 0
+				fm.logger.WithFields(logrus.Fields{
+					"path":     mf.path,
+					"strategy": fm.config.SeekStrategy,
+				}).Warn("Unknown seek strategy, using beginning")
 			}
 		}
 	}
@@ -685,9 +885,21 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 			}
 		}
 
-		if err := fm.dispatcher.Handle(fm.ctx, "file", sourceID, line, standardLabels); err != nil {
-			fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to dispatch log line")
-			metrics.RecordError("file_monitor", "dispatch_error")
+		// Task 2: Filter old timestamps if enabled
+		if fm.config.IgnoreOldTimestamps && entry.Timestamp.Before(fm.startTime) {
+			fm.logger.WithFields(logrus.Fields{
+				"path":       mf.path,
+				"log_time":   entry.Timestamp,
+				"start_time": fm.startTime,
+			}).Debug("Ignoring log with timestamp before monitor start time")
+			metrics.RecordOldLogIgnored("file_monitor", mf.path)
+			continue
+		}
+
+		// Task 2: Dispatch with retry support
+		if err := fm.dispatchWithRetry(fm.ctx, "file", sourceID, line, standardLabels); err != nil {
+			fm.logger.WithError(err).WithField("path", mf.path).Error("Failed to dispatch log line (all retries exhausted)")
+			metrics.RecordError("file_monitor", "dispatch_error_exhausted")
 		}
 
 		linesRead++
@@ -1315,4 +1527,114 @@ func addStandardLabelsFile(labels map[string]string) map[string]string {
 	result["instance_name"] = getHostnameFile()
 
 	return result
+}
+
+// Task 2: dispatchWithRetry attempts to dispatch a log line with retry support
+func (fm *FileMonitor) dispatchWithRetry(ctx context.Context, sourceType, sourceID, line string, labels map[string]string) error {
+	// First attempt: direct dispatch
+	err := fm.dispatcher.Handle(ctx, sourceType, sourceID, line, labels)
+	if err == nil {
+		return nil
+	}
+
+	// Failed, add to retry queue
+	// Make deep copy of labels to avoid race conditions
+	labelsCopy := make(map[string]string, len(labels))
+	for k, v := range labels {
+		labelsCopy[k] = v
+	}
+
+	entry := &retryEntry{
+		line:      line,
+		labels:    labelsCopy,
+		sourceID:  sourceID,
+		attempts:  1,
+		nextRetry: fm.retryQueue.calculateNextRetry(1),
+		addedAt:   time.Now(),
+	}
+
+	if !fm.retryQueue.add(entry) {
+		fm.logger.WithFields(logrus.Fields{
+			"source_id": sourceID,
+			"policy":    fm.retryQueue.policy,
+		}).Warn("Failed to add entry to retry queue (queue full, entry dropped)")
+		return fmt.Errorf("retry queue full, entry dropped")
+	}
+
+	fm.logger.WithFields(logrus.Fields{
+		"source_id":  sourceID,
+		"next_retry": entry.nextRetry,
+		"queue_size": fm.retryQueue.size(),
+	}).Debug("Added entry to retry queue")
+
+	metrics.RecordRetryQueued("file_monitor")
+	return nil
+}
+
+// Task 2: processRetries processes the retry queue periodically
+func (fm *FileMonitor) processRetries() {
+	ticker := time.NewTicker(1 * time.Second) // Check every second
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-fm.ctx.Done():
+			fm.logger.Info("Retry processor stopping")
+			return
+
+		case <-ticker.C:
+			// Update metrics
+			metrics.RecordRetryQueueSize("file_monitor", fm.retryQueue.size())
+
+			// Get entries ready for retry
+			readyEntries := fm.retryQueue.getReady()
+			if len(readyEntries) == 0 {
+				continue
+			}
+
+			fm.logger.WithField("ready_count", len(readyEntries)).Debug("Processing retry queue")
+
+			for _, entry := range readyEntries {
+				// Try to dispatch again
+				err := fm.dispatcher.Handle(fm.ctx, "file", entry.sourceID, entry.line, entry.labels)
+
+				if err == nil {
+					// Success! Remove from queue
+					fm.retryQueue.remove(entry)
+					fm.logger.WithFields(logrus.Fields{
+						"source_id": entry.sourceID,
+						"attempts":  entry.attempts,
+					}).Debug("Retry successful")
+					metrics.RecordRetrySuccess("file_monitor")
+				} else {
+					// Failed again, increment attempts and reschedule
+					entry.attempts++
+
+					// Check if we've exceeded max attempts (implicit in delay reaching max)
+					nextDelay := fm.retryQueue.calculateNextRetry(entry.attempts)
+					ageInQueue := time.Since(entry.addedAt)
+
+					// If entry is too old (5 minutes) or delay reached max multiple times, give up
+					if ageInQueue > 5*time.Minute || entry.attempts > 10 {
+						fm.retryQueue.remove(entry)
+						fm.logger.WithFields(logrus.Fields{
+							"source_id": entry.sourceID,
+							"attempts":  entry.attempts,
+							"age":       ageInQueue,
+						}).Warn("Giving up on retry (max attempts or age exceeded)")
+						metrics.RecordRetryGiveUp("file_monitor")
+					} else {
+						// Reschedule
+						entry.nextRetry = nextDelay
+						fm.logger.WithFields(logrus.Fields{
+							"source_id":  entry.sourceID,
+							"attempts":   entry.attempts,
+							"next_retry": entry.nextRetry,
+						}).Debug("Retry failed, rescheduled")
+						metrics.RecordRetryFailed("file_monitor")
+					}
+				}
+			}
+		}
+	}
 }

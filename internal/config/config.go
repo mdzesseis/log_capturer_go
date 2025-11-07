@@ -199,6 +199,43 @@ func applyDefaults(config *types.Config) {
 		config.FileMonitor.PollInterval = config.FileMonitorService.PollInterval
 	}
 
+	// Task 2: File Monitor new features defaults
+	// Default: Don't ignore old timestamps (backward compatible)
+	// config.FileMonitorService.IgnoreOldTimestamps defaults to false
+
+	// Default seek strategy: beginning (backward compatible)
+	if config.FileMonitorService.SeekStrategy == "" {
+		config.FileMonitorService.SeekStrategy = "beginning"
+	}
+	// Default seek recent bytes: 1MB
+	if config.FileMonitorService.SeekRecentBytes == 0 {
+		config.FileMonitorService.SeekRecentBytes = 1048576 // 1MB
+	}
+	// Default max retry queue size: 50
+	if config.FileMonitorService.MaxRetryQueueSize == 0 {
+		config.FileMonitorService.MaxRetryQueueSize = 50
+	}
+	// Retry config defaults
+	if config.FileMonitorService.RetryConfig.InitialDelay == 0 {
+		config.FileMonitorService.RetryConfig.InitialDelay = 1 * time.Second
+	}
+	if config.FileMonitorService.RetryConfig.MaxDelay == 0 {
+		config.FileMonitorService.RetryConfig.MaxDelay = 60 * time.Second
+	}
+	if config.FileMonitorService.RetryConfig.Multiplier == 0 {
+		config.FileMonitorService.RetryConfig.Multiplier = 2.0
+	}
+	if config.FileMonitorService.RetryConfig.DropPolicy == "" {
+		config.FileMonitorService.RetryConfig.DropPolicy = "oldest"
+	}
+
+	// Apply to legacy FileMonitor config as well for backward compatibility
+	config.FileMonitor.IgnoreOldTimestamps = config.FileMonitorService.IgnoreOldTimestamps
+	config.FileMonitor.SeekStrategy = config.FileMonitorService.SeekStrategy
+	config.FileMonitor.SeekRecentBytes = config.FileMonitorService.SeekRecentBytes
+	config.FileMonitor.MaxRetryQueueSize = config.FileMonitorService.MaxRetryQueueSize
+	config.FileMonitor.RetryConfig = config.FileMonitorService.RetryConfig
+
 	// Container Monitor defaults
 	if config.ContainerMonitor.SocketPath == "" {
 		config.ContainerMonitor.SocketPath = "unix:///var/run/docker.sock"
