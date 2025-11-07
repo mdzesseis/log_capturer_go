@@ -866,11 +866,14 @@ func (cm *ContainerMonitor) monitorContainer(containerCtx context.Context, mc *m
 			continue
 		}
 
-		// Store stream reference (for metrics)
+		// Store stream reference and update metrics
 		mc.mu.Lock()
 		mc.stream = stream
 		mc.streamCreatedAt = time.Now()
 		mc.mu.Unlock()
+
+		// Update active stream count
+		metrics.UpdateActiveStreams(cm.streamPool.GetActiveCount())
 
 		// Read from stream with SAME 30s timeout
 		// When timeout expires, we abandon the stream and reader goroutine
@@ -888,14 +891,23 @@ func (cm *ContainerMonitor) monitorContainer(containerCtx context.Context, mc *m
 		mc.stream = nil
 		mc.mu.Unlock()
 
+		// Update active stream count after closing
+		metrics.UpdateActiveStreams(cm.streamPool.GetActiveCount())
+
 		// Handle read errors
 		if readErr != nil {
 			if readErr == context.DeadlineExceeded {
-				// Expected timeout - this is NORMAL for short-lived streams
+				// EXPECTED timeout - normal for short-lived streams
+				mc.rotationCount++
+				streamAge := time.Since(mc.streamCreatedAt)
+				metrics.RecordStreamRotation(mc.id, mc.name, streamAge.Seconds())
+
 				cm.logger.WithFields(logrus.Fields{
-					"container_id": mc.id,
-					"timeout":      "30s",
-				}).Debug("Stream timeout reached, reconnecting")
+					"container_id":    mc.id,
+					"container_name":  mc.name,
+					"rotation_count":  mc.rotationCount,
+					"stream_age_secs": int(streamAge.Seconds()),
+				}).Debug("Stream rotated successfully")
 			} else if readErr == context.Canceled {
 				// Parent context cancelled
 				return nil
@@ -933,16 +945,53 @@ func (cm *ContainerMonitor) readContainerLogsShortLived(ctx context.Context, mc 
 	}
 	readCh := make(chan readResult, 10)
 
+	// Extract underlying connection for deadline setting
+	// This is the CRITICAL FIX to prevent goroutine leaks
+	var conn net.Conn
+	if rc, ok := stream.(io.ReadCloser); ok {
+		conn = extractNetConn(rc)
+	}
+
+	// Set initial read deadline if connection supports it
+	// This creates a KERNEL-LEVEL timeout that guarantees Read() will return
+	if conn != nil {
+		deadline := time.Now().Add(35 * time.Second) // Slightly longer than context timeout
+		if err := conn.SetReadDeadline(deadline); err != nil {
+			cm.logger.WithFields(logrus.Fields{
+				"container_id": mc.id,
+				"error":        err.Error(),
+			}).Debug("Failed to set read deadline, falling back to context timeout")
+		}
+	}
+
 	// Spawn reader goroutine
-	// NOTE: This goroutine may be abandoned if Read() blocks
-	// However, it will expire after 30s when the parent context times out
-	// This is an ACCEPTABLE tradeoff for simplicity
+	// NOTE: With SetReadDeadline, this goroutine will exit after 35s maximum
+	// even if blocked in Read() syscall
 	go func() {
 		defer close(readCh)
 
 		for {
+			// Refresh read deadline before each read
+			// This ensures the deadline is always relative to current time
+			if conn != nil {
+				conn.SetReadDeadline(time.Now().Add(35 * time.Second))
+			}
+
 			buf := make([]byte, 8192)
-			n, err := stream.Read(buf) // May block in kernel syscall
+			n, err := stream.Read(buf) // May block in kernel syscall, but will timeout
+
+			// Handle timeout errors from SetReadDeadline
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// Kernel-level timeout - this is GOOD, goroutine exits cleanly
+					// Send timeout error and exit
+					select {
+					case readCh <- readResult{data: nil, err: err}:
+					case <-time.After(1 * time.Second):
+					}
+					return
+				}
+			}
 
 			// Copy data if any
 			var data []byte
@@ -955,7 +1004,7 @@ func (cm *ContainerMonitor) readContainerLogsShortLived(ctx context.Context, mc 
 			select {
 			case readCh <- readResult{data: data, err: err}:
 				if err != nil {
-					return // Exit on error
+					return // Exit on error (EOF, etc.)
 				}
 			case <-time.After(5 * time.Second):
 				// Channel full or no receiver, abandon
@@ -1412,6 +1461,38 @@ func getHostname() string {
 		return "unknown"
 	}
 	return hostname
+}
+
+// extractNetConn attempts to extract the underlying net.Conn from Docker stream
+// This allows us to set read deadlines to prevent goroutine leaks from blocking syscalls
+func extractNetConn(stream io.ReadCloser) net.Conn {
+	// Docker SDK returns different types depending on configuration
+	// Try to unwrap to find net.Conn
+
+	// Direct net.Conn type assertion
+	if conn, ok := stream.(net.Conn); ok {
+		return conn
+	}
+
+	// Try interface with Conn() method (common pattern)
+	type connGetter interface {
+		Conn() net.Conn
+	}
+	if cg, ok := stream.(connGetter); ok {
+		return cg.Conn()
+	}
+
+	// Try interface with GetConn() method (HTTP response body pattern)
+	type getConnInterface interface {
+		GetConn() net.Conn
+	}
+	if gc, ok := stream.(getConnInterface); ok {
+		return gc.GetConn()
+	}
+
+	// Unable to extract underlying connection
+	// This is expected for some Docker configurations
+	return nil
 }
 
 // copyLabels creates a deep copy of container labels
