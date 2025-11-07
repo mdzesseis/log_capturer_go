@@ -659,6 +659,119 @@ var (
 		},
 		[]string{"file_path", "reason"}, // reason: truncation|corruption
 	)
+
+	// =============================================================================
+	// POSITION SYSTEM METRICS (Phase 2 - Health Monitoring)
+	// =============================================================================
+
+	// 1. Active Positions by Status
+	PositionActiveByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_active_by_status",
+			Help: "Active positions grouped by status",
+		},
+		[]string{"status"}, // reading|idle|error
+	)
+
+	// 2. Position Update Rate
+	PositionUpdateRate = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_update_rate_per_second",
+			Help: "Rate of position updates per second",
+		},
+		[]string{"manager_type"}, // file|container
+	)
+
+	// 3. Position File Size
+	PositionFileSize = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_file_size_bytes",
+			Help: "Size of position tracking files",
+		},
+		[]string{"file_type"}, // positions|checkpoint
+	)
+
+	// 4. Position Lag Distribution
+	PositionLagDistribution = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "log_capturer_position_lag_seconds_histogram",
+			Help:    "Distribution of position lag times",
+			Buckets: prometheus.ExponentialBuckets(0.1, 2, 10), // 0.1s to ~102s
+		},
+		[]string{"manager_type"}, // file|container
+	)
+
+	// 5. Position Memory Usage
+	PositionMemoryUsage = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_memory_bytes",
+			Help: "Memory used by position tracking structures",
+		},
+	)
+
+	// 6. Checkpoint Health
+	CheckpointHealth = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_checkpoint_health",
+			Help: "Checkpoint system health (1=healthy, 0=unhealthy)",
+		},
+		[]string{"component"}, // checkpoint_creation|checkpoint_restore|checkpoint_manager
+	)
+
+	// 7. Position Backpressure
+	PositionBackpressure = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_backpressure",
+			Help: "Position system backpressure indicator (0-1)",
+		},
+		[]string{"manager_type"}, // file|container
+	)
+
+	// 8. Corruption Detection
+	PositionCorruptionDetected = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_corruption_detected_total",
+			Help: "Position file corruption detections",
+		},
+		[]string{"file_type", "recovery_action"}, // file_type: positions|checkpoint, recovery_action: checkpoint_restore|backup1_restore|fresh_start
+	)
+
+	// =============================================================================
+	// CHECKPOINT MANAGER METRICS (Phase 2)
+	// =============================================================================
+
+	// Checkpoint created total
+	PositionCheckpointCreatedTotal = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_checkpoint_created_total",
+			Help: "Total checkpoints created",
+		},
+	)
+
+	// Checkpoint size
+	PositionCheckpointSizeBytes = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_checkpoint_size_bytes",
+			Help: "Size of last checkpoint in bytes",
+		},
+	)
+
+	// Checkpoint age
+	PositionCheckpointAgeSeconds = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "log_capturer_position_checkpoint_age_seconds",
+			Help: "Age of last checkpoint in seconds",
+		},
+	)
+
+	// Checkpoint restore attempts
+	PositionCheckpointRestoreAttemptsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_position_checkpoint_restore_attempts_total",
+			Help: "Total checkpoint restore attempts",
+		},
+		[]string{"result"}, // success|failure
+	)
 )
 
 // MetricsServer servidor HTTP para métricas Prometheus
@@ -768,6 +881,20 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(PositionLagSeconds)
 		safeRegister(PositionFlushTrigger)
 		safeRegister(PositionOffsetReset)
+		// Position system metrics (Phase 2 - Health Monitoring)
+		safeRegister(PositionActiveByStatus)
+		safeRegister(PositionUpdateRate)
+		safeRegister(PositionFileSize)
+		safeRegister(PositionLagDistribution)
+		safeRegister(PositionMemoryUsage)
+		safeRegister(CheckpointHealth)
+		safeRegister(PositionBackpressure)
+		safeRegister(PositionCorruptionDetected)
+		// Checkpoint manager metrics (Phase 2)
+		safeRegister(PositionCheckpointCreatedTotal)
+		safeRegister(PositionCheckpointSizeBytes)
+		safeRegister(PositionCheckpointAgeSeconds)
+		safeRegister(PositionCheckpointRestoreAttemptsTotal)
 	})
 
 	mux := http.NewServeMux()
@@ -1198,4 +1325,52 @@ func RecordPositionFlushTrigger(triggerType string) {
 // RecordPositionOffsetReset records an offset reset event
 func RecordPositionOffsetReset(filePath, reason string) {
 	PositionOffsetReset.WithLabelValues(filePath, reason).Inc()
+}
+
+// =============================================================================
+// POSITION SYSTEM METRICS HELPERS (Phase 2)
+// =============================================================================
+
+// UpdatePositionActiveByStatus updates the count of active positions by status
+func UpdatePositionActiveByStatus(status string, count int) {
+	PositionActiveByStatus.WithLabelValues(status).Set(float64(count))
+}
+
+// UpdatePositionUpdateRate updates the position update rate
+func UpdatePositionUpdateRate(managerType string, ratePerSecond float64) {
+	PositionUpdateRate.WithLabelValues(managerType).Set(ratePerSecond)
+}
+
+// UpdatePositionFileSize updates the position file size
+func UpdatePositionFileSize(fileType string, sizeBytes int64) {
+	PositionFileSize.WithLabelValues(fileType).Set(float64(sizeBytes))
+}
+
+// RecordPositionLagDistribution records a position lag observation
+func RecordPositionLagDistribution(managerType string, lagSeconds float64) {
+	PositionLagDistribution.WithLabelValues(managerType).Observe(lagSeconds)
+}
+
+// UpdatePositionMemoryUsage updates the position system memory usage
+func UpdatePositionMemoryUsage(bytes int64) {
+	PositionMemoryUsage.Set(float64(bytes))
+}
+
+// UpdateCheckpointHealth updates checkpoint health status
+func UpdateCheckpointHealth(component string, healthy bool) {
+	var value float64
+	if healthy {
+		value = 1
+	}
+	CheckpointHealth.WithLabelValues(component).Set(value)
+}
+
+// UpdatePositionBackpressure updates the backpressure indicator
+func UpdatePositionBackpressure(managerType string, backpressure float64) {
+	PositionBackpressure.WithLabelValues(managerType).Set(backpressure)
+}
+
+// RecordPositionCorruption records a position corruption detection
+func RecordPositionCorruption(fileType, recoveryAction string) {
+	PositionCorruptionDetected.WithLabelValues(fileType, recoveryAction).Inc()
 }

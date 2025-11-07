@@ -26,13 +26,14 @@ type FilePosition struct {
 }
 
 type FilePositionManager struct {
-	positions    map[string]*FilePosition
-	mu           sync.RWMutex
-	positionsDir string
-	filename     string
-	logger       *logrus.Logger
-	dirty        bool
-	lastFlush    time.Time
+	positions        map[string]*FilePosition
+	mu               sync.RWMutex
+	positionsDir     string
+	filename         string
+	logger           *logrus.Logger
+	dirty            bool
+	lastFlush        time.Time
+	checkpointManager *CheckpointManager // Phase 2: Checkpoint integration
 }
 
 func NewFilePositionManager(positionsDir string, logger *logrus.Logger) *FilePositionManager {
@@ -61,26 +62,98 @@ func (fpm *FilePositionManager) LoadPositions() error {
 	fpm.mu.Lock()
 	defer fpm.mu.Unlock()
 
-	data, err := os.ReadFile(fpm.filename)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fpm.logger.Info("File positions file not found, starting fresh", nil)
-			return nil
+	// Attempt 1: Load from main position file
+	if err := fpm.loadFromFile(fpm.filename); err == nil {
+		fpm.logger.Info("Loaded file positions from main file", map[string]interface{}{
+			"count": len(fpm.positions),
+		})
+		return nil
+	} else if !os.IsNotExist(err) {
+		// Main file exists but is corrupted
+		fpm.logger.Warn("Main position file corrupted, attempting recovery", map[string]interface{}{
+			"error": err.Error(),
+		})
+		metrics.RecordPositionCorruption("positions", "checkpoint_restore")
+
+		// Attempt 2: Restore from checkpoint (if checkpoint manager is available)
+		if fpm.checkpointManager != nil {
+			if checkpoint, err := fpm.checkpointManager.RestoreLatestCheckpoint(); err == nil {
+				fpm.restoreFromCheckpoint(checkpoint)
+				fpm.logger.Info("Successfully restored from checkpoint", map[string]interface{}{
+					"count": len(fpm.positions),
+				})
+				metrics.UpdateCheckpointHealth("checkpoint_restore", true)
+				return nil
+			} else {
+				fpm.logger.Warn("Checkpoint restore failed", map[string]interface{}{
+					"error": err.Error(),
+				})
+			}
 		}
-		return fmt.Errorf("failed to read positions file: %w", err)
+
+		// Attempt 3: Try backup files (3 generations)
+		for i := 1; i <= 3; i++ {
+			backupFile := fmt.Sprintf("%s.backup%d", fpm.filename, i)
+			if err := fpm.loadFromFile(backupFile); err == nil {
+				fpm.logger.Info("Restored from backup file", map[string]interface{}{
+					"generation": i,
+					"count":      len(fpm.positions),
+				})
+				metrics.RecordPositionCorruption("positions", fmt.Sprintf("backup%d_restore", i))
+				return nil
+			}
+		}
+
+		// Attempt 4: All recovery failed - start fresh
+		fpm.logger.Warn("All recovery attempts failed, starting with empty positions", nil)
+		metrics.RecordPositionCorruption("positions", "fresh_start")
 	}
 
+	// File doesn't exist - start fresh
+	fpm.positions = make(map[string]*FilePosition)
+	fpm.logger.Info("File positions file not found, starting fresh", nil)
+	return nil
+}
+
+// loadFromFile attempts to load positions from a specific file
+// MUST be called with fpm.mu.Lock() held
+func (fpm *FilePositionManager) loadFromFile(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+
+	// Validate JSON structure
 	var positions map[string]*FilePosition
 	if err := json.Unmarshal(data, &positions); err != nil {
-		return fmt.Errorf("failed to unmarshal positions: %w", err)
+		return fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	// Validate data integrity
+	for path, pos := range positions {
+		if pos == nil {
+			return fmt.Errorf("nil position for %s", path)
+		}
+		if pos.Offset < 0 {
+			return fmt.Errorf("invalid offset for %s: %d", path, pos.Offset)
+		}
+		if pos.Size < 0 {
+			return fmt.Errorf("invalid size for %s: %d", path, pos.Size)
+		}
+		// Inode 0 is technically valid (stdin), so we don't validate it
 	}
 
 	fpm.positions = positions
-	fpm.logger.Info("Loaded file positions", map[string]interface{}{
-		"count": len(positions),
-	})
-
 	return nil
+}
+
+// restoreFromCheckpoint restores positions from checkpoint data
+// MUST be called with fpm.mu.Lock() held
+func (fpm *FilePositionManager) restoreFromCheckpoint(checkpoint *CheckpointData) {
+	if checkpoint.FilePositions != nil {
+		fpm.positions = checkpoint.FilePositions
+		fpm.dirty = true // Mark dirty to ensure it gets saved
+	}
 }
 
 func (fpm *FilePositionManager) SavePositions() error {
@@ -94,23 +167,41 @@ func (fpm *FilePositionManager) SavePositions() error {
 	positionCount := len(positions)
 	fpm.mu.RUnlock()
 
-	// Phase 2: Write to disk (no lock held)
+	// Phase 2: Backup rotation (before writing new file)
+	// Rotate backups: backup3 -> delete, backup2 -> backup3, backup1 -> backup2, current -> backup1
+	if err := fpm.rotateBackups(); err != nil {
+		fpm.logger.Warn("Failed to rotate backup files", map[string]interface{}{
+			"error": err.Error(),
+		})
+		// Continue anyway - backup failure shouldn't prevent save
+	}
+
+	// Phase 3: Write to disk (no lock held)
 	data, err := json.MarshalIndent(positions, "", "  ")
 	if err != nil {
+		metrics.RecordPositionSaveFailed("marshal_error")
 		return fmt.Errorf("failed to marshal positions: %w", err)
 	}
 
 	tempFile := fpm.filename + ".tmp"
 	if err := os.WriteFile(tempFile, data, 0644); err != nil {
+		metrics.RecordPositionSaveFailed("write_error")
 		return fmt.Errorf("failed to write temp positions file: %w", err)
 	}
 
 	if err := os.Rename(tempFile, fpm.filename); err != nil {
 		os.Remove(tempFile)
+		metrics.RecordPositionSaveFailed("rename_error")
 		return fmt.Errorf("failed to rename positions file: %w", err)
 	}
 
-	// Phase 3: Update state under Lock
+	// Get file size for metrics
+	fileInfo, _ := os.Stat(fpm.filename)
+	if fileInfo != nil {
+		metrics.UpdatePositionFileSize("positions", fileInfo.Size())
+	}
+
+	// Phase 4: Update state under Lock
 	fpm.mu.Lock()
 	fpm.dirty = false
 	fpm.lastFlush = time.Now()
@@ -126,6 +217,50 @@ func (fpm *FilePositionManager) SavePositions() error {
 	})
 
 	return nil
+}
+
+// rotateBackups rotates backup files (keeps 3 generations)
+func (fpm *FilePositionManager) rotateBackups() error {
+	// Delete oldest backup (backup3)
+	backup3 := fmt.Sprintf("%s.backup3", fpm.filename)
+	if err := os.Remove(backup3); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove backup3: %w", err)
+	}
+
+	// Rotate backup2 -> backup3
+	backup2 := fmt.Sprintf("%s.backup2", fpm.filename)
+	if err := os.Rename(backup2, backup3); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to rotate backup2 to backup3: %w", err)
+	}
+
+	// Rotate backup1 -> backup2
+	backup1 := fmt.Sprintf("%s.backup1", fpm.filename)
+	if err := os.Rename(backup1, backup2); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to rotate backup1 to backup2: %w", err)
+	}
+
+	// Copy current -> backup1 (if exists)
+	if _, err := os.Stat(fpm.filename); err == nil {
+		// Read current file
+		data, err := os.ReadFile(fpm.filename)
+		if err != nil {
+			return fmt.Errorf("failed to read current file for backup: %w", err)
+		}
+
+		// Write to backup1
+		if err := os.WriteFile(backup1, data, 0644); err != nil {
+			return fmt.Errorf("failed to write backup1: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SetCheckpointManager sets the checkpoint manager for recovery (Phase 2)
+func (fpm *FilePositionManager) SetCheckpointManager(cm *CheckpointManager) {
+	fpm.mu.Lock()
+	defer fpm.mu.Unlock()
+	fpm.checkpointManager = cm
 }
 
 // deepCopyPositions creates a deep copy of positions map
