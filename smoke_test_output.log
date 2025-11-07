@@ -1,0 +1,20 @@
+=== Connection Pool Smoke Test (30min) ===
+Start: Fri Nov  7 12:11:19 -03 2025
+Getting baseline...
+Baseline: GOR=95 FD=22
+[1/15] 2min: GOR=95 (+0, 0/min) FD=30 (+8, 4.00/min)
+[2/15] 4min: GOR=98 (+3, .75/min) FD=33 (+11, 2.75/min)
+[3/15] 6min: GOR=98 (+3, .50/min) FD=34 (+12, 2.00/min)
+[4/15] 8min: GOR=98 (+3, .37/min) FD=34 (+12, 1.50/min)
+[5/15] 10min: GOR=95 (+0, 0/min) FD=31 (+9, .90/min)
+[6/15] 12min: GOR=95 (+0, 0/min) FD=31 (+9, .75/min)
+[7/15] 14min: GOR=95 (+0, 0/min) FD=31 (+9, .64/min)
+[8/15] 16min: GOR=95 (+0, 0/min) FD=31 (+9, .56/min)
+[9/15] 18min: GOR=95 (+0, 0/min) FD=31 (+9, .50/min)
+[10/15] 20min: GOR=95 (+0, 0/min) FD=31 (+9, .45/min)
+[11/15] 22min: GOR=95 (+0, 0/min) FD=31 (+9, .40/min)
+[12/15] 24min: GOR=95 (+0, 0/min) FD=31 (+9, .37/min)
+[13/15] 26min: GOR=95 (+0, 0/min) FD=31 (+9, .34/min)
+[14/15] 28min: GOR=95 (+0, 0/min) FD=31 (+9, .32/min)
+[15/15] 30min: GOR=95 (+0, 0/min) FD=31 (+9, .30/min)
+Complete: Fri Nov  7 12:41:49 -03 2025

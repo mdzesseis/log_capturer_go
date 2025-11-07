@@ -1,0 +1,297 @@
+=== FASE 6 LOAD TEST - PROGRESS REPORTER ===
+Monitoring for 60 minutes with reports every 10 minutes
+Started: 2025-11-06 23:05:03
+
+Sleeping until 10 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 10 MINUTES ELAPSED ===
+Time: 2025-11-06 23:15:03
+===========================================================================
+CHECK 6/30 - Elapsed: 10 minutes
+Timestamp: 2025-11-06 23:14:20
+=======================================================================
+Goroutines: 1173
+   Growth: 92 total (9.20/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 151
+   Rate: .12 logs/sec
+CPU: 0%
+File Descriptors: 527
+   Growth: 67
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+
+Last 5 metrics checks:
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 533
+Goroutines: 1176
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 529
+Goroutines: 1173
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 527
+Goroutines: 1173
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 527
+
+Sleeping until 20 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 20 MINUTES ELAPSED ===
+Time: 2025-11-06 23:25:03
+===========================================================================
+CHECK 11/30 - Elapsed: 20 minutes
+Timestamp: 2025-11-06 23:24:21
+=======================================================================
+Goroutines: 1772
+   Growth: 691 total (34.55/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 311
+   Rate: .19 logs/sec
+CPU: 0%
+File Descriptors: 850
+   Growth: 390
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+
+Last 5 metrics checks:
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 531
+Goroutines: 1175
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 530
+Goroutines: 1176
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 530
+Goroutines: 1772
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 850
+
+Sleeping until 30 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 30 MINUTES ELAPSED ===
+Time: 2025-11-06 23:35:03
+===========================================================================
+CHECK 16/30 - Elapsed: 30 minutes
+Timestamp: 2025-11-06 23:34:22
+=======================================================================
+Goroutines: 1927
+   Growth: 846 total (28.20/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 552
+   Rate: .26 logs/sec
+CPU: 0%
+File Descriptors: 906
+   Growth: 446
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+
+Last 5 metrics checks:
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 924
+Goroutines: 1931
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 908
+Goroutines: 1928
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 907
+Goroutines: 1927
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 906
+
+Sleeping until 40 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 40 MINUTES ELAPSED ===
+Time: 2025-11-06 23:45:03
+===========================================================================
+CHECK 21/30 - Elapsed: 40 minutes
+Timestamp: 2025-11-06 23:44:23
+=======================================================================
+Goroutines: 2646
+   Growth: 1565 total (39.12/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 713
+   Rate: .26 logs/sec
+CPU: 0%
+File Descriptors: 1286
+   Growth: 826
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+
+Last 5 metrics checks:
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 905
+Goroutines: 1932
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 905
+Goroutines: 1928
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 906
+Goroutines: 2646
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1286
+
+Sleeping until 50 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 50 MINUTES ELAPSED ===
+Time: 2025-11-06 23:55:03
+===========================================================================
+CHECK 26/30 - Elapsed: 50 minutes
+Timestamp: 2025-11-06 23:54:23
+=======================================================================
+Goroutines: 2905
+   Growth: 1824 total (36.48/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 947
+   Rate: .29 logs/sec
+CPU: 0%
+File Descriptors: 1394
+   Growth: 934
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+
+Last 5 metrics checks:
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1419
+Goroutines: 2908
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1395
+Goroutines: 2905
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1395
+Goroutines: 2905
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1394
+
+Sleeping until 60 minute mark...
+
+===========================================================================
+=== PROGRESS UPDATE: 60 MINUTES ELAPSED ===
+Time: 2025-11-07 00:05:03
+===========================================================================
+
+Last 5 metrics checks:
+File Descriptors: 1398
+Goroutines: 2966
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1397
+Goroutines: 2912
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1397
+Goroutines: 2911
+Active Streams: 50/50
+CPU: 0%
+File Descriptors: 1397
+Goroutines:
+File Descriptors:
+
+
+===========================================================================
+=== 60 MINUTES COMPLETE - FETCHING FINAL ANALYSIS ===
+===========================================================================
+Goroutines: 2912
+   Growth: 1831 total (32.69/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 947
+   Rate: .25 logs/sec
+CPU: 0%
+File Descriptors: 1397
+   Growth: 937
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+=======================================================================
+CHECK 30/30 - Elapsed: 58 minutes
+Timestamp: 2025-11-07 00:02:24
+=======================================================================
+Goroutines: 2911
+   Growth: 1830 total (31.55/min)
+   WARNING: Growth rate EXCEEDS target (<2/min)
+Active Streams: 50/50
+   PASS: Pool SATURATED (as expected with 55 containers)
+Stream Rotations: 0
+Logs Processed: 971
+   Rate: .25 logs/sec
+CPU: 0%
+File Descriptors: 1397
+   Growth: 937
+Container Monitor: HEALTHY
+Loadtest Containers: 55
+
+=======================================================================
+=== MONITORING COMPLETE ===
+End: 2025-11-07 00:02:24
+=======================================================================
+
+FINAL ANALYSIS:
+===================
+Goroutines:
+  Initial: 1081
+  Final: 2911
+  Growth: 1830
+  Rate: 30.50/min
+
+  FAIL: Growth rate (30.50/min) >= 2/min target
+
+File Descriptors:
+  Initial: 460
+  Final: 1397
+  Growth: 937
+
+  WARNING: FD growth HIGH (>=100 in 1h)
+
+Stream Pool:
+  Final Active: 50/50
+  Rotations: 0
+  Expected saturation: YES (55 containers > 50 limit)
+
+System Health: 1 (1=healthy)

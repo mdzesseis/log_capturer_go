@@ -1,0 +1,26 @@
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 4: $'\r': command not found
+=======================================================================
+CONNECTION POOL SMOKE TEST - 30 MINUTES
+=======================================================================
+Target: Validate FD leak reduction (<5 FD/min)
+Start: 2025-11-07 12:07:14
+
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 11: $'\r': command not found
+Waiting 30s for services to stabilize...
+sleep: invalid time interval ‘30\r’
+Try 'sleep --help' for more information.
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 15: $'\r': command not found
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 22: $'\r': command not found
+Baseline Metrics:
+  Goroutines: 95
+  File Descriptors: 30
+  HTTP Idle Connections: 0
+  HTTP Active Connections: 0
+  HTTP Total Requests: 0
+
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 30: $'\r': command not found
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 33: 15: syntax error: invalid arithmetic operator (error token is "")
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 35: $'\r': command not found
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 38: $'\r': command not found
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 39: syntax error near unexpected token `$'do\r''
+/home/mateus/log_capturer_go/tests/load/connection_pool_smoke_test.sh: line 39: `for i in $(seq 1 $CHECKPOINTS); do'

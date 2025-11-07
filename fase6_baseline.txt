@@ -1,0 +1,9 @@
+=== BASELINE METRICS (BEFORE LOAD TEST) ===
+2025-11-06 22:58:02
+Goroutines: 236
+Memory:  MB
+Active Streams: 8
+File Descriptors: 102
+Logs Processed: 27
+CPU: 0%
+Docker Containers: 9

@@ -1,0 +1,55 @@
+=======================================================================
+HYBRID MONITOR SMOKE TEST - 30 MINUTES
+Start: 2025-11-07 12:45:16
+
+Waiting 30s for stabilization...
+=== HYBRID MONITOR BASELINE ===
+  Goroutines: 350
+  FDs: 269
+=== CONNECTION POOL (comparison) ===
+  Goroutines: 95
+  FDs: 31
+
+Starting 30-minute test...
+======================================================================
+CHECKPOINT 1/15 - Elapsed: 2min
+Time: 2025-11-07 12:45:46
+Goroutines: 350 (growth: 0, rate: 0/min)
+FDs: 269 (growth: 0, rate: 0/min)
+Connection Pool: Gor=95
+
+======================================================================
+CHECKPOINT 2/15 - Elapsed: 4min
+Time: 2025-11-07 12:47:46
+Goroutines: 420 (growth: 70, rate: 17.50/min)
+FDs: 303 (growth: 34, rate: 8.50/min)
+Connection Pool: Gor=95
+
+======================================================================
+CHECKPOINT 3/15 - Elapsed: 6min
+Time: 2025-11-07 12:49:46
+Goroutines: 491 (growth: 141, rate: 23.50/min)
+FDs: 338 (growth: 69, rate: 11.50/min)
+Connection Pool: Gor=71
+
+======================================================================
+CHECKPOINT 4/15 - Elapsed: 8min
+Time: 2025-11-07 12:51:46
+Goroutines: 563 (growth: 213, rate: 26.62/min)
+FDs: 374 (growth: 105, rate: 13.12/min)
+Connection Pool: Gor=95
+
+======================================================================
+CHECKPOINT 5/15 - Elapsed: 10min
+Time: 2025-11-07 12:53:46
+Goroutines: 617 (growth: 267, rate: 26.70/min)
+FDs: 401 (growth: 132, rate: 13.20/min)
+Connection Pool: Gor=95
+
+======================================================================
+CHECKPOINT 6/15 - Elapsed: 12min
+Time: 2025-11-07 12:55:46
+Goroutines: 688 (growth: 338, rate: 28.16/min)
+FDs: 437 (growth: 168, rate: 14.00/min)
+Connection Pool: Gor=95
+

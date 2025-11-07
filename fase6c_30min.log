@@ -1,0 +1,335 @@
+======================================================================
+FASE 6C - QUICK 30-MINUTE VALIDATION TEST (FIXED CODE)
+======================================================================
+Target: 55 containers, 30 minutes (15 checkpoints)
+Expected: < 2 goroutines/min growth, < 100 FD growth
+Start: 2025-11-07 01:21:36
+
+TESTING COMMIT: ec99f1e (Separate WaitGroups fix)
+
+Getting baseline metrics...
+Baseline established:
+  Goroutines: 1315
+  File Descriptors: 624
+  Active Streams: 50
+
+======================================================================
+CHECKPOINT 1/15 - Elapsed: 2min (120s)
+======================================================================
+Time: 2025-11-07 01:21:41
+
+Goroutines: 1315
+  Growth: 0 (+0/min)
+  ✅ PASSING (<2/min)
+
+Active Streams: 50
+
+File Descriptors: 624
+  Growth: 0
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [  6%] ██░░░░░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 2/15 - Elapsed: 4min (240s)
+======================================================================
+Time: 2025-11-07 01:23:43
+
+Goroutines: 1424
+  Growth: 109 (+27.25/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 657
+  Growth: 33
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 13%] ███░░░░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 3/15 - Elapsed: 6min (360s)
+======================================================================
+Time: 2025-11-07 01:25:45
+
+Goroutines: 1424
+  Growth: 109 (+18.16/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 654
+  Growth: 30
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 20%] ████░░░░░░░░░░░░░░░░
+
+⏰ First rotation should have occurred (~5 minutes)
+
+======================================================================
+CHECKPOINT 4/15 - Elapsed: 8min (480s)
+======================================================================
+Time: 2025-11-07 01:27:47
+
+Goroutines: 1424
+  Growth: 109 (+13.62/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 655
+  Growth: 31
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 26%] ██████░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 5/15 - Elapsed: 10min (600s)
+======================================================================
+Time: 2025-11-07 01:29:49
+
+Goroutines: 1424
+  Growth: 109 (+10.90/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 655
+  Growth: 31
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 33%] ███████░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 6/15 - Elapsed: 12min (720s)
+======================================================================
+Time: 2025-11-07 01:31:51
+
+Goroutines: 1424
+  Growth: 109 (+9.08/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 654
+  Growth: 30
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 40%] ████████░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 7/15 - Elapsed: 14min (840s)
+======================================================================
+Time: 2025-11-07 01:33:53
+
+Goroutines: 1423
+  Growth: 108 (+7.71/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 653
+  Growth: 29
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 46%] ██████████░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 8/15 - Elapsed: 16min (960s)
+======================================================================
+Time: 2025-11-07 01:35:54
+
+Goroutines: 1423
+  Growth: 108 (+6.75/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 653
+  Growth: 29
+  ✅ PASSING (<100)
+
+Total Rotations: 0
+
+Progress: [ 53%] ███████████░░░░░░░░░
+
+======================================================================
+CHECKPOINT 9/15 - Elapsed: 18min (1080s)
+======================================================================
+Time: 2025-11-07 01:37:56
+
+Goroutines: 1835
+  Growth: 520 (+28.88/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 887
+  Growth: 263
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 60%] ████████████░░░░░░░░
+
+🔍 CRITICAL WINDOW: This is where FASE 6 leaked!
+
+======================================================================
+CHECKPOINT 10/15 - Elapsed: 20min (1200s)
+======================================================================
+Time: 2025-11-07 01:39:59
+
+Goroutines: 2343
+  Growth: 1028 (+51.40/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1140
+  Growth: 516
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 66%] ██████████████░░░░░░
+
+🔍 CRITICAL WINDOW: This is where FASE 6 leaked!
+
+======================================================================
+CHECKPOINT 11/15 - Elapsed: 22min (1320s)
+======================================================================
+Time: 2025-11-07 01:42:01
+
+Goroutines: 2856
+  Growth: 1541 (+70.04/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1397
+  Growth: 773
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 73%] ███████████████░░░░░
+
+🔍 CRITICAL WINDOW: This is where FASE 6 leaked!
+
+======================================================================
+CHECKPOINT 12/15 - Elapsed: 24min (1440s)
+======================================================================
+Time: 2025-11-07 01:44:03
+
+Goroutines: 2969
+  Growth: 1654 (+68.91/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1437
+  Growth: 813
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 80%] ████████████████░░░░
+
+======================================================================
+CHECKPOINT 13/15 - Elapsed: 26min (1560s)
+======================================================================
+Time: 2025-11-07 01:46:05
+
+Goroutines: 2969
+  Growth: 1654 (+63.61/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1426
+  Growth: 802
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 86%] ██████████████████░░
+
+======================================================================
+CHECKPOINT 14/15 - Elapsed: 28min (1680s)
+======================================================================
+Time: 2025-11-07 01:48:08
+
+Goroutines: 2974
+  Growth: 1659 (+59.25/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1430
+  Growth: 806
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [ 93%] ███████████████████░
+
+======================================================================
+CHECKPOINT 15/15 - Elapsed: 30min (1800s)
+======================================================================
+Time: 2025-11-07 01:50:09
+
+Goroutines: 2974
+  Growth: 1659 (+55.30/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 1430
+  Growth: 806
+  ❌ FAILING (>100)
+
+Total Rotations: 0
+
+Progress: [100%] ████████████████████
+
+
+======================================================================
+📊 FINAL RESULTS - FASE 6C (30 MINUTES)
+======================================================================
+End Time: 2025-11-07 01:50:09
+
+--- BASELINE vs FINAL ---
+Goroutines:
+  Baseline: 1315
+  Final: 2974
+  Total Growth: 1659
+  Growth Rate: 55.30/min
+
+❌ FAILED: Growth rate (55.30/min) EXCEEDS target (<2/min)
+❌ Leak still present
+
+File Descriptors:
+  Baseline: 624
+  Final: 1430
+  Total Growth: 806
+  ⚠️  FD leak may be present
+
+Total Rotations: 0
+
+======================================================================
+Test log saved to: /home/mateus/log_capturer_go/fase6c_30min.log
+======================================================================

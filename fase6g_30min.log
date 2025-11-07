@@ -1,0 +1,347 @@
+======================================================================
+FASE 6G - 30-MINUTE VALIDATION TEST (HYBRID SHORT-LIVED STREAMS)
+======================================================================
+Target: 55 containers, 30 minutes (15 checkpoints)
+Expected: Stable goroutine count (~500-550), 0 gor/min growth
+Fix: 30s stream timeout with auto-reconnect (sacrificial goroutines)
+Start: 2025-11-07 04:05:39
+
+TESTING NEW FIX: Hybrid short-lived streams (commit c7aa762)
+
+Architecture:
+  - Stream lifetime: 30 seconds
+  - Auto-reconnect after timeout
+  - Accept temporary goroutine leaks (max 30s lifetime)
+  - Expected rotations: ~2/min per container
+
+Waiting for services to start (45s)...
+Getting baseline metrics...
+Baseline established:
+  Goroutines: 1454
+  File Descriptors: 656
+  Active Streams: 0
+
+======================================================================
+CHECKPOINT 1/15 - Elapsed: 0min (0s)
+======================================================================
+Time: 2025-11-07 04:06:25
+
+Goroutines: 1454
+  Growth: 0 (+/min)
+  ✅ STABLE (within ±50 fluctuation)
+
+Active Streams: 0
+
+File Descriptors: 656
+  Growth: 0
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~0)
+
+Progress: [  6%] ██░░░░░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 2/15 - Elapsed: 2min (123s)
+======================================================================
+Time: 2025-11-07 04:08:28
+
+Goroutines: 1335
+  Growth: -119 (+-59.50/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 659
+  Growth: 3
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~220)
+
+Progress: [ 13%] ███░░░░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 3/15 - Elapsed: 4min (245s)
+======================================================================
+Time: 2025-11-07 04:10:30
+
+Goroutines: 1335
+  Growth: -119 (+-29.75/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 659
+  Growth: 3
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~440)
+
+Progress: [ 20%] ████░░░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 4/15 - Elapsed: 6min (368s)
+======================================================================
+Time: 2025-11-07 04:12:33
+
+Goroutines: 1335
+  Growth: -119 (+-19.83/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 659
+  Growth: 3
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~660)
+
+Progress: [ 26%] ██████░░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 5/15 - Elapsed: 8min (480s)
+======================================================================
+Time: 2025-11-07 04:14:25
+
+Goroutines: 1335
+  Growth: -119 (+-14.87/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 659
+  Growth: 3
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~880)
+
+Progress: [ 33%] ███████░░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 6/15 - Elapsed: 10min (603s)
+======================================================================
+Time: 2025-11-07 04:16:28
+
+Goroutines: 1335
+  Growth: -119 (+-11.90/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 659
+  Growth: 3
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~1100)
+
+Progress: [ 40%] ████████░░░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 7/15 - Elapsed: 12min (726s)
+======================================================================
+Time: 2025-11-07 04:18:31
+
+Goroutines: 1335
+  Growth: -119 (+-9.91/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 660
+  Growth: 4
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~1320)
+
+Progress: [ 46%] ██████████░░░░░░░░░░
+
+======================================================================
+CHECKPOINT 8/15 - Elapsed: 14min (849s)
+======================================================================
+Time: 2025-11-07 04:20:34
+
+Goroutines: 1335
+  Growth: -119 (+-8.50/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 661
+  Growth: 5
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~1540)
+
+Progress: [ 53%] ███████████░░░░░░░░░
+
+======================================================================
+CHECKPOINT 9/15 - Elapsed: 16min (961s)
+======================================================================
+Time: 2025-11-07 04:22:26
+
+Goroutines: 1339
+  Growth: -115 (+-7.18/min)
+  ✓ ACCEPTABLE (<2/min)
+
+Active Streams: 0
+
+File Descriptors: 660
+  Growth: 4
+  ✅ FD OK (<100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~1760)
+
+Progress: [ 60%] ████████████░░░░░░░░
+
+======================================================================
+CHECKPOINT 10/15 - Elapsed: 18min (1083s)
+======================================================================
+Time: 2025-11-07 04:24:28
+
+Goroutines: 1841
+  Growth: 387 (+21.50/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 852
+  Growth: 196
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~1980)
+
+Progress: [ 66%] ██████████████░░░░░░
+
+======================================================================
+CHECKPOINT 11/15 - Elapsed: 20min (1206s)
+======================================================================
+Time: 2025-11-07 04:26:31
+
+Goroutines: 2355
+  Growth: 901 (+45.05/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 1110
+  Growth: 454
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~2200)
+
+Progress: [ 73%] ███████████████░░░░░
+
+======================================================================
+CHECKPOINT 12/15 - Elapsed: 22min (1328s)
+======================================================================
+Time: 2025-11-07 04:28:33
+
+Goroutines: 2497
+  Growth: 1043 (+47.40/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 1242
+  Growth: 586
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~2420)
+
+Progress: [ 80%] ████████████████░░░░
+
+======================================================================
+CHECKPOINT 13/15 - Elapsed: 24min (1441s)
+======================================================================
+Time: 2025-11-07 04:30:26
+
+Goroutines: 2497
+  Growth: 1043 (+43.45/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 1241
+  Growth: 585
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~2640)
+
+Progress: [ 86%] ██████████████████░░
+
+======================================================================
+CHECKPOINT 14/15 - Elapsed: 26min (1563s)
+======================================================================
+Time: 2025-11-07 04:32:28
+
+Goroutines: 2497
+  Growth: 1043 (+40.11/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 1241
+  Growth: 585
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~2860)
+
+Progress: [ 93%] ███████████████████░
+
+======================================================================
+CHECKPOINT 15/15 - Elapsed: 28min (1686s)
+======================================================================
+Time: 2025-11-07 04:34:31
+
+Goroutines: 2497
+  Growth: 1043 (+37.25/min)
+  ⚠️ GROWING (>2/min - MAY BE FAILING)
+
+Active Streams: 0
+
+File Descriptors: 1241
+  Growth: 585
+  ❌ FD LEAK (>100)
+
+Total Rotations: 0
+  ⚠️ WARNING: No rotations yet! (Expected ~3080)
+
+Progress: [100%] ████████████████████
+
+======================================================================
+TEST COMPLETE - FASE 6G FINISHED
+======================================================================
+End time: 2025-11-07 04:36:34
+Duration: 30 minutes
+
+📊 FINAL RESULTS:
+================
+Baseline Goroutines: 1454
+Final Goroutines: 2497
+Total Growth: 1043
+Average Growth Rate: 34.76/min
+
+❌ FAILED: Growth rate (34.76/min) EXCEEDS target (<2/min)
+❌ Leak still present
+
+FD Growth: 585
+⚠️ FD leak may persist
+
+Total Rotations: 0
+❌ Stream rotation still broken
+
+Log file: /home/mateus/log_capturer_go/fase6g_30min.log
+======================================================================

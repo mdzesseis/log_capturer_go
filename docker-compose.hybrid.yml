@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Hybrid Monitor - Main Branch (Parallel Testing)
+  log_capturer_go_hybrid:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - DOCKER_GID=${DOCKER_GID:-1001}
+    container_name: log_capturer_go_hybrid
+    restart: unless-stopped
+    privileged: true
+    user: "0:0"
+    command: ["./ssw-logs-capture", "--config", "/app/configs/config.yaml"]
+    environment:
+      - SSW_CONFIG_FILE=/app/configs/config.yaml
+      - SSW_PIPELINES_FILE=/app/configs/pipelines.yaml
+      - SSW_FILE_CONFIG=/app/configs/file_pipeline.yml
+      - SERVER_HOST=0.0.0.0
+      - METRICS_HOST=0.0.0.0
+      - LOKI_URL=http://loki:3100
+      - DOCKER_SOCKET_PATH=unix:///var/run/docker.sock
+      - DOCKER_GID=${DOCKER_GID:-1001}
+      - LOG_LEVEL=debug
+      - LOG_FORMAT=json
+      - DEBUG_MODE=true
+    ports:
+      - "8402:8401"  # API (different from 8401 - Connection Pool)
+      - "8002:8001"  # Metrics (different from 8001)
+    ulimits:
+      nofile:
+        soft: 4096
+        hard: 8192
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./configs:/app/configs:ro
+      - /var/log/monitoring_data_suite/logs_hybrid:/app/logs
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/log/monitoring_data_suite/data_hybrid:/app/data
+      - /var/log/monitoring_data_suite/buffer_hybrid:/app/buffer
+      - /var/log/monitoring_data_suite/dlq_hybrid:/app/dlq
+      - /var/log/monitoring_data_suite/batch_persistence_hybrid:/app/batch_persistence
+      - /var/log/monitoring_data_suite/debug_hybrid:/app/debug
+      - /var/log:/var/log:ro
+    networks:
+      - log_capturer_go_default
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8401/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  log_capturer_go_default:
+    external: true

@@ -1,0 +1,177 @@
+========================================================================
+FASE 6B - AUTOMATED 10-MINUTE REPORTING
+========================================================================
+Started: 2025-11-07 00:59:39
+Will report at: 10, 20, 30, 40, 50, 60 minutes
+
+
+⏰ Waiting for 10-minute mark (Checkpoint 5)...
+
+========================================================================
+📊 10-MINUTE REPORT (Checkpoint 5/30)
+========================================================================
+Time: 2025-11-07 01:00:10
+
+--- TEST METRICS ---
+CHECKPOINT 5/30 - Elapsed: 8min (480s)
+======================================================================
+Time: 2025-11-07 00:52:06
+
+Goroutines: 4061
+  Growth: -86 (+-10.75/min)
+  ✅ PASSING (<2/min)
+
+Active Streams: 50
+
+File Descriptors: 1973
+  Growth: -33
+  ✅ PASSING (<100)
+
+Progress: [ 16%] ███░░░░░░░░░░░░░░░░░
+
+
+--- LIVE METRICS ---
+Current Goroutines: 4414
+Current FDs: 2172
+Active Streams: 50
+Total Rotations: N/A
+DLQ Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 10 minutes) ---
+Errors: 41
+Warnings: 4394
+  - Retry queue full: 3704
+  - Stream disconnections: 558
+  - Goroutine alerts: 40
+
+--- COMPARISON WITH FASE 6 ---
+FASE 6 @ 10min:  ~1,200 goroutines (+11.9/min) ❌ FAILING
+
+--- TEST PROGRESS ---
+Progress: [ 16%] ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+Elapsed: 10 minutes / 60 minutes
+Remaining: 50 minutes
+
+--- CONTAINER STATUS ---
+log_capturer_go: Up 2 hours (unhealthy)
+
+========================================================================
+End of 10-minute report
+Next report in 10 minutes...
+========================================================================
+
+⏰ Waiting for 20-minute mark (Checkpoint 10)...
+
+========================================================================
+📊 20-MINUTE REPORT (Checkpoint 10/30)
+========================================================================
+Time: 2025-11-07 01:02:13
+
+--- TEST METRICS ---
+CHECKPOINT 10/30 - Elapsed: 18min (1083s)
+======================================================================
+Time: 2025-11-07 01:02:09
+
+Goroutines: 5034
+  Growth: 887 (+49.27/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2481
+  Growth: 475
+  ❌ FAILING (>100)
+
+Progress: [ 33%] ██████░░░░░░░░░░░░░░
+
+
+--- LIVE METRICS ---
+Current Goroutines: 5034
+Current FDs: 2481
+Active Streams: 50
+Total Rotations: N/A
+DLQ Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 10 minutes) ---
+Errors: 41
+Warnings: 3659
+  - Retry queue full: 3000
+  - Stream disconnections: 527
+  - Goroutine alerts: 40
+
+🔍🔍🔍 CRITICAL WINDOW ALERT 🔍🔍🔍
+This is where FASE 6 experienced goroutine explosion!
+FASE 6 @ 20min: Goroutines growing at +34.2/min ❌
+
+--- COMPARISON WITH FASE 6 ---
+FASE 6 @ 20min:  ~1,685 goroutines (+34.2/min) ❌ EXPLODING
+
+--- TEST PROGRESS ---
+Progress: [ 33%] █████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+Elapsed: 20 minutes / 60 minutes
+Remaining: 40 minutes
+
+--- CONTAINER STATUS ---
+log_capturer_go: Up 2 hours (unhealthy)
+
+========================================================================
+End of 20-minute report
+Next report in 10 minutes...
+========================================================================
+
+⏰ Waiting for 30-minute mark (Checkpoint 15)...
+
+========================================================================
+📊 30-MINUTE REPORT (Checkpoint 15/30)
+========================================================================
+Time: 2025-11-07 01:12:22
+
+--- TEST METRICS ---
+CHECKPOINT 15/30 - Elapsed: 28min (1691s)
+======================================================================
+Time: 2025-11-07 01:12:17
+
+Goroutines: 5609
+  Growth: 1462 (+52.21/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2749
+  Growth: 743
+  ❌ FAILING (>100)
+
+Progress: [ 50%] ██████████░░░░░░░░░░
+
+
+--- LIVE METRICS ---
+Current Goroutines: 5609
+Current FDs: 2749
+Active Streams: 50
+Total Rotations: N/A
+DLQ Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 10 minutes) ---
+Errors: 11172
+Warnings: 10388
+  - Retry queue full: 10145
+  - Stream disconnections: 143
+  - Goroutine alerts: 39
+
+--- COMPARISON WITH FASE 6 ---
+FASE 6 @ 30min:  ~2,105 goroutines (+35.0/min) ❌ CRITICAL
+
+--- TEST PROGRESS ---
+Progress: [ 50%] █████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░░
+Elapsed: 30 minutes / 60 minutes
+Remaining: 30 minutes
+
+--- CONTAINER STATUS ---
+log_capturer_go: Up 2 hours (unhealthy)
+
+========================================================================
+End of 30-minute report
+Next report in 10 minutes...
+========================================================================
+
+⏰ Waiting for 40-minute mark (Checkpoint 20)...

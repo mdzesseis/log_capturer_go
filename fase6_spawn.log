@@ -1,0 +1,72 @@
+=== FASE 6: LOAD TEST CONTAINER SPAWNER ===
+Target: 55 containers (5 above pool limit of 50)
+Date: Thu Nov  6 23:01:40 -03 2025
+
+Spawning 55 test containers...
+
+Created: loadtest-container-001
+Created: loadtest-container-002
+Created: loadtest-container-003
+Created: loadtest-container-004
+Created: loadtest-container-005
+Created: loadtest-container-006
+Created: loadtest-container-007
+Created: loadtest-container-008
+Created: loadtest-container-009
+Created: loadtest-container-010
+Created: loadtest-container-011
+Created: loadtest-container-012
+Created: loadtest-container-013
+Created: loadtest-container-014
+Created: loadtest-container-015
+Created: loadtest-container-016
+Created: loadtest-container-017
+Created: loadtest-container-018
+Created: loadtest-container-019
+Created: loadtest-container-020
+Created: loadtest-container-021
+Created: loadtest-container-022
+Created: loadtest-container-023
+Created: loadtest-container-024
+Created: loadtest-container-025
+Created: loadtest-container-026
+Created: loadtest-container-027
+Created: loadtest-container-028
+Created: loadtest-container-029
+Created: loadtest-container-030
+Created: loadtest-container-031
+Created: loadtest-container-032
+Created: loadtest-container-033
+Created: loadtest-container-034
+Created: loadtest-container-035
+Created: loadtest-container-036
+Created: loadtest-container-037
+Created: loadtest-container-038
+Created: loadtest-container-039
+Created: loadtest-container-040
+Created: loadtest-container-041
+Created: loadtest-container-042
+Created: loadtest-container-043
+Created: loadtest-container-044
+Created: loadtest-container-045
+Created: loadtest-container-046
+Created: loadtest-container-047
+Created: loadtest-container-048
+Created: loadtest-container-049
+Created: loadtest-container-050
+Created: loadtest-container-051
+Created: loadtest-container-052
+Created: loadtest-container-053
+Created: loadtest-container-054
+Created: loadtest-container-055
+
+=== SPAWN COMPLETE ===
+Total loadtest containers running: 55
+
+=== WAITING FOR STABILIZATION (2 minutes) ===
+Allowing log_capturer to detect and start monitoring containers...
+
+LOAD TEST CONTAINERS READY
+   Total spawned: 55
+   Expected pool saturation: 50/50
+   Expected queue: 5 containers waiting

@@ -1,0 +1,188 @@
+========================================================================
+COMPREHENSIVE FASE 6B MONITORING WITH LOG ANALYSIS
+========================================================================
+Start: 2025-11-07 00:52:32
+
+
+========================================================================
+📊 DETAILED ANALYSIS - CHECKPOINT 9 (18 minutes)
+========================================================================
+Time: 2025-11-07 01:00:33
+
+--- METRICS ---
+Goroutines: 4414
+File Descriptors: 2172
+Active Streams: 50
+Stream Rotations: N/A
+DLQ Size: N/A
+Retry Queue Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 2 minutes) ---
+Errors (last 2min): 6
+Warnings (last 2min): 138
+  - Retry queue full: 0
+0
+  - Stream disconnections: 84
+  - Goroutine threshold: 9
+
+🔍 CRITICAL WINDOW: This is where FASE 6 experienced goroutine explosion!
+
+--- RECENT LOG SAMPLE (Last 10 entries) ---
+{"baseline":6,"current_count":4613,"duration":60.004480336,"growth":502,"level":"warning","msg":"Significant goroutine count change detected","time":"2025-11-07T04:00:34Z","total_growth":4607}
+{"container_id":"f085df8a8984","container_name":"loki","has_recent_logs":true,"last_read":"2025-11-07T03:49:14.25671096Z","level":"warning","minutes_since_read":11,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:13.855750664Z","time":"2025-11-07T04:00:34Z"}
+{"container_id":"4146af166c9e","container_name":"zookeeper","has_recent_logs":true,"last_read":"2025-11-07T03:49:25.764421181Z","level":"warning","minutes_since_read":11,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:24.70089597Z","time":"2025-11-07T04:00:34Z"}
+{"container_id":"73a81e28dc3c","container_name":"kafka-ui","has_recent_logs":true,"last_read":"2025-11-07T03:49:32.820502233Z","level":"warning","minutes_since_read":11,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:32.421303155Z","time":"2025-11-07T04:00:34Z"}
+{"container_id":"f6b32b621120","container_name":"log_generator","has_recent_logs":true,"last_read":"2025-11-07T03:49:26.81837183Z","level":"warning","minutes_since_read":11,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:26.240537027Z","time":"2025-11-07T04:00:34Z"}
+
+--- TEST CHECKPOINT DATA ---
+CHECKPOINT 9/30 - Elapsed: 16min (961s)
+======================================================================
+Time: 2025-11-07 01:00:07
+
+Goroutines: 4414
+  Growth: 267 (+16.68/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2172
+  Growth: 166
+  ❌ FAILING (>100)
+
+========================================================================
+
+========================================================================
+📊 DETAILED ANALYSIS - CHECKPOINT 10 (20 minutes)
+========================================================================
+Time: 2025-11-07 01:02:37
+
+--- METRICS ---
+Goroutines: 5175
+File Descriptors: 2557
+Active Streams: 50
+Stream Rotations: N/A
+DLQ Size: N/A
+Retry Queue Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 2 minutes) ---
+Errors (last 2min): 6
+Warnings (last 2min): 1774
+  - Retry queue full: 1745
+  - Stream disconnections: 16
+  - Goroutine threshold: 8
+
+🔍 CRITICAL WINDOW: This is where FASE 6 experienced goroutine explosion!
+
+--- RECENT LOG SAMPLE (Last 10 entries) ---
+{"current_value":5173,"level":"warning","msg":"Goroutine count (5173) exceeded threshold (1000)","severity":"critical","threshold":1000,"time":"2025-11-07T04:02:36Z","type":"goroutine"}
+{"container_id":"f085df8a8984","container_name":"loki","has_recent_logs":true,"last_read":"2025-11-07T03:49:14.25671096Z","level":"warning","minutes_since_read":13,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:13.855750664Z","time":"2025-11-07T04:02:36Z"}
+{"container_id":"4146af166c9e","container_name":"zookeeper","has_recent_logs":true,"last_read":"2025-11-07T03:49:25.764421181Z","level":"warning","minutes_since_read":13,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:24.70089597Z","time":"2025-11-07T04:02:36Z"}
+{"container_id":"73a81e28dc3c","container_name":"kafka-ui","has_recent_logs":true,"last_read":"2025-11-07T03:49:32.820502233Z","level":"warning","minutes_since_read":13,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:32.421303155Z","time":"2025-11-07T04:02:36Z"}
+{"container_id":"f6b32b621120","container_name":"log_generator","has_recent_logs":true,"last_read":"2025-11-07T03:49:26.81837183Z","level":"warning","minutes_since_read":13,"msg":"Container has recent logs but our stream is not capturing them - possible stream disconnection","since_time":"2025-11-07T03:29:26.240537027Z","time":"2025-11-07T04:02:36Z"}
+
+--- TEST CHECKPOINT DATA ---
+CHECKPOINT 10/30 - Elapsed: 18min (1083s)
+======================================================================
+Time: 2025-11-07 01:02:09
+
+Goroutines: 5034
+  Growth: 887 (+49.27/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2481
+  Growth: 475
+  ❌ FAILING (>100)
+
+========================================================================
+
+========================================================================
+📊 DETAILED ANALYSIS - CHECKPOINT 11 (22 minutes)
+========================================================================
+Time: 2025-11-07 01:04:39
+
+--- METRICS ---
+Goroutines: 5684
+File Descriptors: 2810
+Active Streams: 50
+Stream Rotations: N/A
+DLQ Size: N/A
+Retry Queue Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 2 minutes) ---
+Errors (last 2min): 1132
+Warnings (last 2min): 2135
+  - Retry queue full: 2105
+  - Stream disconnections: 12
+  - Goroutine threshold: 8
+
+🔍 CRITICAL WINDOW: This is where FASE 6 experienced goroutine explosion!
+
+--- RECENT LOG SAMPLE (Last 10 entries) ---
+{"container_id":"f81bfca612c0","error":"context deadline exceeded","level":"error","msg":"Failed to dispatch container log","time":"2025-11-07T04:04:40Z"}
+{"error":"context deadline exceeded","level":"error","msg":"Failed to process log entry","source_id":"007342b12eb9","source_type":"docker","time":"2025-11-07T04:04:40Z","trace_id":""}
+{"container_id":"007342b12eb9","error":"context deadline exceeded","level":"error","msg":"Failed to dispatch container log","time":"2025-11-07T04:04:40Z"}
+{"error":"context deadline exceeded","level":"error","msg":"Failed to process log entry","source_id":"067477ce477c","source_type":"docker","time":"2025-11-07T04:04:40Z","trace_id":""}
+{"container_id":"067477ce477c","error":"context deadline exceeded","level":"error","msg":"Failed to dispatch container log","time":"2025-11-07T04:04:40Z"}
+
+--- TEST CHECKPOINT DATA ---
+CHECKPOINT 11/30 - Elapsed: 20min (1204s)
+======================================================================
+Time: 2025-11-07 01:04:10
+
+Goroutines: 5591
+  Growth: 1444 (+72.20/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2763
+  Growth: 757
+  ❌ FAILING (>100)
+
+========================================================================
+
+========================================================================
+📊 DETAILED ANALYSIS - CHECKPOINT 15 (30 minutes)
+========================================================================
+Time: 2025-11-07 01:12:47
+
+--- METRICS ---
+Goroutines: 5609
+File Descriptors: 2749
+Active Streams: 50
+Stream Rotations: N/A
+DLQ Size: N/A
+Retry Queue Size: N/A
+
+--- CONTAINER LOG ANALYSIS (Last 2 minutes) ---
+Errors (last 2min): 16
+Warnings (last 2min): 2133
+  - Retry queue full: 2095
+  - Stream disconnections: 4
+  - Goroutine threshold: 8
+
+--- RECENT LOG SAMPLE (Last 10 entries) ---
+{"level":"warning","max_concurrent_retries":150,"msg":"Retry queue full - sending to DLQ to prevent goroutine explosion","retries":1,"source_id":"18afe6a9e66a","source_type":"docker","time":"2025-11-07T04:12:29Z"}
+{"level":"warning","max_concurrent_retries":150,"msg":"Retry queue full - sending to DLQ to prevent goroutine explosion","retries":1,"source_id":"28f8e559f6b6","source_type":"docker","time":"2025-11-07T04:12:29Z"}
+{"current_value":5759,"level":"warning","msg":"Goroutine count (5759) exceeded threshold (1000)","severity":"critical","threshold":1000,"time":"2025-11-07T04:12:29Z","type":"goroutine"}
+{"baseline":6,"current_count":5609,"duration":59.999718643,"growth":-150,"level":"warning","msg":"Significant goroutine count change detected","time":"2025-11-07T04:12:44Z","total_growth":5603}
+{"current_value":5609,"level":"warning","msg":"Goroutine count (5609) exceeded threshold (1000)","severity":"critical","threshold":1000,"time":"2025-11-07T04:12:44Z","type":"goroutine"}
+
+--- TEST CHECKPOINT DATA ---
+CHECKPOINT 15/30 - Elapsed: 28min (1691s)
+======================================================================
+Time: 2025-11-07 01:12:17
+
+Goroutines: 5609
+  Growth: 1462 (+52.21/min)
+  ❌ FAILING (>2/min)
+
+Active Streams: 50
+
+File Descriptors: 2749
+  Growth: 743
+  ❌ FAILING (>100)
+
+========================================================================
