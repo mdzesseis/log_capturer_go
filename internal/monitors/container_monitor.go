@@ -875,28 +875,43 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 			mc.stream = stream
 			mc.mu.Unlock()
 
-			// Ler logs até o timeout de rotação ou erro
+
+			// CRITICAL FIX (FASE 6E): Add watcher goroutine to monitor context cancellation
+			// and close stream from OUTSIDE the blocking Read() call.
+			// This is necessary because stream.Read() is a kernel-level syscall that cannot
+			// be cancelled by Go's context cancellation alone.
+			watcherWg := sync.WaitGroup{}
+			watcherWg.Add(1)
+			go func() {
+				defer watcherWg.Done()
+				<-streamCtx.Done() // Wait for context cancellation or timeout
+
+				// Close stream to interrupt blocking Read()
+				mc.mu.Lock()
+				if mc.stream != nil {
+					mc.stream.Close()
+					mc.stream = nil
+				}
+				mc.mu.Unlock()
+			}()
+
+			// The watcher goroutine above will interrupt readContainerLogs if context expires
 			readErr := cm.readContainerLogs(streamCtx, mc, stream)
 
 			// Calculate stream age
 			streamAge := time.Since(mc.streamCreatedAt)
 
-			// CRITICAL: Close stream BEFORE canceling context
-			// This interrupts the blocking stream.Read() syscall
-			mc.mu.Lock()
-			if mc.stream != nil {
-				mc.stream.Close()
-				mc.stream = nil
-			}
-			mc.mu.Unlock()
-
-			// Now cancel context
+			// Cancel context (triggers watcher if not already triggered)
 			streamCancel()
 
 			// CRITICAL: Wait for reader goroutine to exit before starting new rotation
 			// This ensures the reader goroutine from THIS rotation completes before next rotation starts
 			// This prevents reader goroutine accumulation
 			mc.readerWg.Wait()
+
+			// CRITICAL: Wait for watcher goroutine to complete
+			// This ensures the watcher goroutine is fully cleaned up before next rotation
+			watcherWg.Wait()
 
 			// Check if this was a planned rotation (timeout) or an error
 			if readErr == context.DeadlineExceeded {
