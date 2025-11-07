@@ -33,7 +33,7 @@ func TestMemoryUsage_Sustained(t *testing.T) {
 
 	sink := NewBenchmarkSink("memory-test-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -185,7 +185,7 @@ func BenchmarkMemoryAllocation_LogEntry(b *testing.B) {
 
 	sink := NewBenchmarkSink("memory-bench-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -269,7 +269,7 @@ func TestMemoryLeak_GoroutineCleanup(t *testing.T) {
 	for cycle := 0; cycle < 10; cycle++ {
 		sink := NewBenchmarkSink(fmt.Sprintf("leak-test-sink-%d", cycle))
 
-		d := dispatcher.NewDispatcher(config, nil, logger, nil)
+		d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 		d.AddSink(sink)
 
 		ctx := context.Background()

@@ -2,6 +2,7 @@ package sinks
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestKafkaSinkConfiguration tests basic Kafka sink configuration
@@ -327,30 +329,122 @@ func TestKafkaSinkBackpressureThresholds(t *testing.T) {
 	}
 }
 
+// TestKafkaSinkStop tests graceful shutdown
+func TestKafkaSinkStop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	config := types.KafkaSinkConfig{
+		Enabled:   true,
+		Brokers:   []string{"localhost:9092"},
+		Topic:     "test-stop",
+		QueueSize: 1000,
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	sink, err := NewKafkaSink(config, logger, nil, nil)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = sink.Start(ctx)
+	require.NoError(t, err)
+
+	// Give it time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop should not error
+	err = sink.Stop()
+	assert.NoError(t, err)
+
+	// Double stop should not panic
+	err = sink.Stop()
+	assert.NoError(t, err)
+}
+
+// TestKafkaSinkGetStats tests statistics retrieval
+func TestKafkaSinkGetStats(t *testing.T) {
+	config := types.KafkaSinkConfig{
+		Enabled:   true,
+		Brokers:   []string{"localhost:9092"},
+		Topic:     "test-stats",
+		QueueSize: 1000,
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	sink, err := NewKafkaSink(config, logger, nil, nil)
+	require.NoError(t, err)
+
+	stats := sink.GetStats()
+	assert.NotNil(t, stats)
+	assert.Contains(t, stats, "enabled")
+	assert.Contains(t, stats, "running")
+	assert.Contains(t, stats, "queue_size")
+	assert.Contains(t, stats, "queue_capacity")
+	assert.Contains(t, stats, "queue_utilization")
+	assert.Contains(t, stats, "sent_total")
+	assert.Contains(t, stats, "error_total")
+	assert.Contains(t, stats, "dropped_total")
+	assert.Contains(t, stats, "backpressure_count")
+	assert.Contains(t, stats, "circuit_breaker")
+
+	assert.Equal(t, true, stats["enabled"])
+	assert.Equal(t, false, stats["running"])
+	assert.Equal(t, 1000, stats["queue_capacity"])
+}
+
+// TestKafkaSinkQueueMetrics tests queue utilization metrics
+func TestKafkaSinkQueueMetrics(t *testing.T) {
+	config := types.KafkaSinkConfig{
+		Enabled:   true,
+		Brokers:   []string{"localhost:9092"},
+		Topic:     "test-queue-metrics",
+		QueueSize: 100,
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	sink, err := NewKafkaSink(config, logger, nil, nil)
+	require.NoError(t, err)
+
+	stats := sink.GetStats()
+	queueSize := stats["queue_size"].(int)
+	queueCapacity := stats["queue_capacity"].(int)
+	queueUtilization := stats["queue_utilization"].(float64)
+
+	assert.Equal(t, 0, queueSize)
+	assert.Equal(t, 100, queueCapacity)
+	assert.Equal(t, 0.0, queueUtilization)
+}
+
 // Benchmark tests
 func BenchmarkKafkaSinkSendSingleEntry(b *testing.B) {
 	if testing.Short() {
 		b.Skip("Skipping benchmark in short mode")
 	}
 
-	// Benchmark would require real Kafka broker
-	// Placeholder for future implementation
-	b.Run("single_entry", func(b *testing.B) {
-		entry := types.LogEntry{
-			Message:   "Benchmark test message",
-			Timestamp: time.Now(),
-			Labels: map[string]string{
-				"level":     "info",
-				"tenant_id": "bench-tenant",
-			},
-		}
+	entry := types.LogEntry{
+		Message:   "Benchmark test message",
+		Timestamp: time.Now(),
+		Labels: map[string]string{
+			"level":     "info",
+			"tenant_id": "bench-tenant",
+		},
+	}
 
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			// Simulate processing
-			_ = entry.Message
-		}
-	})
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		// Simulate entry processing
+		_ = entry.Message
+		_ = entry.Labels["level"]
+	}
 }
 
 func BenchmarkKafkaSinkSendBatch(b *testing.B) {
@@ -358,26 +452,100 @@ func BenchmarkKafkaSinkSendBatch(b *testing.B) {
 		b.Skip("Skipping benchmark in short mode")
 	}
 
-	// Benchmark batch processing
-	b.Run("batch_100", func(b *testing.B) {
-		entries := make([]types.LogEntry, 100)
-		for i := range entries {
-			entries[i] = types.LogEntry{
-				Message:   "Benchmark batch message",
-				Timestamp: time.Now(),
-				Labels: map[string]string{
-					"level":     "info",
-					"tenant_id": "bench-tenant",
-				},
-			}
-		}
+	batchSizes := []int{10, 100, 1000}
 
-		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
-			// Simulate batch processing
-			for j := range entries {
-				_ = entries[j].Message
+	for _, size := range batchSizes {
+		b.Run(fmt.Sprintf("batch_%d", size), func(b *testing.B) {
+			entries := make([]types.LogEntry, size)
+			for i := range entries {
+				entries[i] = types.LogEntry{
+					Message:   "Benchmark batch message",
+					Timestamp: time.Now(),
+					Labels: map[string]string{
+						"level":     "info",
+						"tenant_id": "bench-tenant",
+					},
+				}
 			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				for j := range entries {
+					_ = entries[j].Message
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkKafkaSinkTopicDetermination(b *testing.B) {
+	config := types.KafkaSinkConfig{
+		Enabled:   true,
+		Brokers:   []string{"localhost:9092"},
+		Topic:     "default",
+		QueueSize: 1000,
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	sink, err := NewKafkaSink(config, logger, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	entries := []types.LogEntry{
+		{Labels: map[string]string{"level": "error"}},
+		{Labels: map[string]string{"level": "info"}},
+		{Labels: map[string]string{"level": "debug"}},
+		{Labels: map[string]string{"kafka_topic": "custom"}},
+		{Labels: map[string]string{}},
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		for _, entry := range entries {
+			_ = sink.determineTopic(entry)
 		}
-	})
+	}
+}
+
+func BenchmarkKafkaSinkPartitionKeyGeneration(b *testing.B) {
+	config := types.KafkaSinkConfig{
+		Enabled:   true,
+		Brokers:   []string{"localhost:9092"},
+		Topic:     "test",
+		QueueSize: 1000,
+		Partitioning: types.PartitioningConfig{
+			Enabled:  true,
+			Strategy: "hash",
+			KeyField: "tenant_id",
+		},
+	}
+
+	logger := logrus.New()
+	logger.SetLevel(logrus.ErrorLevel)
+
+	sink, err := NewKafkaSink(config, logger, nil, nil)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	entry := types.LogEntry{
+		SourceID: "test-source",
+		Labels: map[string]string{
+			"tenant_id": "tenant-123",
+		},
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_ = sink.determinePartitionKey(entry)
+	}
 }

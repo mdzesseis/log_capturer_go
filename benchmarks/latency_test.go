@@ -124,7 +124,7 @@ func TestLatency_EndToEnd(t *testing.T) {
 
 	sink := NewLatencyTrackingSink("latency-test-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -207,7 +207,7 @@ func TestLatency_UnderLoad(t *testing.T) {
 
 	sink := NewLatencyTrackingSink("load-latency-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -305,7 +305,7 @@ func BenchmarkLatency_SingleEntry(b *testing.B) {
 
 	sink := NewLatencyTrackingSink("single-entry-bench")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -368,7 +368,7 @@ func BenchmarkLatency_Batch(b *testing.B) {
 
 			sink := NewLatencyTrackingSink(fmt.Sprintf("batch-bench-%d", size))
 
-			d := dispatcher.NewDispatcher(config, nil, logger, nil)
+			d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 			d.AddSink(sink)
 
 			ctx := context.Background()
@@ -414,7 +414,7 @@ func TestLatency_QueueSaturation(t *testing.T) {
 
 	sink := NewLatencyTrackingSink("saturation-test-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()

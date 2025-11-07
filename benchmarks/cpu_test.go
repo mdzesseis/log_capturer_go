@@ -47,7 +47,7 @@ func TestCPUProfile_Sustained(t *testing.T) {
 
 	sink := NewBenchmarkSink("cpu-test-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -148,7 +148,7 @@ func BenchmarkCPU_DispatcherHandleLogEntry(b *testing.B) {
 
 	sink := NewBenchmarkSink("cpu-bench-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -194,7 +194,7 @@ func BenchmarkCPU_LabelProcessing(b *testing.B) {
 
 	sink := NewBenchmarkSink("label-bench-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -254,7 +254,7 @@ func BenchmarkCPU_BatchProcessing(b *testing.B) {
 
 			sink := NewBenchmarkSink(fmt.Sprintf("batch-bench-%d", batchSize))
 
-			d := dispatcher.NewDispatcher(config, nil, logger, nil)
+			d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 			d.AddSink(sink)
 
 			ctx := context.Background()
@@ -303,7 +303,7 @@ func BenchmarkCPU_WorkerConcurrency(b *testing.B) {
 
 			sink := NewBenchmarkSink(fmt.Sprintf("worker-bench-%d", workerCount))
 
-			d := dispatcher.NewDispatcher(config, nil, logger, nil)
+			d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 			d.AddSink(sink)
 
 			ctx := context.Background()

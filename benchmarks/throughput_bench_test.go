@@ -71,7 +71,7 @@ func BenchmarkDispatcherThroughput(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel) // Minimize logging overhead
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 
 	// Add null sink to discard logs (measure dispatcher only)
 	mockSink := &MockNullSink{name: "null"}
@@ -123,7 +123,7 @@ func BenchmarkDispatcherThroughputParallel(b *testing.B) {
 	logger := logrus.New()
 	logger.SetLevel(logrus.ErrorLevel)
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	mockSink := &MockNullSink{name: "null"}
 	d.AddSink(mockSink)
 

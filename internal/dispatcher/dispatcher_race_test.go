@@ -24,7 +24,7 @@ func TestDispatcherBatchRaceCondition(t *testing.T) {
 		RetryDelay:   10 * time.Millisecond,
 	}
 
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	// Add a mock sink that processes slowly to create race opportunities
 	mockSink := &slowSink{delay: 10 * time.Millisecond}

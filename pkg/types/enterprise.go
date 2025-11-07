@@ -106,15 +106,35 @@ type OAuthConfig struct {
 // TracingConfig contains distributed tracing settings.
 type TracingConfig struct {
 	Enabled        bool              `yaml:"enabled"`         // Enable distributed tracing
+	Mode           string            `yaml:"mode"`            // Tracing mode (off, system-only, hybrid, full-e2e)
 	ServiceName    string            `yaml:"service_name"`    // Service name for tracing
 	ServiceVersion string            `yaml:"service_version"` // Service version for tracing
 	Exporter       string            `yaml:"exporter"`        // Trace exporter (jaeger, zipkin, otlp)
 	Endpoint       string            `yaml:"endpoint"`        // Trace collector endpoint
 	SampleRate     float64           `yaml:"sample_rate"`     // Trace sampling rate (0.0 to 1.0)
+	LogTracingRate float64           `yaml:"log_tracing_rate"` // Log tracing rate for hybrid mode
 	Headers        map[string]string `yaml:"headers"`         // Additional headers for trace export
 	Compression    bool              `yaml:"compression"`     // Enable trace compression
 	BatchTimeout   string            `yaml:"batch_timeout"`   // Trace batch timeout
 	BatchSize      int               `yaml:"batch_size"`      // Trace batch size
+	AdaptiveSampling TracingAdaptiveSamplingConfig `yaml:"adaptive_sampling"` // Adaptive sampling configuration
+	OnDemand       TracingOnDemandConfig `yaml:"on_demand"`   // On-demand tracing configuration
+}
+
+// TracingAdaptiveSamplingConfig contains adaptive sampling settings.
+type TracingAdaptiveSamplingConfig struct {
+	Enabled          bool    `yaml:"enabled"`           // Enable adaptive sampling
+	LatencyThreshold string  `yaml:"latency_threshold"` // Latency threshold for triggering sampling
+	SampleRate       float64 `yaml:"sample_rate"`       // Sample rate when triggered
+	WindowSize       string  `yaml:"window_size"`       // Analysis window size
+	CheckInterval    string  `yaml:"check_interval"`    // Check interval
+}
+
+// TracingOnDemandConfig contains on-demand tracing settings.
+type TracingOnDemandConfig struct {
+	Enabled         bool   `yaml:"enabled"`          // Enable on-demand tracing
+	MaxRules        int    `yaml:"max_rules"`        // Maximum number of on-demand rules
+	DefaultDuration string `yaml:"default_duration"` // Default duration for on-demand tracing
 }
 
 // SLOConfig contains Service Level Objective monitoring settings.

@@ -86,7 +86,7 @@ func TestDispatcherCreation(t *testing.T) {
 	}
 
 	logger := logrus.New()
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	assert.NotNil(t, dispatcher)
 	assert.Equal(t, config.QueueSize, dispatcher.config.QueueSize)
@@ -106,7 +106,7 @@ func TestDispatcherStartStop(t *testing.T) {
 	}
 
 	logger := logrus.New()
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -139,7 +139,7 @@ func TestDispatcherHandleLogEntry(t *testing.T) {
 
 	logger := logrus.New()
 	// Note: processor is nil, so no processor mock expectations needed
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	// Add a mock sink
 	mockSink := &MockSink{}
@@ -182,7 +182,7 @@ func TestDispatcherBatching(t *testing.T) {
 
 	logger := logrus.New()
 	// Note: processor is nil, so no processor mock expectations needed
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	// Add a mock sink that expects batches of 3
 	mockSink := &MockSink{}
@@ -226,7 +226,7 @@ func TestDispatcherDeduplication(t *testing.T) {
 
 	logger := logrus.New()
 	// Note: processor is nil, so no processor mock expectations needed
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	// Mock sink should only receive one message due to deduplication
 	mockSink := &MockSink{}
@@ -268,7 +268,7 @@ func TestDispatcherStats(t *testing.T) {
 	}
 
 	logger := logrus.New()
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	stats := dispatcher.GetStats()
 
@@ -305,7 +305,7 @@ func TestDispatcherConcurrency(t *testing.T) {
 	processor.On("ProcessEntry", mock.AnythingOfType("*types.LogEntry")).Return(entry, nil)
 	anomalyDetector.On("DetectAnomaly", mock.AnythingOfType("*types.LogEntry")).Return(false, 0.0, nil)
 
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	mockSink := &MockSink{}
 	mockSink.On("Send", mock.Anything, mock.Anything).Return(nil)
@@ -357,7 +357,7 @@ func TestDispatcherErrorHandling(t *testing.T) {
 
 	logger := logrus.New()
 	// Note: processor is nil, so no processor mock expectations needed
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	// Mock sink that returns an error
 	mockSink := &MockSink{}
@@ -412,7 +412,7 @@ func BenchmarkDispatcherHandle(b *testing.B) {
 	processor.On("ProcessEntry", mock.AnythingOfType("*types.LogEntry")).Return(entry, nil)
 	anomalyDetector.On("DetectAnomaly", mock.AnythingOfType("*types.LogEntry")).Return(false, 0.0, nil)
 
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	mockSink := &MockSink{}
 	mockSink.On("Send", mock.Anything, mock.Anything).Return(nil)
@@ -469,7 +469,7 @@ func BenchmarkDispatcherThroughput(b *testing.B) {
 	processor.On("ProcessEntry", mock.AnythingOfType("*types.LogEntry")).Return(entry, nil)
 	anomalyDetector.On("DetectAnomaly", mock.AnythingOfType("*types.LogEntry")).Return(false, 0.0, nil)
 
-	dispatcher := NewDispatcher(config, nil, logger, nil)
+	dispatcher := NewDispatcher(config, nil, logger, nil, nil)
 
 	mockSink := &MockSink{}
 	mockSink.On("Send", mock.Anything, mock.Anything).Return(nil)

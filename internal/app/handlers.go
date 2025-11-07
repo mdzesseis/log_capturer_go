@@ -161,6 +161,17 @@ func (app *App) registerHandlers(router *mux.Router) {
 	// Resource monitoring endpoint
 	router.Handle("/api/resources/metrics", middleware(http.HandlerFunc(app.handleResourceMetrics))).Methods("GET")
 
+	// Tracing control endpoints (requires tracing to be initialized and enabled)
+	if app.tracingManager != nil {
+		router.Handle("/api/tracing/status", middleware(http.HandlerFunc(app.handleTracingStatus))).Methods("GET")
+
+		// On-demand control endpoints (only in hybrid mode)
+		if app.config.Tracing.Mode == "hybrid" && app.config.Tracing.OnDemand.Enabled {
+			router.Handle("/api/tracing/enable", middleware(http.HandlerFunc(app.handleTracingEnable))).Methods("POST")
+			router.Handle("/api/tracing/disable", middleware(http.HandlerFunc(app.handleTracingDisable))).Methods("POST")
+		}
+	}
+
 	// Enterprise endpoints
 	if app.sloManager != nil {
 		router.Handle("/slo/status", middleware(http.HandlerFunc(app.sloStatusHandler))).Methods("GET")
@@ -1224,4 +1235,241 @@ func (app *App) handleResourceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
+}
+
+// Tracing Control Handlers
+
+// handleTracingEnable enables on-demand tracing for a specific source.
+//
+// This endpoint allows enabling on-demand tracing for specific log sources:
+//   - Accepts source_id, sampling rate (0.0-1.0), and duration
+//   - Validates input parameters
+//   - Enables on-demand tracing rule
+//   - Returns expiration timestamp
+//
+// Request Body (JSON):
+//   {
+//     "source_id": "container-xyz",     // Required: Source identifier
+//     "rate": 0.1,                       // Required: Sampling rate (0.0-1.0)
+//     "duration": "10m"                  // Required: Rule duration (e.g., "10m", "1h")
+//   }
+//
+// Response Codes:
+//   - 200 OK: On-demand tracing enabled successfully
+//   - 400 Bad Request: Invalid request body or parameters
+//   - 503 Service Unavailable: Tracing disabled or not in hybrid mode
+//
+// This endpoint is useful for:
+//   - Debugging specific containers or files
+//   - Temporary deep tracing during incidents
+//   - Performance investigation of specific sources
+//
+// Example response:
+//
+//	{
+//	  "status": "enabled",
+//	  "source_id": "container-xyz",
+//	  "rate": 0.1,
+//	  "expires_at": "2025-11-07T12:10:00Z"
+//	}
+func (app *App) handleTracingEnable(w http.ResponseWriter, r *http.Request) {
+	if app.tracingManager == nil {
+		http.Error(w, "Tracing is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Check if tracing is enabled
+	if app.tracingManager.GetMode() == tracing.ModeOff {
+		http.Error(w, "Tracing is disabled (mode: off)", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Only available in hybrid mode
+	if app.tracingManager.GetMode() != tracing.ModeHybrid {
+		http.Error(w, fmt.Sprintf("On-demand tracing only available in hybrid mode (current: %s)", app.tracingManager.GetMode()), http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		SourceID string  `json:"source_id"`
+		Rate     float64 `json:"rate"`
+		Duration string  `json:"duration"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate source_id
+	if req.SourceID == "" {
+		http.Error(w, "Missing required field: source_id", http.StatusBadRequest)
+		return
+	}
+
+	// Validate rate
+	if req.Rate < 0 || req.Rate > 1 {
+		http.Error(w, "rate must be between 0.0 and 1.0", http.StatusBadRequest)
+		return
+	}
+
+	// Parse duration
+	duration, err := time.ParseDuration(req.Duration)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Invalid duration: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate duration (min 1m, max 24h)
+	if duration < time.Minute {
+		http.Error(w, "Duration must be at least 1 minute", http.StatusBadRequest)
+		return
+	}
+	if duration > 24*time.Hour {
+		http.Error(w, "Duration must not exceed 24 hours", http.StatusBadRequest)
+		return
+	}
+
+	// Enable on-demand tracing
+	if err := app.tracingManager.EnableOnDemandTracing(req.SourceID, req.Rate, duration); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to enable on-demand tracing: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	expiresAt := time.Now().Add(duration)
+	response := map[string]interface{}{
+		"status":     "enabled",
+		"source_id":  req.SourceID,
+		"rate":       req.Rate,
+		"duration":   req.Duration,
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+
+	app.logger.WithFields(logrus.Fields{
+		"source_id":  req.SourceID,
+		"rate":       req.Rate,
+		"duration":   duration.String(),
+		"expires_at": expiresAt.Format(time.RFC3339),
+	}).Info("On-demand tracing enabled via API")
+}
+
+// handleTracingDisable disables on-demand tracing for a specific source.
+//
+// This endpoint disables a previously enabled on-demand tracing rule:
+//   - Accepts source_id to disable
+//   - Removes the on-demand tracing rule
+//   - Returns success confirmation
+//
+// Request Body (JSON):
+//   {
+//     "source_id": "container-xyz"     // Required: Source identifier
+//   }
+//
+// Response Codes:
+//   - 200 OK: On-demand tracing disabled successfully
+//   - 400 Bad Request: Invalid request body
+//   - 503 Service Unavailable: Tracing disabled or on-demand control not available
+//
+// This endpoint is useful for:
+//   - Manually stopping on-demand tracing before expiration
+//   - Cleaning up rules after investigation complete
+//   - Managing on-demand tracing rules
+//
+// Example response:
+//
+//	{
+//	  "status": "disabled",
+//	  "source_id": "container-xyz"
+//	}
+func (app *App) handleTracingDisable(w http.ResponseWriter, r *http.Request) {
+	if app.tracingManager == nil {
+		http.Error(w, "Tracing is not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		SourceID string `json:"source_id"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, fmt.Sprintf("Invalid request: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Validate source_id
+	if req.SourceID == "" {
+		http.Error(w, "Missing required field: source_id", http.StatusBadRequest)
+		return
+	}
+
+	// Disable on-demand tracing
+	if err := app.tracingManager.DisableOnDemandTracing(req.SourceID); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to disable on-demand tracing: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"status":    "disabled",
+		"source_id": req.SourceID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+
+	app.logger.WithField("source_id", req.SourceID).Info("On-demand tracing disabled via API")
+}
+
+// handleTracingStatus returns current tracing status and configuration.
+//
+// This endpoint provides comprehensive tracing status information:
+//   - Current tracing mode (off, system-only, hybrid, full-e2e)
+//   - Log tracing sampling rate
+//   - Number of logs traced and spans created
+//   - Adaptive sampling status (if enabled)
+//   - Active on-demand tracing rules (if any)
+//
+// Response Codes:
+//   - 200 OK: Tracing status returned successfully
+//   - 503 Service Unavailable: Tracing not initialized
+//
+// This endpoint is useful for:
+//   - Monitoring current tracing configuration
+//   - Verifying mode switches and configuration changes
+//   - Checking active on-demand rules
+//   - Integration with monitoring dashboards
+//
+// Example response:
+//
+//	{
+//	  "enabled": true,
+//	  "mode": "hybrid",
+//	  "log_tracing_rate": 0.0,
+//	  "logs_traced": 1234,
+//	  "spans_created": 5678,
+//	  "adaptive_sampling": true,
+//	  "on_demand_enabled": true,
+//	  "on_demand_rules": [
+//	    {
+//	      "source_id": "container-xyz",
+//	      "rate": 0.1,
+//	      "expires_at": "2025-11-07T12:10:00Z"
+//	    }
+//	  ]
+//	}
+func (app *App) handleTracingStatus(w http.ResponseWriter, r *http.Request) {
+	if app.tracingManager == nil {
+		http.Error(w, "Tracing not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	status := app.tracingManager.GetStatus()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(status)
 }

@@ -95,9 +95,9 @@ type App struct {
 	anomalyDetector  *anomaly.AnomalyDetector           // Detects anomalies in log patterns and system behavior
 
 	// Enterprise features - advanced capabilities for production environments
-	securityManager   *security.AuthManager          // Handles authentication, authorization, and audit logging
-	tracingManager    *tracing.TracingManager        // Provides distributed tracing capabilities with OpenTelemetry
-	sloManager        *slo.SLOManager                // Monitors service level objectives and manages error budgets
+	securityManager   *security.AuthManager               // Handles authentication, authorization, and audit logging
+	tracingManager    *tracing.EnhancedTracingManager     // Provides distributed tracing capabilities with OpenTelemetry
+	sloManager        *slo.SLOManager                     // Monitors service level objectives and manages error budgets
 	goroutineTracker  *profiling.GoroutineTracker   // Tracks goroutine usage with aggressive profiling and stack trace analysis
 	serviceDiscovery  *discovery.ServiceDiscovery    // Handles automatic service discovery
 

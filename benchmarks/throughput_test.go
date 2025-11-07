@@ -94,7 +94,7 @@ func benchmarkDispatcherThroughput(b *testing.B, numLogs int) {
 
 	sink := NewBenchmarkSink("benchmark-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -163,7 +163,7 @@ func BenchmarkDispatcherThroughput_Concurrent(b *testing.B) {
 
 	sink := NewBenchmarkSink("benchmark-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()
@@ -223,7 +223,7 @@ func BenchmarkDispatcherThroughput_WithDedup(b *testing.B) {
 
 	sink := NewBenchmarkSink("benchmark-sink")
 
-	d := dispatcher.NewDispatcher(config, nil, logger, nil)
+	d := dispatcher.NewDispatcher(config, nil, logger, nil, nil)
 	d.AddSink(sink)
 
 	ctx := context.Background()

@@ -642,20 +642,168 @@ security:
     max_age: "12h"
 
 # -----------------------------------------------------------------------------
-# CONFIGURAÇÕES DE DISTRIBUTED TRACING
+# CONFIGURAÇÕES DE DISTRIBUTED TRACING (OpenTelemetry)
 # -----------------------------------------------------------------------------
+# HYBRID/FLEXIBLE TRACING SYSTEM - 4 Operational Modes:
+#
+# 1. MODE: "off"
+#    - No tracing at all (zero overhead)
+#    - Use when: Maximum performance needed
+#    - Overhead: 0%
+#
+# 2. MODE: "system-only"
+#    - Only system operations traced (batches, sinks, processors)
+#    - Individual logs NOT traced
+#    - Use when: Basic observability needed with minimal overhead
+#    - Overhead: <1%
+#
+# 3. MODE: "hybrid" (RECOMMENDED)
+#    - System operations always traced
+#    - Configurable log sampling (0-100%)
+#    - Adaptive sampling (increases when latency high)
+#    - On-demand API control (enable/disable per source)
+#    - Use when: Production with flexible debugging capability
+#    - Overhead: 1-10% (depending on log_tracing_rate)
+#
+# 4. MODE: "full-e2e"
+#    - Every log entry traced (100% sampling)
+#    - Complete end-to-end visibility
+#    - Use when: Deep troubleshooting or testing
+#    - Overhead: 5-10%
+#
 tracing:
-  enabled: false                    # Desabilitado por padrão
-  service_name: "ssw-logs-capture"
-  service_version: "v0.0.2"
-  environment: "production"
-  exporter: "otlp"                  # Options: "jaeger", "otlp", "console", "zipkin"
-  endpoint: "http://jaeger:4318/v1/traces"
-  sample_rate: 0.01                 # 1% sampling para produção
-  batch_timeout: "5s"
-  max_batch_size: 512
-  # headers:
-  #   "authorization": "Bearer YOUR_TRACE_TOKEN"
+  # Enable/disable tracing subsystem
+  enabled: true
+
+  # -------------------------------------------------------------------------
+  # OPERATIONAL MODE (choose one)
+  # -------------------------------------------------------------------------
+  # Options: "off", "system-only", "hybrid", "full-e2e"
+  mode: "hybrid"
+
+  # -------------------------------------------------------------------------
+  # LOG TRACING RATE (for hybrid and full-e2e modes)
+  # -------------------------------------------------------------------------
+  # Range: 0.0 (0%) to 1.0 (100%)
+  # - In full-e2e mode, this is forced to 1.0
+  # - In hybrid mode, start with 0.0 and use adaptive/on-demand instead
+  # - Recommended production: 0.0 (rely on adaptive and on-demand)
+  log_tracing_rate: 0.0
+
+  # -------------------------------------------------------------------------
+  # ADAPTIVE SAMPLING (hybrid mode only)
+  # -------------------------------------------------------------------------
+  # Automatically increases sampling when system is slow
+  adaptive_sampling:
+    enabled: true
+
+    # Trigger threshold: Enable sampling when P99 latency exceeds this
+    latency_threshold: "1s"
+
+    # Sample rate when triggered (0.0-1.0)
+    # Example: 0.1 = sample 10% of logs when latency high
+    sample_rate: 0.1
+
+    # Time window for latency evaluation
+    window_size: "5m"
+
+    # How often to check latency and adjust sampling
+    check_interval: "30s"
+
+  # -------------------------------------------------------------------------
+  # ON-DEMAND TRACING CONTROL (hybrid mode only)
+  # -------------------------------------------------------------------------
+  # Allows enabling/disabling tracing via API for specific sources
+  # Endpoints: POST /api/tracing/enable, POST /api/tracing/disable
+  on_demand:
+    enabled: true
+
+    # Maximum concurrent on-demand rules allowed
+    max_rules: 100
+
+    # Default duration for rules if not specified in API call
+    default_duration: "10m"
+
+  # -------------------------------------------------------------------------
+  # EXPORTER CONFIGURATION
+  # -------------------------------------------------------------------------
+  exporter:
+    # Exporter type: "jaeger", "otlp", "zipkin", "console"
+    type: "jaeger"
+
+    # Exporter endpoint
+    # Jaeger: http://jaeger:14268/api/traces
+    # OTLP HTTP: http://otel-collector:4318/v1/traces
+    # OTLP gRPC: otel-collector:4317
+    endpoint: "http://jaeger:14268/api/traces"
+
+    # OTLP specific settings (when type=otlp)
+    # insecure: true              # Use for non-TLS connections
+
+    # Batch settings
+    batch_timeout: "5s"           # Max wait before exporting batch
+    max_export_batch_size: 512    # Max spans per export batch
+    max_queue_size: 2048          # Max spans in queue before dropping
+
+    # Custom headers (optional)
+    # headers:
+    #   "authorization": "Bearer YOUR_TRACE_TOKEN"
+
+  # -------------------------------------------------------------------------
+  # SAMPLER CONFIGURATION
+  # -------------------------------------------------------------------------
+  sampler:
+    # Sampler type: "parent_based" (recommended), "ratio", "always_on", "always_off"
+    # parent_based: Respect parent trace decisions (for distributed tracing)
+    type: "parent_based"
+
+    # For ratio-based sampling (not recommended with hybrid mode):
+    # type: "ratio"
+    # ratio: 0.01              # Sample 1% of traces
+
+  # -------------------------------------------------------------------------
+  # RESOURCE ATTRIBUTES (added to all traces)
+  # -------------------------------------------------------------------------
+  resource:
+    service_name: "log_capturer_go"
+    service_version: "v0.2.0"
+    environment: "production"           # production, staging, development
+    deployment_id: "${HOSTNAME}"        # Automatically set from hostname
+
+  # -------------------------------------------------------------------------
+  # PERFORMANCE TUNING
+  # -------------------------------------------------------------------------
+  # Memory limits for trace buffers
+  # max_memory_usage_mb: 512            # Optional: Max memory for trace buffers
+
+  # -------------------------------------------------------------------------
+  # EXAMPLES FOR DIFFERENT USE CASES
+  # -------------------------------------------------------------------------
+  # Production (default):
+  #   mode: "hybrid"
+  #   log_tracing_rate: 0.0
+  #   adaptive_sampling.enabled: true
+  #   on_demand.enabled: true
+  #   Result: Zero baseline overhead, auto-samples when slow, manual control via API
+  #
+  # Development/Staging:
+  #   mode: "hybrid"
+  #   log_tracing_rate: 0.1               # Sample 10% of logs
+  #   adaptive_sampling.enabled: true
+  #   on_demand.enabled: true
+  #   Result: Continuous 10% sampling + adaptive + on-demand
+  #
+  # Deep Troubleshooting:
+  #   mode: "full-e2e"                    # Forces 100% sampling
+  #   Result: Every log traced end-to-end (high overhead)
+  #
+  # Minimal Overhead:
+  #   mode: "system-only"
+  #   Result: Only system operations traced, logs never traced
+  #
+  # Maximum Performance:
+  #   mode: "off"
+  #   Result: Zero tracing, zero overhead
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DE SLO (Service Level Objectives)

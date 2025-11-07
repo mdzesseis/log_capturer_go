@@ -50,6 +50,7 @@ import (
 	"ssw-logs-capture/pkg/degradation"
 	"ssw-logs-capture/pkg/dlq"
 	"ssw-logs-capture/pkg/ratelimit"
+	"ssw-logs-capture/pkg/tracing"
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/sirupsen/logrus"
@@ -101,7 +102,8 @@ type Dispatcher struct {
 	degradationManager   *degradation.Manager                // Implements graceful degradation
 	rateLimiter          *ratelimit.AdaptiveRateLimiter      // Adaptive rate limiting for sink protection
 	anomalyDetector      *anomaly.AnomalyDetector            // Detects unusual log patterns and anomalies
-	enhancedMetrics      *metrics.EnhancedMetrics         // Advanced metrics collection and reporting
+	enhancedMetrics      *metrics.EnhancedMetrics            // Advanced metrics collection and reporting
+	tracingManager       *tracing.EnhancedTracingManager     // Distributed tracing with hybrid mode support
 
 	// PHASE 2 REFACTORING: Modular components for dispatcher functionality
 	batchProcessor  *BatchProcessor  // Handles batch collection and processing
@@ -218,7 +220,7 @@ type dispatchItem struct {
 //
 // Returns:
 //   - *Dispatcher: Fully configured dispatcher ready to start
-func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics) *Dispatcher {
+func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, logger *logrus.Logger, enhancedMetrics *metrics.EnhancedMetrics, tracingMgr *tracing.EnhancedTracingManager) *Dispatcher {
 	// Valores padrão
 	if config.QueueSize == 0 {
 		config.QueueSize = 50000
@@ -318,6 +320,7 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		rateLimiter:          rateLimiter,
 		// anomalyDetector:      anomalyDetector, // Temporarily disabled
 		enhancedMetrics:      enhancedMetrics,
+		tracingManager:       tracingMgr,
 
 		// PHASE 2 REFACTORING: Assign modular components
 		batchProcessor:  batchProcessor,
@@ -578,6 +581,25 @@ func (d *Dispatcher) Stop() error {
 // Returns:
 //   - error: Processing error including rate limiting, queue full, or validation errors
 func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error {
+	// Create trace span for this log entry if tracing is enabled
+	// The TracingManager will decide based on mode and sampling whether to actually trace
+	if d.tracingManager != nil {
+		entry := &types.LogEntry{
+			Timestamp:  time.Now().UTC(),
+			Message:    message,
+			SourceType: sourceType,
+			SourceID:   sourceID,
+			Labels:     labels,
+		}
+
+		newCtx, span := d.tracingManager.CreateLogSpan(ctx, entry)
+		if span != nil {
+			ctx = newCtx
+			defer span.End()
+			// Note: trace_id and span_id are automatically added to entry.Labels by CreateLogSpan
+		}
+	}
+
 	if !d.isRunning {
 		return fmt.Errorf("dispatcher not running")
 	}
@@ -854,6 +876,23 @@ func (d *Dispatcher) processBatchWrapper(batch []dispatchItem, logger *logrus.En
 func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 	if len(batch) == 0 {
 		return
+	}
+
+	// Create system-level trace span for batch processing
+	// This is always traced (regardless of log sampling mode) except in ModeOff
+	ctx := context.Background()
+	if d.tracingManager != nil {
+		newCtx, span := d.tracingManager.CreateSystemSpan(ctx, "dispatcher.process_batch")
+		if span != nil {
+			ctx = newCtx
+			defer span.End()
+			// Add batch metadata to span (this will use otel attributes internally)
+			logger = logger.WithFields(logrus.Fields{
+				"batch.size":     len(batch),
+				"queue.depth":    len(d.queue),
+				"queue.capacity": d.config.QueueSize,
+			})
+		}
 	}
 
 	startTime := time.Now()

@@ -30,6 +30,7 @@ import (
 	"ssw-logs-capture/pkg/types"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 )
 
 // initCoreServices initializes the fundamental services required for log processing.
@@ -73,7 +74,7 @@ func (app *App) initCoreServices() error {
 		RetryDelay:   parseDurationSafe(app.config.Dispatcher.RetryBaseDelay, 1*time.Second),
 		DLQEnabled:   app.config.Dispatcher.DLQEnabled,
 	}
-	app.dispatcher = dispatcher.NewDispatcher(dispatcherConfig, processor, app.logger, app.enhancedMetrics)
+	app.dispatcher = dispatcher.NewDispatcher(dispatcherConfig, processor, app.logger, app.enhancedMetrics, app.tracingManager)
 
 	return nil
 }
@@ -667,24 +668,40 @@ func (app *App) initializeEnterpriseFeatures() error {
 
 	// Distributed Tracing
 	if app.config.Tracing.Enabled {
-		tracingConfig := tracing.TracingConfig{
+		enhancedTracingConfig := tracing.EnhancedTracingConfig{
 			Enabled:        app.config.Tracing.Enabled,
+			Mode:           tracing.TracingMode(app.config.Tracing.Mode),
 			ServiceName:    app.config.Tracing.ServiceName,
 			ServiceVersion: app.config.Tracing.ServiceVersion,
 			Environment:    app.config.App.Environment, // Use app environment
 			Exporter:       app.config.Tracing.Exporter,
 			Endpoint:       app.config.Tracing.Endpoint,
-			SampleRate:     app.config.Tracing.SampleRate,
-			BatchTimeout:   parseDurationSafe(app.config.Tracing.BatchTimeout, 10*time.Second),
+			BatchTimeout:   parseDurationSafe(app.config.Tracing.BatchTimeout, 5*time.Second),
 			MaxBatchSize:   app.config.Tracing.BatchSize,
 			Headers:        app.config.Tracing.Headers,
+			LogTracingRate: app.config.Tracing.LogTracingRate,
+			AdaptiveSampling: tracing.AdaptiveSamplingConfig{
+				Enabled:          app.config.Tracing.AdaptiveSampling.Enabled,
+				LatencyThreshold: parseDurationSafe(app.config.Tracing.AdaptiveSampling.LatencyThreshold, 1*time.Second),
+				SampleRate:       app.config.Tracing.AdaptiveSampling.SampleRate,
+				WindowSize:       parseDurationSafe(app.config.Tracing.AdaptiveSampling.WindowSize, 5*time.Minute),
+			},
+			OnDemand: tracing.OnDemandConfig{
+				Enabled:     app.config.Tracing.OnDemand.Enabled,
+				APIEndpoint: "/api/tracing",
+			},
 		}
-		tracingManager, err := tracing.NewTracingManager(tracingConfig, app.logger)
+		tracingManager, err := tracing.NewEnhancedTracingManager(enhancedTracingConfig, app.logger)
 		if err != nil {
-			return errors.New("CONFIG_INVALID", "app", "init_tracing", "failed to initialize tracing manager")
+			return errors.New("CONFIG_INVALID", "app", "init_tracing", "failed to initialize enhanced tracing manager")
 		}
 		app.tracingManager = tracingManager
-		app.logger.Info("Distributed tracing initialized")
+		app.logger.WithFields(logrus.Fields{
+			"mode":             enhancedTracingConfig.Mode,
+			"log_tracing_rate": enhancedTracingConfig.LogTracingRate,
+			"adaptive":         enhancedTracingConfig.AdaptiveSampling.Enabled,
+			"on_demand":        enhancedTracingConfig.OnDemand.Enabled,
+		}).Info("Enhanced distributed tracing initialized")
 	}
 
 	// SLO Manager
