@@ -1,0 +1,4 @@
+uma pergunta implementar o fluentbit, não seria melhor então utilizar o file_monitor e capturar os logs
+  diretamente dos arquivos de containers seria necessario apenas ajustar o parser e as metadadas dos containers?
+
+  SUP-16735

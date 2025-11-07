@@ -114,7 +114,7 @@ groups:
 
       # High Error Rate
       - alert: HighErrorRate
-        expr: (rate(logs_errors_total{job="log-capturer"}[5m]) / rate(logs_processed_total{job="log-capturer"}[5m])) > 0.01
+        expr: (rate(log_capturer_errors_total{job="log-capturer"}[5m]) / rate(log_capturer_logs_processed_total{job="log-capturer"}[5m])) > 0.01
         for: 5m
         labels:
           severity: critical
@@ -125,7 +125,7 @@ groups:
 
       # Elevated Error Rate
       - alert: ElevatedErrorRate
-        expr: (rate(logs_errors_total{job="log-capturer"}[5m]) / rate(logs_processed_total{job="log-capturer"}[5m])) > 0.005
+        expr: (rate(log_capturer_errors_total{job="log-capturer"}[5m]) / rate(log_capturer_logs_processed_total{job="log-capturer"}[5m])) > 0.005
         for: 5m
         labels:
           severity: warning
@@ -136,7 +136,7 @@ groups:
 
       # High Queue Utilization
       - alert: HighQueueUtilization
-        expr: (dispatcher_queue_size{job="log-capturer"} / dispatcher_queue_capacity{job="log-capturer"}) * 100 > 90
+        expr: (log_capturer_queue_size{job="log-capturer"} / 50000{job="log-capturer"}) * 100 > 90
         for: 5m
         labels:
           severity: critical
@@ -147,7 +147,7 @@ groups:
 
       # Queue Utilization Warning
       - alert: QueueUtilizationWarning
-        expr: (dispatcher_queue_size{job="log-capturer"} / dispatcher_queue_capacity{job="log-capturer"}) * 100 > 70
+        expr: (log_capturer_queue_size{job="log-capturer"} / 50000{job="log-capturer"}) * 100 > 70
         for: 5m
         labels:
           severity: warning
@@ -169,7 +169,7 @@ groups:
 
       # No Logs Being Processed
       - alert: NoLogsProcessed
-        expr: rate(logs_processed_total{job="log-capturer"}[5m]) == 0
+        expr: rate(log_capturer_logs_processed_total{job="log-capturer"}[5m]) == 0
         for: 10m
         labels:
           severity: warning
@@ -180,7 +180,7 @@ groups:
 
       # Low Throughput
       - alert: LowThroughput
-        expr: rate(logs_processed_total{job="log-capturer"}[1m]) < 10
+        expr: rate(log_capturer_logs_processed_total{job="log-capturer"}[1m]) < 10
         for: 10m
         labels:
           severity: warning
@@ -191,7 +191,7 @@ groups:
 
       # DLQ Growing
       - alert: DLQGrowing
-        expr: increase(dlq_entries_total{job="log-capturer"}[10m]) > 100
+        expr: increase(log_capturer_dlq_entries_total{job="log-capturer"}[10m]) > 100
         for: 5m
         labels:
           severity: warning
@@ -202,7 +202,7 @@ groups:
 
       # DLQ Critical
       - alert: DLQCritical
-        expr: dlq_entries_total{job="log-capturer"} > 10000
+        expr: log_capturer_dlq_entries_total{job="log-capturer"} > 10000
         for: 5m
         labels:
           severity: critical
@@ -373,3 +373,265 @@ groups:
         annotations:
           summary: "Stream pool running low on capacity"
           description: "{{ $value }} of 50 stream slots in use (80% utilization). Consider scaling."
+
+  # =============================================================================
+  # TASK 11: NEW ALERT RULES - Deduplication, Timestamp Learning, Position System
+  # =============================================================================
+
+  - name: deduplication_monitoring
+    interval: 60s
+    rules:
+      # High Duplicate Rate Alert
+      - alert: HighDuplicateRate
+        expr: log_capturer_deduplication_duplicate_rate * 100 > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: deduplication
+        annotations:
+          summary: "High duplicate rate detected"
+          description: "Duplicate rate is {{ $value | printf \"%.2f\" }}%, exceeding 30% threshold. Expected: 5-15% for container logs."
+
+      # Deduplication Cache Full
+      - alert: DeduplicationCacheFull
+        expr: (log_capturer_deduplication_cache_size / 100000) * 100 > 95
+        for: 30m
+        labels:
+          severity: warning
+          component: deduplication
+        annotations:
+          summary: "Deduplication cache nearly full"
+          description: "Cache utilization is {{ $value | printf \"%.2f\" }}%, exceeding 95% for 30+ minutes. Consider increasing max_cache_size."
+
+      # Low Cache Hit Rate
+      - alert: LowCacheHitRate
+        expr: log_capturer_deduplication_cache_hit_rate * 100 < 50
+        for: 15m
+        labels:
+          severity: warning
+          component: deduplication
+        annotations:
+          summary: "Low deduplication cache hit rate"
+          description: "Cache hit rate is {{ $value | printf \"%.2f\" }}%, below expected 70-90% range. May indicate high churn or low TTL."
+
+      # High Eviction Rate
+      - alert: HighEvictionRate
+        expr: rate(log_capturer_deduplication_cache_evictions_total[5m]) > 100
+        for: 15m
+        labels:
+          severity: info
+          component: deduplication
+        annotations:
+          summary: "High cache eviction rate"
+          description: "Eviction rate is {{ $value | printf \"%.2f\" }}/sec. Cache may be too small or TTL too short."
+
+  - name: timestamp_learning
+    interval: 60s
+    rules:
+      # High Timestamp Rejection Rate
+      - alert: HighTimestampRejectionRate
+        expr: rate(log_capturer_timestamp_rejection_total[5m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: timestamp_learning
+        annotations:
+          summary: "High timestamp rejection rate"
+          description: "Rejecting {{ $value | printf \"%.2f\" }} logs/sec due to timestamp issues. Check file monitor start time or Loki retention."
+
+      # Timestamp Clamping Active
+      - alert: TimestampClampingActive
+        expr: rate(log_capturer_timestamp_clamped_total[5m]) > 5
+        for: 10m
+        labels:
+          severity: info
+          component: timestamp_learning
+        annotations:
+          summary: "Timestamp clamping occurring frequently"
+          description: "Clamping {{ $value | printf \"%.2f\" }} timestamps/sec. Historical logs being adjusted to acceptable range."
+
+      # Loki Timestamp Errors
+      - alert: LokiTimestampErrors
+        expr: rate(log_capturer_loki_error_type_total{error_type="timestamp_too_old"}[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: timestamp_learning
+          sink: loki
+        annotations:
+          summary: "Loki rejecting timestamps as too old"
+          description: "Loki rejecting {{ $value | printf \"%.2f\" }} logs/sec for old timestamps. Timestamp learning may need tuning."
+
+      # Max Acceptable Age Too Low
+      - alert: TimestampMaxAgeTooLow
+        expr: log_capturer_timestamp_max_acceptable_age_seconds < 3600
+        for: 10m
+        labels:
+          severity: info
+          component: timestamp_learning
+        annotations:
+          summary: "Timestamp max acceptable age is very low"
+          description: "Max acceptable age is {{ $value | humanizeDuration }}, which may be too restrictive. Consider increasing."
+
+  - name: position_system
+    interval: 30s
+    rules:
+      # Position Corruption Detected
+      - alert: PositionCorruptionDetected
+        expr: increase(log_capturer_position_corruptions_detected_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: position_system
+        annotations:
+          summary: "Position file corruption detected"
+          description: "{{ $value }} corruption(s) detected in last 10 minutes. Auto-recovery from checkpoint should occur."
+
+      # Checkpoint Save Failures
+      - alert: CheckpointSaveFailures
+        expr: increase(log_capturer_position_checkpoint_save_failures_total[10m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "Position checkpoint save failures"
+          description: "{{ $value }} checkpoint save failures in last 10 minutes. Check disk space and permissions."
+
+      # High Position Backpressure
+      - alert: HighPositionBackpressure
+        expr: log_capturer_position_backpressure > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "High position update backpressure"
+          description: "Backpressure ratio is {{ $value | printf \"%.2f\" }} (80%+). Position updates lagging behind file reads."
+
+      # Position Save Lag
+      - alert: PositionSaveLag
+        expr: log_capturer_position_save_lag_seconds > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "Position save lag exceeding threshold"
+          description: "Save lag is {{ $value | humanizeDuration }}, exceeding 10s. Potential data loss window."
+
+      # Position Validation Failures
+      - alert: PositionValidationFailures
+        expr: increase(log_capturer_position_validation_failures_total[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "Position validation failures detected"
+          description: "{{ $value }} validation failures in last 10 minutes. Position data may be inconsistent."
+
+      # Checkpoint Too Old
+      - alert: CheckpointTooOld
+        expr: time() - log_capturer_position_checkpoint_last_saved_timestamp > 600
+        for: 5m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "Position checkpoint not saved recently"
+          description: "Last checkpoint was {{ $value | humanizeDuration }} ago. Expected every 5 minutes."
+
+      # Position System Memory High
+      - alert: PositionSystemMemoryHigh
+        expr: log_capturer_position_memory_usage_bytes > 15728640
+        for: 10m
+        labels:
+          severity: warning
+          component: position_system
+        annotations:
+          summary: "Position system memory usage high"
+          description: "Using {{ $value | humanize }}B of memory (threshold: 15 MB). May need cleanup or limits."
+
+  - name: file_monitor_enhanced
+    interval: 60s
+    rules:
+      # File Monitor Retry Queue Full
+      - alert: FileMonitorRetryQueueFull
+        expr: log_capturer_file_monitor_retry_queue_size >= 50
+        for: 5m
+        labels:
+          severity: warning
+          component: file_monitor
+        annotations:
+          summary: "File monitor retry queue is full"
+          description: "Retry queue at maximum capacity (50 entries). New failures will result in drops."
+
+      # High Retry Failure Rate
+      - alert: HighRetryFailureRate
+        expr: rate(log_capturer_file_monitor_retry_failed_total[5m]) > 2
+        for: 10m
+        labels:
+          severity: warning
+          component: file_monitor
+        annotations:
+          summary: "High file monitor retry failure rate"
+          description: "Retry failures at {{ $value | printf \"%.2f\" }}/sec. Check dispatcher or sink health."
+
+      # Retries Being Dropped
+      - alert: RetriesBeingDropped
+        expr: rate(log_capturer_file_monitor_drops_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: file_monitor
+        annotations:
+          summary: "File monitor dropping retry entries"
+          description: "Dropping {{ $value | printf \"%.2f\" }} entries/sec. DATA LOSS occurring!"
+
+      # High Old Logs Ignored Rate
+      - alert: HighOldLogsIgnoredRate
+        expr: rate(log_capturer_file_monitor_old_logs_ignored_total[5m]) > 50
+        for: 10m
+        labels:
+          severity: info
+          component: file_monitor
+        annotations:
+          summary: "File monitor ignoring many old logs"
+          description: "Ignoring {{ $value | printf \"%.2f\" }} old logs/sec. Historical files may contain old timestamps."
+
+  - name: dlq_enhanced
+    interval: 60s
+    rules:
+      # DLQ Reprocessing Failures
+      - alert: DLQReprocessingFailures
+        expr: rate(log_capturer_dlq_reprocessing_failures_total[10m]) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          component: dlq
+        annotations:
+          summary: "DLQ reprocessing failures occurring"
+          description: "Reprocessing failures at {{ $value | printf \"%.2f\" }}/sec. Check sink availability."
+
+      # DLQ Queue Size Critical
+      - alert: DLQQueueSizeCritical
+        expr: log_capturer_queue_size{component="dlq"} > 8000
+        for: 5m
+        labels:
+          severity: critical
+          component: dlq
+        annotations:
+          summary: "DLQ queue size critical"
+          description: "DLQ queue contains {{ $value }} entries (80% of max capacity). Approaching emergency threshold."
+
+      # DLQ Write Failures
+      - alert: DLQWriteFailures
+        expr: increase(log_capturer_dlq_write_failures_total[10m]) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: dlq
+        annotations:
+          summary: "DLQ write failures detected"
+          description: "{{ $value }} write failures in last 10 minutes. DATA LOSS may occur!"
