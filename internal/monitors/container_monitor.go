@@ -155,7 +155,8 @@ type monitoredContainer struct {
 	stream          io.ReadCloser
 	lastRead        time.Time
 	cancel          context.CancelFunc
-	heartbeatWg     sync.WaitGroup // Rastreia goroutine de heartbeat
+	heartbeatWg     sync.WaitGroup // Rastreia goroutine de heartbeat (vida do container)
+	readerWg        sync.WaitGroup // Rastreia goroutine de reader (vida de cada stream)
 	streamCreatedAt time.Time      // When current stream was created
 	rotationCount   int            // Number of rotations performed
 }
@@ -803,11 +804,12 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 	mc.cancel = cancel
 	defer func() {
 		cancel()
-		// Aguardar heartbeat goroutine terminar
+		// Aguardar heartbeat goroutine terminar (roda durante toda a vida do container)
 		mc.heartbeatWg.Wait()
 	}()
 
 	// Enviar heartbeat em goroutine separada com ticker gerenciado internamente
+	// Esta goroutine roda durante TODA a vida do container (não é recriada nas rotações)
 	taskName := "container_" + mc.id
 	mc.heartbeatWg.Add(1)
 	go func() {
@@ -875,9 +877,10 @@ func (cm *ContainerMonitor) monitorContainer(ctx context.Context, mc *monitoredC
 			stream.Close()
 			streamCancel()
 
-		// CRITICAL: Wait for reader goroutine to exit before starting new rotation
-		// Without this, reader goroutines accumulate with each rotation!
-		mc.heartbeatWg.Wait()
+			// CRITICAL: Wait for reader goroutine to exit before starting new rotation
+			// This ensures the reader goroutine from THIS rotation completes before next rotation starts
+			// This prevents reader goroutine accumulation
+			mc.readerWg.Wait()
 
 			// Check if this was a planned rotation (timeout) or an error
 			if readErr == context.DeadlineExceeded {
@@ -946,14 +949,19 @@ func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitored
 	readCh := make(chan readResult, 10) // Increased buffer to prevent blocking
 
 	// Context for reader goroutine with explicit cleanup
+	// CRITICAL FIX (FASE 6B): Use ctx (which IS streamCtx from caller) as parent
+	// instead of global ctx to ensure reader goroutine is cancelled when stream rotates,
+	// preventing goroutine leak. Previously this was context.WithCancel(ctx) where ctx
+	// was the global app context, causing reader goroutines to never be cancelled on rotation.
 	readerCtx, readerCancel := context.WithCancel(ctx)
 	defer readerCancel() // Ensure reader goroutine is cancelled when function exits
 
-	// Goroutine para ler do stream - TRACKED WITH WAITGROUP
-	mc.heartbeatWg.Add(1) // Track this goroutine
+	// Goroutine para ler do stream - TRACKED WITH READER WAITGROUP
+	// Esta goroutine é recriada a cada rotação de stream
+	mc.readerWg.Add(1) // Track this goroutine
 	go func() {
-		defer mc.heartbeatWg.Done() // Always cleanup
-		defer close(readCh)          // Close channel when exiting to unblock readers
+		defer mc.readerWg.Done() // Always cleanup
+		defer close(readCh)      // Close channel when exiting to unblock readers
 
 		for {
 			// Check context before blocking read
