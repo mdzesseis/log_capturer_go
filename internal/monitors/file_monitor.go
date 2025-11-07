@@ -428,18 +428,14 @@ func (fm *FileMonitor) AddFile(filePath string, labels map[string]string) error 
 	}).Info("File added to monitoring")
 
 	// Read initial content if file has data
+	// GOROUTINE LEAK FIX: Don't spawn goroutine for initial read
+	// The file will be picked up by pollAllFiles() or fsnotify events
 	if info.Size() > mf.position {
 		fm.logger.WithFields(logrus.Fields{
 			"path": filePath,
 			"size": info.Size(),
 			"position": mf.position,
-		}).Info("Reading initial content from file")
-		fm.wg.Add(1) // Track this goroutine
-		go func() {
-			defer fm.wg.Done() // Always cleanup
-			time.Sleep(100 * time.Millisecond) // Small delay to ensure setup is complete
-			fm.readFile(mf)
-		}()
+		}).Info("File has initial content, will be read on next poll")
 	}
 
 	return nil
@@ -825,6 +821,15 @@ func (fm *FileMonitor) readFile(mf *monitoredFile) {
 	linesRead := 0
 
 	for {
+		// GOROUTINE LEAK FIX: Check context cancellation in read loop
+		select {
+		case <-fm.ctx.Done():
+			fm.logger.WithField("path", mf.path).Debug("Context cancelled, stopping file read")
+			return
+		default:
+			// Continue reading
+		}
+
 		line, err := mf.reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {

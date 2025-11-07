@@ -1,0 +1,98 @@
+ok  	ssw-logs-capture/internal/dispatcher	4.519s
+--- FAIL: TestTracingManager_ModeSwitching (0.00s)
+    --- FAIL: TestTracingManager_ModeSwitching/mode_off (0.00s)
+        tracing_test.go:101: 
+            	Error Trace:	/home/mateus/log_capturer_go/pkg/tracing/tracing_test.go:101
+            	Error:      	Received unexpected error:
+            	            	failed to create trace resource: conflicting Schema URL: https://opentelemetry.io/schemas/1.37.0 and https://opentelemetry.io/schemas/1.21.0
+            	Test:       	TestTracingManager_ModeSwitching/mode_off
+            	Messages:   	Failed to create tracing manager
+    --- FAIL: TestTracingManager_ModeSwitching/mode_system_only (0.00s)
+panic: duplicate metrics collector registration attempted [recovered]
+	panic: duplicate metrics collector registration attempted
+
+goroutine 9 [running]:
+testing.tRunner.func1.2({0x10cc8c0, 0xc00030e420})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x3eb
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x696
+panic({0x10cc8c0?, 0xc00030e420?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+github.com/prometheus/client_golang/prometheus.(*Registry).MustRegister(0x189d520, {0xc00004fbf0, 0x1, 0x0?})
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/registry.go:405 +0xc5
+github.com/prometheus/client_golang/prometheus/promauto.Factory.NewGaugeVec({{0x12b6078?, 0x189d520?}}, {{0x0, 0x0}, {0x0, 0x0}, {0x1173a54, 0x19}, {0x1191503, 0x41}, ...}, ...)
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/promauto/auto.go:308 +0x19d
+github.com/prometheus/client_golang/prometheus/promauto.NewGaugeVec(...)
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/promauto/auto.go:198
+ssw-logs-capture/pkg/tracing.NewTracingMetrics()
+	/home/mateus/log_capturer_go/pkg/tracing/metrics.go:38 +0x128
+ssw-logs-capture/pkg/tracing.NewEnhancedTracingManager({0x1, {0x1167f1f, 0xb}, {0x1168b46, 0xc}, {0x1167f8d, 0xb}, {0x1161a0c, 0x4}, {0x11619fc, ...}, ...}, ...)
+	/home/mateus/log_capturer_go/pkg/tracing/tracing_enhanced.go:120 +0x112
+ssw-logs-capture/pkg/tracing.TestTracingManager_ModeSwitching.func1(0xc00026ce00)
+	/home/mateus/log_capturer_go/pkg/tracing/tracing_test.go:100 +0x145
+testing.tRunner(0xc00026ce00, 0xc00005b810)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0x226
+created by testing.(*T).Run in goroutine 34
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x8f3
+FAIL	ssw-logs-capture/pkg/tracing	0.027s
+FAIL
+--- FAIL: TestKafkaSinkConfiguration (0.02s)
+    --- FAIL: TestKafkaSinkConfiguration/invalid_queue_size (0.01s)
+        kafka_sink_test.go:84: 
+            	Error Trace:	/home/mateus/log_capturer_go/internal/sinks/kafka_sink_test.go:84
+            	Error:      	An error is expected but got nil.
+            	Test:       	TestKafkaSinkConfiguration/invalid_queue_size
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x18 pc=0xcc82a3]
+
+goroutine 23 [running]:
+testing.tRunner.func1.2({0xdf7900, 0x1459780})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x3eb
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x696
+panic({0xdf7900?, 0x1459780?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+ssw-logs-capture/internal/sinks.TestKafkaSinkConfiguration.func1(0xc0000a2a80)
+	/home/mateus/log_capturer_go/internal/sinks/kafka_sink_test.go:86 +0x3a3
+testing.tRunner(0xc0000a2a80, 0xc0000b2290)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0x226
+created by testing.(*T).Run in goroutine 38
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x8f3
+FAIL	ssw-logs-capture/internal/sinks	0.036s
+FAIL
+Loaded configuration from file: /tmp/TestAppCreation1815315475/001/test_config.yaml
+⚙ Default configurations enabled - applying defaults for missing values
+DEBUG: Server config - Enabled: false, Host: 0.0.0.0, Port: 8401
+No file pipeline configured, using defaults from files_config
+✓ Configuration validation passed
+{"level":"info","msg":"Server configuration loaded","server_enabled":false,"server_host":"0.0.0.0","server_port":8401,"time":"2025-11-07T19:35:24-03:00"}
+--- FAIL: TestAppCreation (0.00s)
+    app_test.go:63: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/app/app_test.go:63
+        	Error:      	Received unexpected error:
+        	            	failed to initialize components: failed to create log processor: failed to load pipelines: failed to read pipeline config file: open pipelines.yaml: no such file or directory
+        	Test:       	TestAppCreation
+    app_test.go:64: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/app/app_test.go:64
+        	Error:      	Expected value not to be nil.
+        	Test:       	TestAppCreation
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x15babb9]
+
+goroutine 14 [running]:
+testing.tRunner.func1.2({0x17913c0, 0x23e3560})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x3eb
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x696
+panic({0x17913c0?, 0x23e3560?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+ssw-logs-capture/internal/app.TestAppCreation(0xc000102540)
+	/home/mateus/log_capturer_go/internal/app/app_test.go:65 +0x179
+testing.tRunner(0xc000102540, 0x1998a10)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0x226
+created by testing.(*T).Run in goroutine 1
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x8f3
+FAIL	ssw-logs-capture/internal/app	0.031s
+FAIL

@@ -1,0 +1,1181 @@
+# ssw-logs-capture
+./test_file_monitor_validation.go:47:6: main redeclared in this block
+	./test_file_monitor.go:19:6: other declaration of main
+./test_file_monitor_validation.go:75:3: too many arguments in call to config.LoadConfig
+	have (string, string, string)
+	want (string)
+./test_file_monitor_validation.go:118:36: undefined: types.TaskManagerConfig
+./test_file_monitor_validation.go:125:9: undefined: types.PositionManagerConfig
+./test_simple_monitor.go:14:6: main redeclared in this block
+	./test_file_monitor.go:19:6: other declaration of main
+./test_file_monitor.go:52:87: too many arguments in call to config.LoadConfig
+	have (string, string, string)
+	want (string)
+./test_file_monitor.go:74:33: undefined: task_manager.NewTaskManager
+./test_file_monitor.go:77:80: not enough arguments in call to positions.NewPositionBufferManager
+	have (string, *logrus.Logger)
+	want (*positions.ContainerPositionManager, *positions.FilePositionManager, *positions.BufferConfig, *logrus.Logger)
+./test_file_monitor.go:82:9: cannot use cfg.FileMonitorService (variable of struct type "ssw-logs-capture/pkg/types".FileMonitorServiceConfig) as "ssw-logs-capture/pkg/types".FileConfig value in argument to monitors.NewFileMonitor
+./test_file_monitor.go:84:9: cannot use dispatcher (variable of type *mockDispatcher) as "ssw-logs-capture/pkg/types".Dispatcher value in argument to monitors.NewFileMonitor: *mockDispatcher does not implement "ssw-logs-capture/pkg/types".Dispatcher (missing method AddSink)
+./test_file_monitor_validation.go:125:9: too many errors
+FAIL	ssw-logs-capture [build failed]
+# ssw-logs-capture/pkg/cleanup [ssw-logs-capture/pkg/cleanup.test]
+pkg/cleanup/disk_manager_test.go:30:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:77:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:127:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:183:19: cannot use 0.002 (untyped float constant) as int64 value in struct literal (truncated)
+pkg/cleanup/disk_manager_test.go:190:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:218:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:223:40: manager.getDiskSpace undefined (type *DiskSpaceManager has no field or method getDiskSpace)
+pkg/cleanup/disk_manager_test.go:230:22: manager.getDiskSpace undefined (type *DiskSpaceManager has no field or method getDiskSpace)
+pkg/cleanup/disk_manager_test.go:237:2: declared and not used: ctx
+pkg/cleanup/disk_manager_test.go:255:21: manager.matchesPattern undefined (type *DiskSpaceManager has no field or method matchesPattern)
+pkg/cleanup/disk_manager_test.go:237:2: too many errors
+# ssw-logs-capture/pkg/security [ssw-logs-capture/pkg/security.test]
+pkg/security/auth_test.go:4:2: "context" imported and not used
+pkg/security/auth_test.go:216:12: undefined: SecurityConfig
+pkg/security/auth_test.go:230:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:244:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:251:12: undefined: SecurityConfig
+pkg/security/auth_test.go:265:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:279:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:311:12: undefined: SecurityConfig
+pkg/security/auth_test.go:331:18: undefined: AuthorizationConfig
+pkg/security/auth_test.go:352:26: undefined: NewSecurityManager
+pkg/security/auth_test.go:4:2: too many errors
+# ssw-logs-capture/pkg/validation [ssw-logs-capture/pkg/validation.test]
+pkg/validation/timestamp_validator_test.go:17:3: unknown field MaxPastHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:18:3: unknown field MaxFutureHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:19:3: unknown field Timezone in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:20:3: unknown field OnInvalidAction in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:21:3: unknown field SupportedFormats in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:22:3: unknown field ClampToCurrentTime in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:28:53: cannot use ctx (variable of interface type context.Context) as *dlq.DeadLetterQueue value in argument to NewTimestampValidator
+pkg/validation/timestamp_validator_test.go:38:3: unknown field MaxPastHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:39:3: unknown field MaxFutureHours in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:40:3: unknown field Timezone in struct literal of type Config
+pkg/validation/timestamp_validator_test.go:40:3: too many errors
+# ssw-logs-capture/tests [ssw-logs-capture/tests.test]
+tests/goroutine_leak_test.go:21:2: declared and not used: ctx
+# ssw-logs-capture/tests/integration [ssw-logs-capture/tests/integration.test]
+tests/integration/kafka_test.go:5:2: "encoding/json" imported and not used
+tests/integration/kafka_test.go:10:2: "ssw-logs-capture/internal/metrics" imported and not used
+tests/integration/kafka_test.go:15:2: "github.com/IBM/sarama" imported and not used
+tests/integration/kafka_test.go:314:11: cannot use types.AuthConfig{…} (value of struct type "ssw-logs-capture/pkg/types".AuthConfig) as "ssw-logs-capture/pkg/types".KafkaAuthConfig value in struct literal
+tests/integration/kafka_test.go:315:6: unknown field Enabled in struct literal of type "ssw-logs-capture/pkg/types".AuthConfig
+tests/integration/kafka_test.go:316:6: unknown field Mechanism in struct literal of type "ssw-logs-capture/pkg/types".AuthConfig
+tests/integration/kafka_test.go:408:21: undefined: types.DLQConfig
+tests/integration/kafka_test.go:417:26: assignment mismatch: 2 variables but dlq.NewDeadLetterQueue returns 1 value
+tests/integration/kafka_test.go:430:20: undefined: types.DLQIntegrationConfig
+=== RUN   TestCPUProfile_Sustained
+    cpu_test.go:78: Starting CPU profiling for 30s at 10000 logs/sec...
+    cpu_test.go:105: [5s] Sent 50000 logs (9897 logs/sec)
+    cpu_test.go:105: [10s] Sent 100000 logs (9943 logs/sec)
+    cpu_test.go:105: [15s] Sent 150000 logs (9965 logs/sec)
+    cpu_test.go:105: [20s] Sent 200000 logs (9972 logs/sec)
+    cpu_test.go:105: [25s] Sent 250000 logs (9978 logs/sec)
+    cpu_test.go:123: 
+        CPU Profiling Results:
+    cpu_test.go:124:   Duration: 32.059356149s
+    cpu_test.go:125:   Logs Sent: 300000
+    cpu_test.go:126:   Logs Processed: 300000
+    cpu_test.go:127:   Throughput: 9358 logs/sec
+    cpu_test.go:128:   CPU Profile: /tmp/log-capturer-cpu.prof
+    cpu_test.go:129: 
+        To analyze CPU profile, run:
+    cpu_test.go:130:   go tool pprof /tmp/log-capturer-cpu.prof
+    cpu_test.go:131:   (pprof) top10
+    cpu_test.go:132:   (pprof) list <function_name>
+--- PASS: TestCPUProfile_Sustained (32.07s)
+=== RUN   TestLatency_EndToEnd
+    latency_test.go:139: Sending 10000 logs...
+    latency_test.go:159: Waiting for processing to complete...
+    latency_test.go:165: 
+        End-to-End Latency Statistics:
+    latency_test.go:166:   Samples: 10000
+    latency_test.go:167:   Min: 197.336µs
+    latency_test.go:168:   Max: 11.77496ms
+    latency_test.go:169:   Avg: 2.710921ms
+    latency_test.go:170:   P50: 1.925312ms
+    latency_test.go:171:   P90: 6.494184ms
+    latency_test.go:172:   P95: 7.814468ms
+    latency_test.go:173:   P99: 9.271517ms
+    latency_test.go:179: ✓ P99 latency (9.271517ms) meets SLO (< 500ms)
+    latency_test.go:186: ✓ P95 latency (7.814468ms) meets target (< 200ms)
+--- PASS: TestLatency_EndToEnd (2.09s)
+=== RUN   TestLatency_UnderLoad
+    latency_test.go:225: Starting latency test under load for 1m0s at 5000 logs/sec...
+    latency_test.go:256: [10s] P50: 1.303233ms, P95: 46.904935ms, P99: 51.330044ms
+    latency_test.go:256: [20s] P50: 1.620596ms, P95: 45.668156ms, P99: 51.248123ms
+    latency_test.go:256: [30s] P50: 1.332235ms, P95: 34.879166ms, P99: 51.167272ms
+    latency_test.go:256: [40s] P50: 1.028582ms, P95: 44.034613ms, P99: 51.026571ms
+    latency_test.go:256: [50s] P50: 817.131µs, P95: 47.11943ms, P99: 51.063266ms
+    latency_test.go:272: 
+        Latency Under Load Results:
+    latency_test.go:273:   Duration: 1m0s
+    latency_test.go:274:   Target Rate: 5000 logs/sec
+    latency_test.go:275:   Samples: 300000
+    latency_test.go:276:   Min: 34.076µs
+    latency_test.go:277:   Max: 76.892877ms
+    latency_test.go:278:   Avg: 4.48511ms
+    latency_test.go:279:   P50: 728.884µs
+    latency_test.go:280:   P90: 7.685122ms
+    latency_test.go:281:   P95: 45.842323ms
+    latency_test.go:282:   P99: 51.05402ms
+    latency_test.go:288: ✓ P99 latency (51.05402ms) acceptable under load
+--- PASS: TestLatency_UnderLoad (62.07s)
+=== RUN   TestLatency_QueueSaturation
+    latency_test.go:429: Sending 5000 logs to saturate queue (size: 1000)...
+    latency_test.go:468: 
+        Queue Saturation Latency:
+    latency_test.go:469:   Avg: 1µs
+    latency_test.go:470:   P50: 392ns
+    latency_test.go:471:   P95: 1.118µs
+    latency_test.go:472:   P99: 9.456µs
+    latency_test.go:473:   Max: 430.06µs
+    latency_test.go:479: ✓ System handles saturation gracefully (max: 430.06µs)
+--- PASS: TestLatency_QueueSaturation (2.01s)
+=== RUN   TestMemoryUsage_Sustained
+    memory_test.go:54: Baseline Memory:
+    memory_test.go:55:   Alloc: 4.66 MB
+    memory_test.go:56:   TotalAlloc: 2925.38 MB
+    memory_test.go:57:   Sys: 86.59 MB
+    memory_test.go:58:   NumGC: 153
+    memory_test.go:59:   Goroutines: 7
+    memory_test.go:82: Starting sustained load test for 1m0s at 10000 logs/sec...
+    memory_test.go:101: [10s] Alloc: 6.38 MB, Sys: 86.59 MB, NumGC: 226, Goroutines: 8
+    memory_test.go:101: [20s] Alloc: 8.08 MB, Sys: 86.59 MB, NumGC: 306, Goroutines: 8
+    memory_test.go:101: [30s] Alloc: 8.47 MB, Sys: 86.59 MB, NumGC: 387, Goroutines: 8
+    memory_test.go:101: [40s] Alloc: 9.92 MB, Sys: 86.59 MB, NumGC: 463, Goroutines: 8
+    memory_test.go:101: [50s] Alloc: 10.37 MB, Sys: 86.59 MB, NumGC: 532, Goroutines: 8
+    memory_test.go:101: [60s] Alloc: 9.90 MB, Sys: 86.59 MB, NumGC: 612, Goroutines: 8
+    memory_test.go:130: 
+        Final Memory:
+    memory_test.go:131:   Alloc: 4.72 MB
+    memory_test.go:132:   TotalAlloc: 5716.57 MB
+    memory_test.go:133:   Sys: 86.59 MB
+    memory_test.go:134:   NumGC: 614
+    memory_test.go:135:   Goroutines: 7
+    memory_test.go:141: 
+        Memory Delta:
+    memory_test.go:142:   Alloc Diff: 0.06 MB
+    memory_test.go:143:   Goroutine Diff: -146
+    memory_test.go:162: ✓ Memory usage is stable (diff: 0.06 MB)
+    memory_test.go:166: 
+        Processed 600000 logs in 1m0s (10000 logs/sec)
+--- PASS: TestMemoryUsage_Sustained (62.23s)
+=== RUN   TestMemoryLeak_GoroutineCleanup
+    memory_test.go:266: Initial goroutines: 2
+    memory_test.go:306: Final goroutines: 2
+    memory_test.go:314: ✓ No significant goroutine leak (diff: 0)
+--- PASS: TestMemoryLeak_GoroutineCleanup (1.31s)
+PASS
+ok  	ssw-logs-capture/benchmarks	161.781s
+?   	ssw-logs-capture/cmd	[no test files]
+=== RUN   TestAppCreation
+Loaded configuration from file: /tmp/TestAppCreation3431739638/001/test_config.yaml
+⚙ Default configurations enabled - applying defaults for missing values
+DEBUG: Server config - Enabled: false, Host: 0.0.0.0, Port: 8401
+No file pipeline configured, using defaults from files_config
+✓ Configuration validation passed
+{"level":"info","msg":"Server configuration loaded","server_enabled":false,"server_host":"0.0.0.0","server_port":8401,"time":"2025-11-07T19:30:07-03:00"}
+    app_test.go:63: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/app/app_test.go:63
+        	Error:      	Received unexpected error:
+        	            	failed to initialize components: failed to create log processor: failed to load pipelines: failed to read pipeline config file: open pipelines.yaml: no such file or directory
+        	Test:       	TestAppCreation
+    app_test.go:64: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/app/app_test.go:64
+        	Error:      	Expected value not to be nil.
+        	Test:       	TestAppCreation
+--- FAIL: TestAppCreation (0.00s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0xe846be]
+
+goroutine 25 [running]:
+testing.tRunner.func1.2({0x100e1a0, 0x1b4b240})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x35e
+panic({0x100e1a0?, 0x1b4b240?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+ssw-logs-capture/internal/app.TestAppCreation(0xc000187500)
+	/home/mateus/log_capturer_go/internal/app/app_test.go:65 +0x13e
+testing.tRunner(0xc000187500, 0x1210be0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x413
+FAIL	ssw-logs-capture/internal/app	0.018s
+=== RUN   TestDefaultConfigsEnabled
+⚙ Default configurations enabled - applying defaults for missing values
+--- PASS: TestDefaultConfigsEnabled (0.00s)
+=== RUN   TestDefaultConfigsDisabled
+⚙ Default configurations disabled - using only explicitly configured values
+--- PASS: TestDefaultConfigsDisabled (0.00s)
+=== RUN   TestDefaultConfigsNil
+⚙ Default configurations enabled - applying defaults for missing values
+--- PASS: TestDefaultConfigsNil (0.00s)
+=== RUN   TestDefaultConfigsEnvironmentOverride
+⚙ Default configurations disabled - using only explicitly configured values
+--- PASS: TestDefaultConfigsEnvironmentOverride (0.00s)
+=== RUN   TestFilesConfigExplicitlyEmpty
+⚙ Default configurations enabled - applying defaults for missing values
+--- PASS: TestFilesConfigExplicitlyEmpty (0.00s)
+=== RUN   TestFilesConfigNotMentioned
+⚙ Default configurations enabled - applying defaults for missing values
+--- PASS: TestFilesConfigNotMentioned (0.00s)
+=== RUN   TestMarkConfigAsLoaded
+--- PASS: TestMarkConfigAsLoaded (0.00s)
+=== RUN   TestMarkConfigAsLoaded_NoFilesConfig
+--- PASS: TestMarkConfigAsLoaded_NoFilesConfig (0.00s)
+=== RUN   TestValidConfigPasses
+--- PASS: TestValidConfigPasses (0.00s)
+=== RUN   TestInvalidServerPort
+=== RUN   TestInvalidServerPort/zero_port
+=== RUN   TestInvalidServerPort/negative_port
+=== RUN   TestInvalidServerPort/port_too_large
+=== RUN   TestInvalidServerPort/port_too_large_2
+--- PASS: TestInvalidServerPort (0.00s)
+    --- PASS: TestInvalidServerPort/zero_port (0.00s)
+    --- PASS: TestInvalidServerPort/negative_port (0.00s)
+    --- PASS: TestInvalidServerPort/port_too_large (0.00s)
+    --- PASS: TestInvalidServerPort/port_too_large_2 (0.00s)
+=== RUN   TestInvalidLokiURL
+--- PASS: TestInvalidLokiURL (0.00s)
+=== RUN   TestNoSinksEnabled
+--- PASS: TestNoSinksEnabled (0.00s)
+=== RUN   TestPortConflict
+--- PASS: TestPortConflict (0.00s)
+=== RUN   TestInvalidLogLevel
+--- PASS: TestInvalidLogLevel (0.00s)
+=== RUN   TestDispatcherLimits
+=== RUN   TestDispatcherLimits/zero_queue
+=== RUN   TestDispatcherLimits/zero_workers
+=== RUN   TestDispatcherLimits/zero_batch
+=== RUN   TestDispatcherLimits/queue_too_large
+=== RUN   TestDispatcherLimits/workers_too_many
+=== RUN   TestDispatcherLimits/valid_config
+--- PASS: TestDispatcherLimits (0.00s)
+    --- PASS: TestDispatcherLimits/zero_queue (0.00s)
+    --- PASS: TestDispatcherLimits/zero_workers (0.00s)
+    --- PASS: TestDispatcherLimits/zero_batch (0.00s)
+    --- PASS: TestDispatcherLimits/queue_too_large (0.00s)
+    --- PASS: TestDispatcherLimits/workers_too_many (0.00s)
+    --- PASS: TestDispatcherLimits/valid_config (0.00s)
+=== RUN   TestInvalidDuration
+--- PASS: TestInvalidDuration (0.00s)
+=== RUN   TestRelativePathRejected
+--- PASS: TestRelativePathRejected (0.00s)
+PASS
+ok  	ssw-logs-capture/internal/config	0.002s
+=== RUN   TestNewBatchProcessor
+--- PASS: TestNewBatchProcessor (0.00s)
+=== RUN   TestBatchProcessor_CollectBatch_BatchSize
+--- PASS: TestBatchProcessor_CollectBatch_BatchSize (0.00s)
+=== RUN   TestBatchProcessor_CollectBatch_Timeout
+--- PASS: TestBatchProcessor_CollectBatch_Timeout (0.10s)
+=== RUN   TestBatchProcessor_CollectBatch_ContextCancellation
+--- PASS: TestBatchProcessor_CollectBatch_ContextCancellation (0.00s)
+=== RUN   TestBatchProcessor_CollectBatch_EmptyQueue
+--- PASS: TestBatchProcessor_CollectBatch_EmptyQueue (0.05s)
+=== RUN   TestBatchProcessor_ProcessBatch_Success
+--- PASS: TestBatchProcessor_ProcessBatch_Success (0.00s)
+=== RUN   TestBatchProcessor_ProcessBatch_EmptyBatch
+--- PASS: TestBatchProcessor_ProcessBatch_EmptyBatch (0.00s)
+=== RUN   TestBatchProcessor_ProcessBatch_ErrorHandling
+time="2025-11-07T19:30:07-03:00" level=error msg="Failed to send batch to sink" error="sink error"
+--- PASS: TestBatchProcessor_ProcessBatch_ErrorHandling (0.00s)
+=== RUN   TestBatchProcessor_ProcessBatch_MultiSink
+--- PASS: TestBatchProcessor_ProcessBatch_MultiSink (0.00s)
+=== RUN   TestBatchProcessor_ProcessBatch_PartialSuccess
+time="2025-11-07T19:30:07-03:00" level=error msg="Failed to send batch to sink" error="sink2 error"
+--- PASS: TestBatchProcessor_ProcessBatch_PartialSuccess (0.00s)
+=== RUN   TestBatchProcessor_ValidateBatch
+=== RUN   TestBatchProcessor_ValidateBatch/empty_batch
+=== RUN   TestBatchProcessor_ValidateBatch/valid_batch
+=== RUN   TestBatchProcessor_ValidateBatch/batch_at_limit
+=== RUN   TestBatchProcessor_ValidateBatch/batch_exceeds_limit
+--- PASS: TestBatchProcessor_ValidateBatch (0.00s)
+    --- PASS: TestBatchProcessor_ValidateBatch/empty_batch (0.00s)
+    --- PASS: TestBatchProcessor_ValidateBatch/valid_batch (0.00s)
+    --- PASS: TestBatchProcessor_ValidateBatch/batch_at_limit (0.00s)
+    --- PASS: TestBatchProcessor_ValidateBatch/batch_exceeds_limit (0.00s)
+=== RUN   TestBatchProcessor_DeepCopyBatch
+--- PASS: TestBatchProcessor_DeepCopyBatch (0.00s)
+=== RUN   TestBatchProcessor_DeepCopyEntries
+--- PASS: TestBatchProcessor_DeepCopyEntries (0.00s)
+=== RUN   TestDispatcherBatchRaceCondition
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:60: Handle error (expected during load): dispatcher queue full
+    dispatcher_race_test.go:70: ✓ No race conditions detected with 10 concurrent goroutines
+--- PASS: TestDispatcherBatchRaceCondition (0.53s)
+=== RUN   TestDispatcherCreation
+--- PASS: TestDispatcherCreation (0.00s)
+=== RUN   TestDispatcherStartStop
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting dispatcher" batch_size=5 deduplication_enabled=false dlq_enabled=false queue_size=100 workers=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherStartStop (0.00s)
+=== RUN   TestDispatcherHandleLogEntry
+time="2025-11-07T19:30:08-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting dispatcher" batch_size=1 deduplication_enabled=false dlq_enabled=false queue_size=100 workers=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherHandleLogEntry (0.20s)
+=== RUN   TestDispatcherBatching
+time="2025-11-07T19:30:08-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting dispatcher" batch_size=3 deduplication_enabled=false dlq_enabled=false queue_size=100 workers=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:08-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherBatching (0.20s)
+=== RUN   TestDispatcherDeduplication
+time="2025-11-07T19:30:08-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting dispatcher" batch_size=10 deduplication_enabled=true dlq_enabled=false queue_size=100 workers=1
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting deduplication manager" cleanup_interval=10m0s hash_algorithm=xxhash include_source_id=false include_timestamp=false max_cache_size=100000 ttl=1h0m0s
+time="2025-11-07T19:30:08-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:09-03:00" level=info msg="Stopping deduplication manager"
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherDeduplication (0.20s)
+=== RUN   TestDispatcherStats
+--- PASS: TestDispatcherStats (0.00s)
+=== RUN   TestDispatcherConcurrency
+time="2025-11-07T19:30:09-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-07T19:30:09-03:00" level=info msg="Starting dispatcher" batch_size=10 deduplication_enabled=false dlq_enabled=false queue_size=1000 workers=4
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker started" worker_id=1
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker started" worker_id=2
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker started" worker_id=3
+time="2025-11-07T19:30:09-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=2
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=3
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=1
+time="2025-11-07T19:30:09-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherConcurrency (0.50s)
+=== RUN   TestDispatcherErrorHandling
+time="2025-11-07T19:30:09-03:00" level=info msg="Sink added to dispatcher" sink_count=1
+time="2025-11-07T19:30:09-03:00" level=info msg="Starting dispatcher" batch_size=1 deduplication_enabled=false dlq_enabled=false queue_size=100 workers=1
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker started" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=error msg="Failed to send batch to sink" error="assert.AnError general error for testing"
+time="2025-11-07T19:30:09-03:00" level=warning msg="Circuit breaker triggered - all sinks failed, sending to DLQ" batch_size=1
+time="2025-11-07T19:30:09-03:00" level=info msg="Stopping dispatcher"
+time="2025-11-07T19:30:09-03:00" level=info msg="Dispatcher worker stopped" worker_id=0
+time="2025-11-07T19:30:09-03:00" level=info msg="All dispatcher goroutines stopped cleanly"
+--- PASS: TestDispatcherErrorHandling (0.30s)
+=== RUN   TestNewRetryManager
+--- PASS: TestNewRetryManager (0.00s)
+=== RUN   TestRetryManager_HandleFailedBatch_BelowMaxRetries
+--- PASS: TestRetryManager_HandleFailedBatch_BelowMaxRetries (0.10s)
+=== RUN   TestRetryManager_HandleFailedBatch_ExceedsMaxRetries
+--- PASS: TestRetryManager_HandleFailedBatch_ExceedsMaxRetries (0.05s)
+=== RUN   TestRetryManager_ScheduleRetry_WithExponentialBackoff
+=== RUN   TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x01
+=== RUN   TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x02
+=== RUN   TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x03
+--- PASS: TestRetryManager_ScheduleRetry_WithExponentialBackoff (0.06s)
+    --- PASS: TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x01 (0.01s)
+    --- PASS: TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x02 (0.02s)
+    --- PASS: TestRetryManager_ScheduleRetry_WithExponentialBackoff/\x03 (0.03s)
+=== RUN   TestRetryManager_SemaphoreLimit
+--- PASS: TestRetryManager_SemaphoreLimit (0.10s)
+=== RUN   TestRetryManager_Stop_GracefulShutdown
+--- PASS: TestRetryManager_Stop_GracefulShutdown (0.00s)
+=== RUN   TestRetryManager_HandleCircuitBreaker
+--- PASS: TestRetryManager_HandleCircuitBreaker (0.05s)
+=== RUN   TestRetryManager_GetRetryStats
+--- PASS: TestRetryManager_GetRetryStats (0.05s)
+=== RUN   TestRetryManager_ConcurrentRetries
+--- PASS: TestRetryManager_ConcurrentRetries (0.20s)
+=== RUN   TestNewStatsCollector
+--- PASS: TestNewStatsCollector (0.00s)
+=== RUN   TestStatsCollector_UpdateStats
+--- PASS: TestStatsCollector_UpdateStats (0.00s)
+=== RUN   TestStatsCollector_GetStats
+--- PASS: TestStatsCollector_GetStats (0.00s)
+=== RUN   TestStatsCollector_ConcurrentUpdates
+--- PASS: TestStatsCollector_ConcurrentUpdates (0.00s)
+=== RUN   TestStatsCollector_IncrementProcessed
+--- PASS: TestStatsCollector_IncrementProcessed (0.00s)
+=== RUN   TestStatsCollector_IncrementErrors
+--- PASS: TestStatsCollector_IncrementErrors (0.00s)
+=== RUN   TestStatsCollector_IncrementThrottled
+--- PASS: TestStatsCollector_IncrementThrottled (0.00s)
+=== RUN   TestStatsCollector_UpdateQueueSize
+--- PASS: TestStatsCollector_UpdateQueueSize (0.00s)
+=== RUN   TestStatsCollector_UpdateSinkDistribution
+--- PASS: TestStatsCollector_UpdateSinkDistribution (0.00s)
+=== RUN   TestStatsCollector_RunStatsUpdater
+--- PASS: TestStatsCollector_RunStatsUpdater (0.50s)
+=== RUN   TestStatsCollector_RunStatsUpdater_HighRetryUtilization
+--- PASS: TestStatsCollector_RunStatsUpdater_HighRetryUtilization (0.20s)
+=== RUN   TestStatsCollector_UpdateBackpressureMetrics
+--- PASS: TestStatsCollector_UpdateBackpressureMetrics (0.00s)
+=== RUN   TestStatsCollector_UpdateBackpressureMetrics_NilManager
+--- PASS: TestStatsCollector_UpdateBackpressureMetrics_NilManager (0.00s)
+=== RUN   TestStatsCollector_Stop_ContextCancellation
+--- PASS: TestStatsCollector_Stop_ContextCancellation (0.05s)
+PASS
+ok  	ssw-logs-capture/internal/dispatcher	3.482s
+=== RUN   TestDefaultHTTPClientConfig
+--- PASS: TestDefaultHTTPClientConfig (0.00s)
+=== RUN   TestNewHTTPDockerClient
+--- PASS: TestNewHTTPDockerClient (0.00s)
+=== RUN   TestHTTPDockerClient_IsHealthy
+--- PASS: TestHTTPDockerClient_IsHealthy (0.00s)
+=== RUN   TestHTTPDockerClient_IncrementCounters
+--- PASS: TestHTTPDockerClient_IncrementCounters (0.00s)
+=== RUN   TestHTTPDockerClient_UpdateConnectionMetrics
+--- PASS: TestHTTPDockerClient_UpdateConnectionMetrics (0.00s)
+=== RUN   TestHTTPDockerClient_CloseIdleConnections
+--- PASS: TestHTTPDockerClient_CloseIdleConnections (0.00s)
+=== RUN   TestHTTPDockerClient_Stats
+--- PASS: TestHTTPDockerClient_Stats (0.00s)
+=== RUN   TestHTTPDockerClient_Close
+--- PASS: TestHTTPDockerClient_Close (0.00s)
+=== RUN   TestHTTPDockerClient_HealthCheck
+--- PASS: TestHTTPDockerClient_HealthCheck (0.00s)
+=== RUN   TestGetGlobalHTTPDockerClient
+--- PASS: TestGetGlobalHTTPDockerClient (0.00s)
+=== RUN   TestHTTPDockerClient_CustomConfig
+--- PASS: TestHTTPDockerClient_CustomConfig (0.00s)
+=== RUN   TestHTTPDockerClient_ConcurrentAccess
+--- PASS: TestHTTPDockerClient_ConcurrentAccess (0.00s)
+PASS
+ok  	ssw-logs-capture/internal/docker	0.014s
+?   	ssw-logs-capture/internal/metrics	[no test files]
+=== RUN   TestStreamPool_AcquireRelease
+--- PASS: TestStreamPool_AcquireRelease (0.00s)
+=== RUN   TestStreamPool_Capacity
+--- PASS: TestStreamPool_Capacity (0.00s)
+=== RUN   TestStreamPool_Concurrent
+--- PASS: TestStreamPool_Concurrent (0.00s)
+=== RUN   TestStreamPool_UpdateActivity
+--- PASS: TestStreamPool_UpdateActivity (0.01s)
+=== RUN   TestStreamPool_ReleaseNonExistent
+--- PASS: TestStreamPool_ReleaseNonExistent (0.00s)
+=== RUN   TestStreamRotation_ContextTimeout
+--- PASS: TestStreamRotation_ContextTimeout (0.10s)
+=== RUN   TestStreamRotation_PositionPreservation
+--- PASS: TestStreamRotation_PositionPreservation (0.01s)
+=== RUN   TestStreamRotation_MetricsTracking
+--- PASS: TestStreamRotation_MetricsTracking (0.00s)
+=== RUN   TestStreamRotation_ErrorHandling
+=== RUN   TestStreamRotation_ErrorHandling/DeadlineExceeded
+=== RUN   TestStreamRotation_ErrorHandling/Canceled
+=== RUN   TestStreamRotation_ErrorHandling/OtherError
+--- PASS: TestStreamRotation_ErrorHandling (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/DeadlineExceeded (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/Canceled (0.00s)
+    --- PASS: TestStreamRotation_ErrorHandling/OtherError (0.00s)
+=== RUN   TestStreamPool_ZeroCapacity
+--- PASS: TestStreamPool_ZeroCapacity (0.00s)
+=== RUN   TestStreamPool_LargeCapacity
+--- PASS: TestStreamPool_LargeCapacity (0.00s)
+=== RUN   TestStreamPool_ReleaseAndReacquire
+--- PASS: TestStreamPool_ReleaseAndReacquire (0.00s)
+=== RUN   TestNewManagedDockerStream
+--- PASS: TestNewManagedDockerStream (0.00s)
+=== RUN   TestManagedDockerStream_Read
+--- PASS: TestManagedDockerStream_Read (0.00s)
+=== RUN   TestManagedDockerStream_ReadAfterClose
+--- PASS: TestManagedDockerStream_ReadAfterClose (0.00s)
+=== RUN   TestManagedDockerStream_Close
+--- PASS: TestManagedDockerStream_Close (0.00s)
+=== RUN   TestManagedDockerStream_CloseIdempotent
+--- PASS: TestManagedDockerStream_CloseIdempotent (0.00s)
+=== RUN   TestManagedDockerStream_CloseWithError
+time="2025-11-07T19:30:07-03:00" level=warning msg="Failed to close Docker stream" container_id=container123 container_name=test-container error="stream close error"
+--- PASS: TestManagedDockerStream_CloseWithError (0.00s)
+=== RUN   TestManagedDockerStream_CloseWithHTTPError
+time="2025-11-07T19:30:07-03:00" level=warning msg="Failed to close HTTP response body" container_id=container123 container_name=test-container error="http close error"
+--- PASS: TestManagedDockerStream_CloseWithHTTPError (0.00s)
+=== RUN   TestManagedDockerStream_Age
+--- PASS: TestManagedDockerStream_Age (0.10s)
+=== RUN   TestManagedDockerStream_AgeAfterClose
+--- PASS: TestManagedDockerStream_AgeAfterClose (0.20s)
+=== RUN   TestManagedDockerStream_Stats
+--- PASS: TestManagedDockerStream_Stats (0.00s)
+=== RUN   TestManagedDockerStream_ConcurrentAccess
+--- PASS: TestManagedDockerStream_ConcurrentAccess (0.00s)
+=== RUN   TestExtractHTTPResponse
+=== RUN   TestExtractHTTPResponse/nil_stream
+=== RUN   TestExtractHTTPResponse/stream_without_HTTP_response
+=== RUN   TestExtractHTTPResponse/http.Response_type
+--- PASS: TestExtractHTTPResponse (0.00s)
+    --- PASS: TestExtractHTTPResponse/nil_stream (0.00s)
+    --- PASS: TestExtractHTTPResponse/stream_without_HTTP_response (0.00s)
+    --- PASS: TestExtractHTTPResponse/http.Response_type (0.00s)
+PASS
+ok  	ssw-logs-capture/internal/monitors	0.435s
+?   	ssw-logs-capture/internal/processing	[no test files]
+=== RUN   TestKafkaSinkConfiguration
+=== RUN   TestKafkaSinkConfiguration/valid_configuration
+=== RUN   TestKafkaSinkConfiguration/empty_brokers_list
+=== RUN   TestKafkaSinkConfiguration/invalid_queue_size
+    kafka_sink_test.go:84: 
+        	Error Trace:	/home/mateus/log_capturer_go/internal/sinks/kafka_sink_test.go:84
+        	Error:      	An error is expected but got nil.
+        	Test:       	TestKafkaSinkConfiguration/invalid_queue_size
+--- FAIL: TestKafkaSinkConfiguration (0.03s)
+    --- PASS: TestKafkaSinkConfiguration/valid_configuration (0.02s)
+    --- PASS: TestKafkaSinkConfiguration/empty_brokers_list (0.00s)
+    --- FAIL: TestKafkaSinkConfiguration/invalid_queue_size (0.01s)
+panic: runtime error: invalid memory address or nil pointer dereference [recovered]
+	panic: runtime error: invalid memory address or nil pointer dereference
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x18 pc=0x936283]
+
+goroutine 13 [running]:
+testing.tRunner.func1.2({0xa1b820, 0xfde440})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x35e
+panic({0xa1b820?, 0xfde440?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+ssw-logs-capture/internal/sinks.TestKafkaSinkConfiguration.func1(0xc0001eb180)
+	/home/mateus/log_capturer_go/internal/sinks/kafka_sink_test.go:86 +0x183
+testing.tRunner(0xc0001eb180, 0xc00003d9a0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 19
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x413
+FAIL	ssw-logs-capture/internal/sinks	0.043s
+=== RUN   TestAnomalyDetectorStartStop
+    detector_test.go:51: ✓ Detector stopped successfully without hanging
+--- PASS: TestAnomalyDetectorStartStop (0.10s)
+=== RUN   TestAnomalyDetectorContextCancellation
+    detector_test.go:105: ✓ Context properly canceled after Stop()
+--- PASS: TestAnomalyDetectorContextCancellation (0.00s)
+=== RUN   TestAnomalyDetectorGoroutineCleanup
+    detector_test.go:167: ✓ No goroutine leak detected (initial: 2, final: 2, diff: 0)
+--- PASS: TestAnomalyDetectorGoroutineCleanup (0.36s)
+=== RUN   TestAnomalyDetectorMultipleStartStop
+    detector_test.go:192: Cycle 1: Starting detector
+    detector_test.go:201: Cycle 1: Stopping detector
+    detector_test.go:214: ✓ Cycle 1: Stopped successfully
+    detector_test.go:192: Cycle 2: Starting detector
+    detector_test.go:201: Cycle 2: Stopping detector
+    detector_test.go:214: ✓ Cycle 2: Stopped successfully
+    detector_test.go:192: Cycle 3: Starting detector
+    detector_test.go:201: Cycle 3: Stopping detector
+    detector_test.go:214: ✓ Cycle 3: Stopped successfully
+    detector_test.go:228: ✓ Multiple Start/Stop cycles completed without hanging
+--- PASS: TestAnomalyDetectorMultipleStartStop (0.45s)
+=== RUN   TestAnomalyDetectorDisabledNoLeak
+    detector_test.go:263: ✓ Disabled detector Stop() doesn't hang
+--- PASS: TestAnomalyDetectorDisabledNoLeak (0.00s)
+=== RUN   TestAnomalyDetectorStopWithTimeout
+    detector_test.go:315: ✓ Stop completed in 10.773µs (well under 5s timeout)
+--- PASS: TestAnomalyDetectorStopWithTimeout (0.05s)
+=== RUN   TestAnomalyDetectorConcurrentStops
+    detector_test.go:368: ✓ All 5 concurrent Stop() calls completed
+--- PASS: TestAnomalyDetectorConcurrentStops (0.15s)
+=== RUN   TestTrainingBufferSizeLimit
+    detector_test.go:426: ✓ Buffer size correctly limited to 100 after adding 300 entries
+--- PASS: TestTrainingBufferSizeLimit (0.01s)
+=== RUN   TestTrainingBufferMemoryReallocate
+    detector_test.go:478: ✓ Buffer properly reallocated: len=50, cap=50 (ratio: 1.00x)
+--- PASS: TestTrainingBufferMemoryReallocate (0.01s)
+=== RUN   TestTrainingBufferConcurrentAccess
+    detector_test.go:539: ✓ Concurrent access safe: 10 goroutines added 50 entries each, final size: 100
+--- PASS: TestTrainingBufferConcurrentAccess (0.03s)
+=== RUN   TestTrainingBufferOldestEntriesRemoved
+    detector_test.go:602: ✓ Oldest entries correctly removed: first_id=10, last_id=19, count=10
+--- PASS: TestTrainingBufferOldestEntriesRemoved (0.02s)
+PASS
+ok  	ssw-logs-capture/pkg/anomaly	(cached)
+?   	ssw-logs-capture/pkg/backpressure	[no test files]
+?   	ssw-logs-capture/pkg/batching	[no test files]
+?   	ssw-logs-capture/pkg/buffer	[no test files]
+=== RUN   TestCircuitBreakerBasicOperation
+--- PASS: TestCircuitBreakerBasicOperation (0.00s)
+=== RUN   TestCircuitBreakerOpensAfterFailures
+--- PASS: TestCircuitBreakerOpensAfterFailures (0.00s)
+=== RUN   TestCircuitBreakerHalfOpenTransition
+--- PASS: TestCircuitBreakerHalfOpenTransition (0.06s)
+=== RUN   TestCircuitBreakerClosesAfterSuccesses
+--- PASS: TestCircuitBreakerClosesAfterSuccesses (0.06s)
+=== RUN   TestCircuitBreakerConcurrentExecutions
+    breaker_test.go:212: ✓ 10 concurrent calls completed in 100.660108ms (expected ~100ms)
+--- PASS: TestCircuitBreakerConcurrentExecutions (0.10s)
+=== RUN   TestCircuitBreakerHalfOpenFailureReturnsToOpen
+--- PASS: TestCircuitBreakerHalfOpenFailureReturnsToOpen (0.06s)
+=== RUN   TestCircuitBreakerHalfOpenMaxCalls
+--- PASS: TestCircuitBreakerHalfOpenMaxCalls (0.06s)
+=== RUN   TestCircuitBreakerRaceConditions
+    breaker_test.go:353: ✓ Processed 5000 requests across 50 goroutines without race conditions
+--- PASS: TestCircuitBreakerRaceConditions (0.00s)
+=== RUN   TestCircuitBreakerCallbacks
+    breaker_test.go:416: ✓ State changes: [closed->open open->half_open half_open->closed]
+--- PASS: TestCircuitBreakerCallbacks (0.06s)
+PASS
+ok  	ssw-logs-capture/pkg/circuit	(cached)
+FAIL	ssw-logs-capture/pkg/cleanup [build failed]
+?   	ssw-logs-capture/pkg/compression	[no test files]
+=== RUN   TestDeduplicationManager_NewDeduplicationManager
+--- PASS: TestDeduplicationManager_NewDeduplicationManager (0.00s)
+=== RUN   TestDeduplicationManager_IsDuplicate_NewEntry
+--- PASS: TestDeduplicationManager_IsDuplicate_NewEntry (0.00s)
+=== RUN   TestDeduplicationManager_IsDuplicate_DuplicateEntry
+--- PASS: TestDeduplicationManager_IsDuplicate_DuplicateEntry (0.00s)
+=== RUN   TestDeduplicationManager_HashAlgorithms
+=== RUN   TestDeduplicationManager_HashAlgorithms/sha256
+=== RUN   TestDeduplicationManager_HashAlgorithms/md5
+=== RUN   TestDeduplicationManager_HashAlgorithms/sha1
+--- PASS: TestDeduplicationManager_HashAlgorithms (0.00s)
+    --- PASS: TestDeduplicationManager_HashAlgorithms/sha256 (0.00s)
+    --- PASS: TestDeduplicationManager_HashAlgorithms/md5 (0.00s)
+    --- PASS: TestDeduplicationManager_HashAlgorithms/sha1 (0.00s)
+=== RUN   TestDeduplicationManager_IncludeTimestamp
+--- PASS: TestDeduplicationManager_IncludeTimestamp (0.00s)
+=== RUN   TestDeduplicationManager_IncludeSourceID
+--- PASS: TestDeduplicationManager_IncludeSourceID (0.00s)
+=== RUN   TestDeduplicationManager_TTLExpiration
+--- PASS: TestDeduplicationManager_TTLExpiration (0.15s)
+=== RUN   TestDeduplicationManager_CacheEviction
+--- PASS: TestDeduplicationManager_CacheEviction (0.00s)
+=== RUN   TestDeduplicationManager_LRUOrdering
+--- PASS: TestDeduplicationManager_LRUOrdering (0.00s)
+=== RUN   TestDeduplicationManager_GetStatistics
+--- PASS: TestDeduplicationManager_GetStatistics (0.00s)
+=== RUN   TestDeduplicationManager_CleanupExpired
+--- PASS: TestDeduplicationManager_CleanupExpired (0.10s)
+=== RUN   TestDeduplicationManager_StartStop
+time="2025-11-07T19:30:08-03:00" level=info msg="Starting deduplication manager" cleanup_interval=100ms hash_algorithm=sha256 include_source_id=false include_timestamp=false max_cache_size=1000 ttl=1s
+time="2025-11-07T19:30:08-03:00" level=info msg="Stopping deduplication manager"
+--- PASS: TestDeduplicationManager_StartStop (0.30s)
+=== RUN   TestDeduplicationManager_DefaultConfig
+--- PASS: TestDeduplicationManager_DefaultConfig (0.00s)
+=== RUN   TestDeduplicationManager_EmptyMessage
+--- PASS: TestDeduplicationManager_EmptyMessage (0.00s)
+=== RUN   TestDeduplicationManager_InvalidHashAlgorithm
+--- PASS: TestDeduplicationManager_InvalidHashAlgorithm (0.00s)
+PASS
+ok  	ssw-logs-capture/pkg/deduplication	0.561s
+?   	ssw-logs-capture/pkg/degradation	[no test files]
+?   	ssw-logs-capture/pkg/discovery	[no test files]
+=== RUN   TestDLQ_AddEntry_Success
+--- PASS: TestDLQ_AddEntry_Success (0.20s)
+=== RUN   TestDLQ_AddEntry_Concurrent
+    dead_letter_queue_test.go:148: Processed 500 entries concurrently
+--- PASS: TestDLQ_AddEntry_Concurrent (0.51s)
+=== RUN   TestDLQ_FileRotation_Basic
+    dead_letter_queue_test.go:196: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue_test.go:196
+        	Error:      	"1" is not greater than "1"
+        	Test:       	TestDLQ_FileRotation_Basic
+        	Messages:   	Should have created multiple files due to rotation
+    dead_letter_queue_test.go:199: Created 1 files, total entries: 50
+--- FAIL: TestDLQ_FileRotation_Basic (1.00s)
+=== RUN   TestDLQ_Cleanup_OldFiles
+--- PASS: TestDLQ_Cleanup_OldFiles (0.20s)
+=== RUN   TestDLQ_Reprocess_Success
+    dead_letter_queue_test.go:326: Reprocessing stats: attempts=5, successes=5, failures=0
+--- PASS: TestDLQ_Reprocess_Success (2.31s)
+=== RUN   TestDLQ_Disabled
+--- PASS: TestDLQ_Disabled (0.11s)
+=== RUN   TestDLQ_QueueFull
+    dead_letter_queue_test.go:410: Success: 6, Failed: 4
+panic: test timed out after 5m0s
+	running tests:
+		TestDLQ_QueueFull (4m56s)
+
+goroutine 13 [running]:
+testing.(*M).startAlarm.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2484 +0x394
+created by time.goFunc
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, 4 minutes]:
+testing.(*T).Run(0xc0000d2540, {0x696bc3?, 0xc0000ddb30?}, 0x6aa680)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1859 +0x431
+testing.runTests.func1(0xc0000d2540)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2279 +0x37
+testing.tRunner(0xc0000d2540, 0xc0000ddc70)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+testing.runTests(0xc000010078, {0x8b6600, 0x7, 0x7}, {0x8bf020?, 0x7?, 0x8bdea0?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2277 +0x4b4
+testing.(*M).Run(0xc00009ca00)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:2142 +0x64a
+main.main()
+	_testmain.go:57 +0x9b
+
+goroutine 136 [sync.Mutex.Lock, 4 minutes]:
+internal/sync.runtime_SemacquireMutex(0x688a20?, 0x90?, 0xc0000d9568?)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/sema.go:95 +0x25
+internal/sync.(*Mutex).lockSlow(0xc000384800)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/internal/sync/mutex.go:149 +0x15d
+internal/sync.(*Mutex).Lock(...)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/internal/sync/mutex.go:70
+sync.(*Mutex).Lock(...)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/sync/mutex.go:46
+sync.(*RWMutex).Lock(0xc00017a000?)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/sync/rwmutex.go:150 +0x31
+ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).writeEntry(_, {{0xc23bba9d1c9d5c04, 0x10293d4b4, 0x8bdea0}, {{0x0, 0x0}, {0x0, 0x0}, {0x0, 0x0}, ...}, ...})
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:396 +0x46
+ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).drainQueue(...)
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:505
+ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).Stop(0xc000384700)
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:322 +0x1e5
+ssw-logs-capture/pkg/dlq.TestDLQ_QueueFull(0xc000384540)
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue_test.go:414 +0x585
+testing.tRunner(0xc000384540, 0x6aa680)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x413
+
+goroutine 20 [sync.Mutex.Lock, 4 minutes]:
+internal/sync.runtime_SemacquireMutex(0x4415a9?, 0x90?, 0xc0000df9c0?)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/sema.go:95 +0x25
+internal/sync.(*Mutex).lockSlow(0xc000384800)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/internal/sync/mutex.go:149 +0x15d
+internal/sync.(*Mutex).Lock(...)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/internal/sync/mutex.go:70
+sync.(*Mutex).Lock(...)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/sync/mutex.go:46
+sync.(*RWMutex).Lock(0xc000218000?)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/sync/rwmutex.go:150 +0x31
+ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).writeEntry(_, {{0xc23bba9d1c9d526f, 0x10293cb21, 0x8bdea0}, {{0x0, 0x0}, {0x0, 0x0}, {0x0, 0x0}, ...}, ...})
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:396 +0x46
+ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).processingLoop(0xc000384700)
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:386 +0x185
+created by ssw-logs-capture/pkg/dlq.(*DeadLetterQueue).Start in goroutine 136
+	/home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go:277 +0x4cf
+FAIL	ssw-logs-capture/pkg/dlq	300.010s
+?   	ssw-logs-capture/pkg/docker	[no test files]
+?   	ssw-logs-capture/pkg/errors	[no test files]
+?   	ssw-logs-capture/pkg/goroutines	[no test files]
+?   	ssw-logs-capture/pkg/hotreload	[no test files]
+?   	ssw-logs-capture/pkg/leakdetection	[no test files]
+=== RUN   TestNewResourceMonitor
+--- PASS: TestNewResourceMonitor (0.00s)
+=== RUN   TestResourceMonitor_StartStop
+    resource_monitor_test.go:56: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:56
+        	Error:      	Should not be zero, but was 0
+        	Test:       	TestResourceMonitor_StartStop
+        	Messages:   	Memory should be counted
+--- FAIL: TestResourceMonitor_StartStop (0.25s)
+=== RUN   TestResourceMonitor_DisabledMonitor
+time="2025-11-07T19:30:08-03:00" level=info msg="Resource monitoring disabled"
+--- PASS: TestResourceMonitor_DisabledMonitor (0.00s)
+=== RUN   TestResourceMonitor_CollectMetrics
+--- PASS: TestResourceMonitor_CollectMetrics (0.00s)
+=== RUN   TestResourceMonitor_CalculateGrowthRate
+=== RUN   TestResourceMonitor_CalculateGrowthRate/No_growth
+=== RUN   TestResourceMonitor_CalculateGrowthRate/50%_growth
+=== RUN   TestResourceMonitor_CalculateGrowthRate/100%_growth
+=== RUN   TestResourceMonitor_CalculateGrowthRate/50%_decrease
+=== RUN   TestResourceMonitor_CalculateGrowthRate/Zero_previous
+--- PASS: TestResourceMonitor_CalculateGrowthRate (0.00s)
+    --- PASS: TestResourceMonitor_CalculateGrowthRate/No_growth (0.00s)
+    --- PASS: TestResourceMonitor_CalculateGrowthRate/50%_growth (0.00s)
+    --- PASS: TestResourceMonitor_CalculateGrowthRate/100%_growth (0.00s)
+    --- PASS: TestResourceMonitor_CalculateGrowthRate/50%_decrease (0.00s)
+    --- PASS: TestResourceMonitor_CalculateGrowthRate/Zero_previous (0.00s)
+=== RUN   TestResourceMonitor_ThresholdAlerting
+time="2025-11-07T19:30:08-03:00" level=warning msg="Goroutine count (4) exceeded threshold (1)" current_value=4 severity=critical threshold=1 type=goroutine
+time="2025-11-07T19:30:08-03:00" level=warning msg="Goroutine count (4) exceeded threshold (1)" current_value=4 severity=critical threshold=1 type=goroutine
+    resource_monitor_test.go:156: Received alert: goroutine - Goroutine count (4) exceeded threshold (1)
+--- PASS: TestResourceMonitor_ThresholdAlerting (0.20s)
+=== RUN   TestResourceMonitor_DetermineSeverity
+=== RUN   TestResourceMonitor_DetermineSeverity/Within_threshold
+=== RUN   TestResourceMonitor_DetermineSeverity/1.5x_threshold
+    resource_monitor_test.go:185: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:185
+        	Error:      	Not equal: 
+        	            	expected: "high"
+        	            	actual  : "warning"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-high
+        	            	+warning
+        	Test:       	TestResourceMonitor_DetermineSeverity/1.5x_threshold
+=== RUN   TestResourceMonitor_DetermineSeverity/2x_threshold
+    resource_monitor_test.go:185: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:185
+        	Error:      	Not equal: 
+        	            	expected: "critical"
+        	            	actual  : "high"
+        	            	
+        	            	Diff:
+        	            	--- Expected
+        	            	+++ Actual
+        	            	@@ -1 +1 @@
+        	            	-critical
+        	            	+high
+        	Test:       	TestResourceMonitor_DetermineSeverity/2x_threshold
+=== RUN   TestResourceMonitor_DetermineSeverity/3x_threshold
+--- FAIL: TestResourceMonitor_DetermineSeverity (0.00s)
+    --- PASS: TestResourceMonitor_DetermineSeverity/Within_threshold (0.00s)
+    --- FAIL: TestResourceMonitor_DetermineSeverity/1.5x_threshold (0.00s)
+    --- FAIL: TestResourceMonitor_DetermineSeverity/2x_threshold (0.00s)
+    --- PASS: TestResourceMonitor_DetermineSeverity/3x_threshold (0.00s)
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases/Both_zero
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_previous
+    resource_monitor_test.go:216: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:216
+        	Error:      	Not equal: 
+        	            	expected: 0
+        	            	actual  : -1100
+        	Test:       	TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_previous
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_current
+    resource_monitor_test.go:216: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:216
+        	Error:      	Not equal: 
+        	            	expected: -110
+        	            	actual  : -110.00000000000001
+        	Test:       	TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_current
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases/Very_large_growth
+=== RUN   TestResourceMonitor_GrowthRateCalculation_EdgeCases/Exact_doubling
+--- FAIL: TestResourceMonitor_GrowthRateCalculation_EdgeCases (0.00s)
+    --- PASS: TestResourceMonitor_GrowthRateCalculation_EdgeCases/Both_zero (0.00s)
+    --- FAIL: TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_previous (0.00s)
+    --- FAIL: TestResourceMonitor_GrowthRateCalculation_EdgeCases/Negative_current (0.00s)
+    --- PASS: TestResourceMonitor_GrowthRateCalculation_EdgeCases/Very_large_growth (0.00s)
+    --- PASS: TestResourceMonitor_GrowthRateCalculation_EdgeCases/Exact_doubling (0.00s)
+=== RUN   TestResourceMonitor_FileDescriptorMonitoring
+    resource_monitor_test.go:244: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:244
+        	Error:      	Elements should be the same type
+        	Test:       	TestResourceMonitor_FileDescriptorMonitoring
+        	Messages:   	FD count should be non-negative
+--- FAIL: TestResourceMonitor_FileDescriptorMonitoring (0.20s)
+=== RUN   TestResourceMonitor_AlertGeneration_MultipleTypes
+    resource_monitor_test.go:296: Total alert types received: 0
+--- PASS: TestResourceMonitor_AlertGeneration_MultipleTypes (0.50s)
+=== RUN   TestResourceMonitor_ConcurrentMetricsAccess
+--- PASS: TestResourceMonitor_ConcurrentMetricsAccess (0.11s)
+=== RUN   TestResourceMonitor_AlertChannel_NonBlocking
+--- PASS: TestResourceMonitor_AlertChannel_NonBlocking (0.20s)
+=== RUN   TestResourceMonitor_MetricsHistory
+--- PASS: TestResourceMonitor_MetricsHistory (0.15s)
+=== RUN   TestResourceMonitor_StopIdempotent
+--- FAIL: TestResourceMonitor_StopIdempotent (0.00s)
+panic: close of closed channel [recovered]
+	panic: close of closed channel
+
+goroutine 75 [running]:
+testing.tRunner.func1.2({0x748d00, 0x83be30})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x35e
+panic({0x748d00?, 0x83be30?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+ssw-logs-capture/pkg/monitoring.(*ResourceMonitor).Stop(0xc0001bc900)
+	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor.go:127 +0x1c5
+ssw-logs-capture/pkg/monitoring.TestResourceMonitor_StopIdempotent(0xc0000b5a40)
+	/home/mateus/log_capturer_go/pkg/monitoring/resource_monitor_test.go:418 +0x19b
+testing.tRunner(0xc0000b5a40, 0x7db890)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 1
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x413
+FAIL	ssw-logs-capture/pkg/monitoring	1.627s
+=== RUN   TestFilePositionManager_RotationDetection
+    phase1_test.go:65: Inode was reused, using manual inode change for test
+--- PASS: TestFilePositionManager_RotationDetection (0.01s)
+=== RUN   TestFilePositionManager_OffsetValidation
+--- PASS: TestFilePositionManager_OffsetValidation (0.00s)
+=== RUN   TestFilePositionManager_ConcurrentSaveAndUpdate
+--- PASS: TestFilePositionManager_ConcurrentSaveAndUpdate (0.27s)
+=== RUN   TestBufferManager_FlushOnExit
+--- PASS: TestBufferManager_FlushOnExit (0.00s)
+=== RUN   TestBufferManager_AdaptiveFlush_Updates
+--- PASS: TestBufferManager_AdaptiveFlush_Updates (0.10s)
+=== RUN   TestBufferManager_AdaptiveFlush_Timeout
+--- PASS: TestBufferManager_AdaptiveFlush_Timeout (1.50s)
+=== RUN   TestBufferManager_AdaptiveFlush_Shutdown
+--- PASS: TestBufferManager_AdaptiveFlush_Shutdown (0.00s)
+=== RUN   TestFilePositionManager_MetricsRecorded
+--- PASS: TestFilePositionManager_MetricsRecorded (0.01s)
+=== RUN   TestCheckpointManager_PeriodicCheckpoint
+time="2025-11-07T19:30:10-03:00" level=info msg="Starting checkpoint managermap[checkpoint_dir:/tmp/TestCheckpointManager_PeriodicCheckpoint4093300464/001/checkpoints interval:2s max_checkpoints:3]"
+time="2025-11-07T19:30:12-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:1 entry_count:2 filename:/tmp/TestCheckpointManager_PeriodicCheckpoint4093300464/001/checkpoints/checkpoint_2025-11-07_19-30-12.314643.json.gz size_bytes:355]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Stopping checkpoint manager<nil>"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:1 entry_count:2 filename:/tmp/TestCheckpointManager_PeriodicCheckpoint4093300464/001/checkpoints/checkpoint_2025-11-07_19-30-13.314716.json.gz size_bytes:354]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint manager stopped<nil>"
+--- PASS: TestCheckpointManager_PeriodicCheckpoint (3.00s)
+=== RUN   TestCheckpointManager_Rotation
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:0 entry_count:1 filename:/tmp/TestCheckpointManager_Rotation182290647/001/checkpoints/checkpoint_2025-11-07_19-30-13.317974.json.gz size_bytes:292]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:1 entry_count:1 filename:/tmp/TestCheckpointManager_Rotation182290647/001/checkpoints/checkpoint_2025-11-07_19-30-13.420191.json.gz size_bytes:292]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:2 entry_count:1 filename:/tmp/TestCheckpointManager_Rotation182290647/001/checkpoints/checkpoint_2025-11-07_19-30-13.522859.json.gz size_bytes:289]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:0 entry_count:1 filename:/tmp/TestCheckpointManager_Rotation182290647/001/checkpoints/checkpoint_2025-11-07_19-30-13.625573.json.gz size_bytes:293]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Cleaned up old checkpointsmap[deleted:1 kept:3]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:0 entry_count:1 filename:/tmp/TestCheckpointManager_Rotation182290647/001/checkpoints/checkpoint_2025-11-07_19-30-13.727062.json.gz size_bytes:293]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Cleaned up old checkpointsmap[deleted:1 kept:3]"
+--- PASS: TestCheckpointManager_Rotation (0.51s)
+=== RUN   TestCheckpointManager_Restore
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:2 entry_count:2 filename:/tmp/TestCheckpointManager_Restore1266072210/001/checkpoints/checkpoint_2025-11-07_19-30-13.828873.json.gz size_bytes:361]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Restoring from checkpointmap[filename:/tmp/TestCheckpointManager_Restore1266072210/001/checkpoints/checkpoint_2025-11-07_19-30-13.828873.json.gz timestamp:2025-11-07T19:30:13-03:00]"
+time="2025-11-07T19:30:13-03:00" level=info msg="Checkpoint restored successfullymap[container_positions:1 file_positions:1 filename:/tmp/TestCheckpointManager_Restore1266072210/001/checkpoints/checkpoint_2025-11-07_19-30-13.828873.json.gz]"
+--- PASS: TestCheckpointManager_Restore (0.00s)
+=== RUN   TestBackpressureDetector_HighUtilization
+time="2025-11-07T19:30:13-03:00" level=info msg="Starting backpressure detectormap[auto_flush_on_high:false check_interval:100ms critical_threshold:0 high_threshold:0.8]"
+time="2025-11-07T19:30:13-03:00" level=warning msg="Backpressure level changedmap[backpressure:0.9 current_level:critical previous_level:none queue_utilization:0.9 save_rate:0 update_rate:0]"
+time="2025-11-07T19:30:14-03:00" level=info msg="Stopping backpressure detector<nil>"
+time="2025-11-07T19:30:14-03:00" level=info msg="Backpressure detector stopped<nil>"
+--- PASS: TestBackpressureDetector_HighUtilization (0.30s)
+=== RUN   TestBackpressureDetector_FlushCallback
+time="2025-11-07T19:30:14-03:00" level=info msg="Starting backpressure detectormap[auto_flush_on_high:true check_interval:100ms critical_threshold:0.9 high_threshold:0.7]"
+time="2025-11-07T19:30:14-03:00" level=warning msg="Backpressure level changedmap[backpressure:0.95 current_level:critical previous_level:none queue_utilization:0.95 save_rate:0 update_rate:0]"
+time="2025-11-07T19:30:14-03:00" level=info msg="Stopping backpressure detector<nil>"
+time="2025-11-07T19:30:14-03:00" level=info msg="Backpressure detector stopped<nil>"
+--- PASS: TestBackpressureDetector_FlushCallback (0.50s)
+=== RUN   TestBackpressureDetector_ConcurrentAccess
+time="2025-11-07T19:30:14-03:00" level=info msg="Starting backpressure detectormap[auto_flush_on_high:false check_interval:100ms critical_threshold:0 high_threshold:0]"
+time="2025-11-07T19:30:14-03:00" level=warning msg="Backpressure level changedmap[backpressure:0.012500000000000067 current_level:critical previous_level:none queue_utilization:0 save_rate:799.3918147134478 update_rate:819.3766100812841]"
+time="2025-11-07T19:30:15-03:00" level=info msg="Stopping backpressure detector<nil>"
+time="2025-11-07T19:30:15-03:00" level=info msg="Backpressure detector stopped<nil>"
+--- PASS: TestBackpressureDetector_ConcurrentAccess (0.66s)
+=== RUN   TestRecovery_CorruptedJSON
+time="2025-11-07T19:30:15-03:00" level=info msg="Checkpoint created successfullymap[compressed:true duration_ms:2 entry_count:1 filename:/tmp/TestRecovery_CorruptedJSON1468771791/001/checkpoints/checkpoint_2025-11-07_19-30-15.297832.json.gz size_bytes:296]"
+time="2025-11-07T19:30:15-03:00" level=warning msg="Main position file corrupted, attempting recoverymap[error:invalid JSON: invalid character 'i' looking for beginning of object key string]"
+time="2025-11-07T19:30:15-03:00" level=info msg="Restoring from checkpointmap[filename:/tmp/TestRecovery_CorruptedJSON1468771791/001/checkpoints/checkpoint_2025-11-07_19-30-15.297832.json.gz timestamp:2025-11-07T19:30:15-03:00]"
+time="2025-11-07T19:30:15-03:00" level=info msg="Checkpoint restored successfullymap[container_positions:0 file_positions:1 filename:/tmp/TestRecovery_CorruptedJSON1468771791/001/checkpoints/checkpoint_2025-11-07_19-30-15.297832.json.gz]"
+time="2025-11-07T19:30:15-03:00" level=info msg="Successfully restored from checkpointmap[count:1]"
+--- PASS: TestRecovery_CorruptedJSON (0.01s)
+=== RUN   TestRecovery_BackupFallback
+time="2025-11-07T19:30:15-03:00" level=warning msg="Main position file corrupted, attempting recoverymap[error:invalid JSON: invalid character 'c' looking for beginning of value]"
+time="2025-11-07T19:30:15-03:00" level=info msg="Restored from backup filemap[count:1 generation:1]"
+--- PASS: TestRecovery_BackupFallback (0.00s)
+=== RUN   TestRecovery_FreshStart
+time="2025-11-07T19:30:15-03:00" level=warning msg="Main position file corrupted, attempting recoverymap[error:invalid JSON: invalid character 'c' looking for beginning of value]"
+time="2025-11-07T19:30:15-03:00" level=warning msg="All recovery attempts failed, starting with empty positions<nil>"
+time="2025-11-07T19:30:15-03:00" level=info msg="File positions file not found, starting fresh<nil>"
+--- PASS: TestRecovery_FreshStart (0.00s)
+=== RUN   TestHealthMetrics_PositionsByStatus
+--- PASS: TestHealthMetrics_PositionsByStatus (0.00s)
+=== RUN   TestHealthMetrics_UpdateRate
+time="2025-11-07T19:30:15-03:00" level=info msg="Starting backpressure detectormap[auto_flush_on_high:false check_interval:500ms critical_threshold:0 high_threshold:0]"
+time="2025-11-07T19:30:15-03:00" level=warning msg="Backpressure level changedmap[backpressure:0 current_level:critical previous_level:none queue_utilization:0 save_rate:0 update_rate:95.7405274691122]"
+time="2025-11-07T19:30:16-03:00" level=info msg="Stopping backpressure detector<nil>"
+time="2025-11-07T19:30:16-03:00" level=info msg="Backpressure detector stopped<nil>"
+--- PASS: TestHealthMetrics_UpdateRate (1.66s)
+=== RUN   TestHealthMetrics_MemoryUsage
+--- PASS: TestHealthMetrics_MemoryUsage (0.01s)
+PASS
+ok  	ssw-logs-capture/pkg/positions	8.580s
+?   	ssw-logs-capture/pkg/profiling	[no test files]
+?   	ssw-logs-capture/pkg/ratelimit	[no test files]
+FAIL	ssw-logs-capture/pkg/security [build failed]
+?   	ssw-logs-capture/pkg/selfguard	[no test files]
+?   	ssw-logs-capture/pkg/slo	[no test files]
+=== RUN   TestTaskManagerBasicOperation
+--- PASS: TestTaskManagerBasicOperation (0.00s)
+=== RUN   TestTaskManagerPanicRecovery
+time="2025-11-07T19:30:08-03:00" level=error msg="Task panicked" error="test panic" task_id=panic_task
+--- PASS: TestTaskManagerPanicRecovery (0.10s)
+=== RUN   TestTaskManagerConcurrentTasks
+--- PASS: TestTaskManagerConcurrentTasks (0.20s)
+=== RUN   TestTaskManagerErrorHandling
+time="2025-11-07T19:30:08-03:00" level=error msg="Task failed" error="test error" task_id=error_task
+--- PASS: TestTaskManagerErrorHandling (0.10s)
+=== RUN   TestTaskManagerRaceConditions
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=T
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=J
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=I
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=O
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=S
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=P
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=Q
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=N
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=R
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=E
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=K
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=H
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=F
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=C
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=D
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=A
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=B
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=G
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=T
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=L
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=K
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=O
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=A
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=M
+    task_manager_test.go:221: ✓ No race conditions detected in concurrent operations
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=D
+time="2025-11-07T19:30:09-03:00" level=error msg="Task failed" error="periodic error" task_id=O
+--- PASS: TestTaskManagerRaceConditions (0.01s)
+PASS
+ok  	ssw-logs-capture/pkg/task_manager	0.416s
+=== RUN   TestTracingManager_ModeSwitching
+=== RUN   TestTracingManager_ModeSwitching/mode_off
+    tracing_test.go:101: 
+        	Error Trace:	/home/mateus/log_capturer_go/pkg/tracing/tracing_test.go:101
+        	Error:      	Received unexpected error:
+        	            	failed to create trace resource: conflicting Schema URL: https://opentelemetry.io/schemas/1.37.0 and https://opentelemetry.io/schemas/1.21.0
+        	Test:       	TestTracingManager_ModeSwitching/mode_off
+        	Messages:   	Failed to create tracing manager
+=== RUN   TestTracingManager_ModeSwitching/mode_system_only
+--- FAIL: TestTracingManager_ModeSwitching (0.00s)
+    --- FAIL: TestTracingManager_ModeSwitching/mode_off (0.00s)
+    --- FAIL: TestTracingManager_ModeSwitching/mode_system_only (0.00s)
+panic: duplicate metrics collector registration attempted [recovered]
+	panic: duplicate metrics collector registration attempted
+
+goroutine 15 [running]:
+testing.tRunner.func1.2({0xc17d00, 0xc00009a8c0})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1734 +0x21c
+testing.tRunner.func1()
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1737 +0x35e
+panic({0xc17d00?, 0xc00009a8c0?})
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/runtime/panic.go:792 +0x132
+github.com/prometheus/client_golang/prometheus.(*Registry).MustRegister(0x133b1c0, {0xc00004ea30?, 0x0?, 0x0?})
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/registry.go:405 +0x65
+github.com/prometheus/client_golang/prometheus/promauto.Factory.NewGaugeVec({{0xdc9b40?, 0x133b1c0?}}, {{0x0, 0x0}, {0x0, 0x0}, {0xcbc172, 0x19}, {0xcd999d, 0x41}, ...}, ...)
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/promauto/auto.go:308 +0x163
+github.com/prometheus/client_golang/prometheus/promauto.NewGaugeVec(...)
+	/home/mateus/go/pkg/mod/github.com/prometheus/client_golang@v1.17.0/prometheus/promauto/auto.go:198
+ssw-logs-capture/pkg/tracing.NewTracingMetrics()
+	/home/mateus/log_capturer_go/pkg/tracing/metrics.go:38 +0xd2
+ssw-logs-capture/pkg/tracing.NewEnhancedTracingManager({0x1, {0xcb093d, 0xb}, {0xcb1501, 0xc}, {0xcb09ab, 0xb}, {0xcaa632, 0x4}, {0xcaa622, ...}, ...}, ...)
+	/home/mateus/log_capturer_go/pkg/tracing/tracing_enhanced.go:120 +0xf2
+ssw-logs-capture/pkg/tracing.TestTracingManager_ModeSwitching.func1(0xc0000f0540)
+	/home/mateus/log_capturer_go/pkg/tracing/tracing_test.go:100 +0xbf
+testing.tRunner(0xc0000f0540, 0xc0000347d0)
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1792 +0xf4
+created by testing.(*T).Run in goroutine 5
+	/home/mateus/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.24.9.linux-amd64/src/testing/testing.go:1851 +0x413
+FAIL	ssw-logs-capture/pkg/tracing	0.010s
+=== RUN   TestLogEntryConcurrentLabelAccess
+    types_test.go:54: ✓ No race conditions detected in concurrent label access
+--- PASS: TestLogEntryConcurrentLabelAccess (0.00s)
+=== RUN   TestLogEntryConcurrentFieldAccess
+    types_test.go:104: ✓ No race conditions detected in concurrent field access
+--- PASS: TestLogEntryConcurrentFieldAccess (0.01s)
+=== RUN   TestLogEntryConcurrentMetricAccess
+    types_test.go:145: ✓ No race conditions detected in concurrent metric access
+--- PASS: TestLogEntryConcurrentMetricAccess (0.00s)
+=== RUN   TestLogEntryDeepCopyConcurrent
+    types_test.go:217: ✓ No race conditions detected in concurrent DeepCopy operations
+--- PASS: TestLogEntryDeepCopyConcurrent (0.01s)
+=== RUN   TestLogEntryMixedConcurrentOperations
+    types_test.go:294: ✓ No race conditions detected in mixed concurrent operations
+--- PASS: TestLogEntryMixedConcurrentOperations (0.01s)
+=== RUN   TestLogEntryStressTest
+    types_test.go:354: ✓ Stress test completed successfully (3s with 50 goroutines)
+--- PASS: TestLogEntryStressTest (3.00s)
+PASS
+ok  	ssw-logs-capture/pkg/types	(cached)
+FAIL	ssw-logs-capture/pkg/validation [build failed]
+FAIL	ssw-logs-capture/tests [build failed]
+FAIL	ssw-logs-capture/tests/integration [build failed]
+=== RUN   TestLoadBaseline_10K
+    baseline_test.go:133: === BASELINE LOAD TEST: 10K logs/sec ===
+    baseline_test.go:134: Target: 10000 logs/sec for 1m0s
+    baseline_test.go:149: Starting 10 workers, each sending 1000 logs/sec
+    baseline_test.go:183: [5s] Sent: 21105, Success: 13668, Errors: 7427, Throughput: 2734 logs/sec, Mem: 2 MB, Goroutines: 32
+    baseline_test.go:183: [10s] Sent: 30331, Success: 13668, Errors: 16653, Throughput: 1367 logs/sec, Mem: 2 MB, Goroutines: 31
+    baseline_test.go:183: [15s] Sent: 38792, Success: 13668, Errors: 25114, Throughput: 911 logs/sec, Mem: 2 MB, Goroutines: 32
+    baseline_test.go:183: [20s] Sent: 46675, Success: 13668, Errors: 32997, Throughput: 683 logs/sec, Mem: 2 MB, Goroutines: 33
+    baseline_test.go:183: [25s] Sent: 54256, Success: 13668, Errors: 40578, Throughput: 547 logs/sec, Mem: 1 MB, Goroutines: 31
+    baseline_test.go:183: [30s] Sent: 61422, Success: 13668, Errors: 47744, Throughput: 456 logs/sec, Mem: 2 MB, Goroutines: 33
+    baseline_test.go:183: [35s] Sent: 69697, Success: 13668, Errors: 56019, Throughput: 391 logs/sec, Mem: 2 MB, Goroutines: 31
+    baseline_test.go:183: [40s] Sent: 77740, Success: 13668, Errors: 64062, Throughput: 342 logs/sec, Mem: 2 MB, Goroutines: 33
+    baseline_test.go:183: [45s] Sent: 86316, Success: 13668, Errors: 72638, Throughput: 304 logs/sec, Mem: 2 MB, Goroutines: 31
+    baseline_test.go:183: [50s] Sent: 95214, Success: 13668, Errors: 81536, Throughput: 273 logs/sec, Mem: 3 MB, Goroutines: 32
+    baseline_test.go:183: [55s] Sent: 103948, Success: 13668, Errors: 90270, Throughput: 249 logs/sec, Mem: 2 MB, Goroutines: 30
+    baseline_test.go:183: [1m0s] Sent: 112692, Success: 13668, Errors: 99014, Throughput: 228 logs/sec, Mem: 2 MB, Goroutines: 31
+    baseline_test.go:287: 
+        === LOAD TEST RESULTS: 10K ===
+    baseline_test.go:288: Duration: 1m0.043632415s
+    baseline_test.go:289: Target RPS: 10000 logs/sec
+    baseline_test.go:290: 
+    baseline_test.go:291: THROUGHPUT:
+    baseline_test.go:292:   Total Sent: 112704
+    baseline_test.go:293:   Total Success: 13668
+    baseline_test.go:294:   Total Errors: 99036
+    baseline_test.go:295:   Actual Throughput: 228 logs/sec
+    baseline_test.go:296:   Target Achievement: 2.3%
+    baseline_test.go:297: 
+    baseline_test.go:298: LATENCY:
+    baseline_test.go:299:   Min: 346.366µs
+    baseline_test.go:300:   Max: 6.766827ms
+    baseline_test.go:301:   Avg: 1.535482ms
+    baseline_test.go:302: 
+    baseline_test.go:303: ERROR RATE:
+    baseline_test.go:305:   Error Rate: 87.87%
+    baseline_test.go:306: 
+    baseline_test.go:310: SYSTEM:
+    baseline_test.go:311:   Final Memory: 1.82 MB
+    baseline_test.go:312:   Total Allocated: 1859.24 MB
+    baseline_test.go:313:   Goroutines: 2
+    baseline_test.go:314:   Num GC: 999
+    baseline_test.go:319: ❌ FAILED: Only achieved 2.3% of target throughput
+    baseline_test.go:327: ❌ FAILED: Error rate too high: 87.87%
+    baseline_test.go:340: ✅ SUCCESS: Good average latency: 1.535482ms
+--- FAIL: TestLoadBaseline_10K (60.05s)
+=== RUN   TestLoadBaseline_25K
+    baseline_test.go:128: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47274->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestLoadBaseline_25K (0.00s)
+=== RUN   TestLoadBaseline_50K
+    baseline_test.go:128: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47290->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestLoadBaseline_50K (0.01s)
+=== RUN   TestLoadBaseline_100K
+    baseline_test.go:128: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47298->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestLoadBaseline_100K (0.00s)
+=== RUN   TestSustainedLoad_24h
+    sustained_test.go:69: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47300->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestSustainedLoad_24h (0.01s)
+=== RUN   TestSustainedLoad_1h
+    sustained_test.go:69: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47310->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestSustainedLoad_1h (0.01s)
+=== RUN   TestSustainedLoad_10min
+    sustained_test.go:69: Server not running on localhost:8401, skipping test: Get "http://localhost:8401/health": read tcp 127.0.0.1:47312->127.0.0.1:8401: read: connection reset by peer
+--- SKIP: TestSustainedLoad_10min (0.00s)
+FAIL
+FAIL	ssw-logs-capture/tests/load	60.085s
+?   	ssw-logs-capture/tools	[no test files]
+FAIL

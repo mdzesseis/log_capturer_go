@@ -673,13 +673,35 @@ security:
 #
 tracing:
   # Enable/disable tracing subsystem
-  enabled: true
+  # TEMPORARILY DISABLED due to config structure mismatch - will fix in Phase 2
+  enabled: false
 
   # -------------------------------------------------------------------------
   # OPERATIONAL MODE (choose one)
   # -------------------------------------------------------------------------
   # Options: "off", "system-only", "hybrid", "full-e2e"
   mode: "hybrid"
+
+  # -------------------------------------------------------------------------
+  # SERVICE IDENTIFICATION
+  # -------------------------------------------------------------------------
+  service_name: "log_capturer_go"
+  service_version: "v0.2.0"
+
+  # -------------------------------------------------------------------------
+  # EXPORTER CONFIGURATION (flattened)
+  # -------------------------------------------------------------------------
+  # Exporter type: "jaeger", "otlp", "zipkin", "console"
+  exporter: "jaeger"
+
+  # Exporter endpoint
+  # Jaeger: http://jaeger:14268/api/traces
+  # OTLP HTTP: http://otel-collector:4318/v1/traces
+  # OTLP gRPC: otel-collector:4317
+  endpoint: "http://jaeger:14268/api/traces"
+
+  # Sampling rate (not used in hybrid mode, but required field)
+  sample_rate: 1.0
 
   # -------------------------------------------------------------------------
   # LOG TRACING RATE (for hybrid and full-e2e modes)
@@ -689,6 +711,10 @@ tracing:
   # - In hybrid mode, start with 0.0 and use adaptive/on-demand instead
   # - Recommended production: 0.0 (rely on adaptive and on-demand)
   log_tracing_rate: 0.0
+
+  # Batch settings
+  batch_timeout: "5s"
+  batch_size: 512
 
   # -------------------------------------------------------------------------
   # ADAPTIVE SAMPLING (hybrid mode only)
@@ -707,9 +733,6 @@ tracing:
     # Time window for latency evaluation
     window_size: "5m"
 
-    # How often to check latency and adjust sampling
-    check_interval: "30s"
-
   # -------------------------------------------------------------------------
   # ON-DEMAND TRACING CONTROL (hybrid mode only)
   # -------------------------------------------------------------------------
@@ -718,57 +741,8 @@ tracing:
   on_demand:
     enabled: true
 
-    # Maximum concurrent on-demand rules allowed
-    max_rules: 100
-
     # Default duration for rules if not specified in API call
     default_duration: "10m"
-
-  # -------------------------------------------------------------------------
-  # EXPORTER CONFIGURATION
-  # -------------------------------------------------------------------------
-  exporter:
-    # Exporter type: "jaeger", "otlp", "zipkin", "console"
-    type: "jaeger"
-
-    # Exporter endpoint
-    # Jaeger: http://jaeger:14268/api/traces
-    # OTLP HTTP: http://otel-collector:4318/v1/traces
-    # OTLP gRPC: otel-collector:4317
-    endpoint: "http://jaeger:14268/api/traces"
-
-    # OTLP specific settings (when type=otlp)
-    # insecure: true              # Use for non-TLS connections
-
-    # Batch settings
-    batch_timeout: "5s"           # Max wait before exporting batch
-    max_export_batch_size: 512    # Max spans per export batch
-    max_queue_size: 2048          # Max spans in queue before dropping
-
-    # Custom headers (optional)
-    # headers:
-    #   "authorization": "Bearer YOUR_TRACE_TOKEN"
-
-  # -------------------------------------------------------------------------
-  # SAMPLER CONFIGURATION
-  # -------------------------------------------------------------------------
-  sampler:
-    # Sampler type: "parent_based" (recommended), "ratio", "always_on", "always_off"
-    # parent_based: Respect parent trace decisions (for distributed tracing)
-    type: "parent_based"
-
-    # For ratio-based sampling (not recommended with hybrid mode):
-    # type: "ratio"
-    # ratio: 0.01              # Sample 1% of traces
-
-  # -------------------------------------------------------------------------
-  # RESOURCE ATTRIBUTES (added to all traces)
-  # -------------------------------------------------------------------------
-  resource:
-    service_name: "log_capturer_go"
-    service_version: "v0.2.0"
-    environment: "production"           # production, staging, development
-    deployment_id: "${HOSTNAME}"        # Automatically set from hostname
 
   # -------------------------------------------------------------------------
   # PERFORMANCE TUNING

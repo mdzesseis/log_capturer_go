@@ -1,0 +1,20 @@
+diff current/go.mod tidy/go.mod
+--- current/go.mod
++++ tidy/go.mod
+@@ -4,6 +4,7 @@
+ 
+ require (
+ 	github.com/IBM/sarama v1.46.3
++	github.com/cespare/xxhash/v2 v2.3.0
+ 	github.com/docker/docker v24.0.7+incompatible
+ 	github.com/fsnotify/fsnotify v1.7.0
+ 	github.com/golang/snappy v1.0.0
+@@ -29,7 +30,6 @@
+ 	github.com/Microsoft/go-winio v0.6.1 // indirect
+ 	github.com/beorn7/perks v1.0.1 // indirect
+ 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
+-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+ 	github.com/davecgh/go-spew v1.1.1 // indirect
+ 	github.com/docker/distribution v2.8.3+incompatible // indirect
+ 	github.com/docker/go-connections v0.4.0 // indirect
+

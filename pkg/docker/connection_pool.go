@@ -394,8 +394,12 @@ func (cp *ConnectionPool) performHealthCheck() {
 	copy(connections, cp.connections)
 	cp.mutex.RUnlock()
 
+	// GOROUTINE LEAK FIX: Use WaitGroup to track health check goroutines
+	var wg sync.WaitGroup
 	for _, conn := range connections {
+		wg.Add(1)
 		go func(c *PooledConnection) {
+			defer wg.Done()  // Always cleanup
 			if !cp.pingConnection(c) {
 				c.mutex.Lock()
 				c.IsHealthy = false
@@ -404,6 +408,7 @@ func (cp *ConnectionPool) performHealthCheck() {
 			}
 		}(conn)
 	}
+	wg.Wait()  // Wait for all health checks to complete
 }
 
 // pingConnection tests if a connection is responsive
