@@ -4,1522 +4,542 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
-	"ssw-logs-capture/internal/metrics"
-	"ssw-logs-capture/pkg/docker"
-	"ssw-logs-capture/pkg/positions"
-	"ssw-logs-capture/pkg/selfguard"
-	"ssw-logs-capture/pkg/types"
-	"ssw-logs-capture/pkg/validation"
-
 	dockerTypes "github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
-	"github.com/google/uuid"
+	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/sirupsen/logrus"
+
+	"ssw-logs-capture/internal/metrics"
+	"ssw-logs-capture/pkg/positions"
+	"ssw-logs-capture/pkg/types"
 )
 
-// StreamPool manages container log stream lifecycle and enforces limits
-type StreamPool struct {
-	maxStreams      int
-	activeStreams   map[string]*streamInfo
-	streamSemaphore chan struct{}
-	mu              sync.RWMutex
+// ===================================================================================
+// Solução 2 - Componente 1: O Leitor Consciente de Contexto (readerCtx)
+// ===================================================================================
+
+/*
+ * O "PORQUÊ": Esta é a peça central que nos permite desbloquear o io.Copy (ou, neste
+ * caso, stdcopy.StdCopy) de forma cooperativa. Em vez de uma chamada.Read()
+ * que bloqueia indefinidamente, este wrapper primeiro verifica se o contexto
+ * foi cancelado. Se foi, ele retorna imediatamente com context.Canceled,
+ * fazendo com que o stdcopy.StdCopy pare graciosamente. [1]
+ */
+
+// readerCtx é um wrapper io.Reader que respeita um context.Context.
+type readerCtx struct {
+	ctx context.Context
+	r   io.Reader
 }
 
-// streamInfo tracks metadata about an active stream
-type streamInfo struct {
-	containerID   string
-	containerName string
-	createdAt     time.Time
-	lastActive    time.Time
+// newContextReader cria um novo readerCtx.
+func newContextReader(ctx context.Context, r io.Reader) io.Reader {
+	return &readerCtx{ctx: ctx, r: r}
 }
 
-// NewStreamPool creates a new stream pool with the specified capacity
-func NewStreamPool(maxStreams int) *StreamPool {
-	return &StreamPool{
-		maxStreams:      maxStreams,
-		activeStreams:   make(map[string]*streamInfo),
-		streamSemaphore: make(chan struct{}, maxStreams),
-	}
-}
-
-// AcquireSlot attempts to acquire a slot in the stream pool
-func (sp *StreamPool) AcquireSlot(containerID, containerName string) error {
-	// Check if already exists (prevent double-acquire)
-	sp.mu.Lock()
-	if _, exists := sp.activeStreams[containerID]; exists {
-		sp.mu.Unlock()
-		return fmt.Errorf("container %s already has an active stream slot", containerID)
-	}
-	sp.mu.Unlock()
-
-	// Try to acquire semaphore slot
-	select {
-	case sp.streamSemaphore <- struct{}{}:
-		// Semaphore acquired, now register in map
-		sp.mu.Lock()
-		sp.activeStreams[containerID] = &streamInfo{
-			containerID:   containerID,
-			containerName: containerName,
-			createdAt:     time.Now(),
-			lastActive:    time.Now(),
-		}
-		activeCount := len(sp.activeStreams)
-		sp.mu.Unlock()
-
-		// Update metrics
-		metrics.UpdateActiveStreams(activeCount)
-		metrics.UpdateStreamPoolUtilization(activeCount, sp.maxStreams)
-		return nil
-	default:
-		return fmt.Errorf("stream pool at capacity (%d/%d)", sp.maxStreams, sp.maxStreams)
-	}
-}
-
-// ReleaseSlot releases a slot in the stream pool
-func (sp *StreamPool) ReleaseSlot(containerID string) {
-	sp.mu.Lock()
-	// Check if this container actually has a slot before releasing
-	_, exists := sp.activeStreams[containerID]
-	if !exists {
-		sp.mu.Unlock()
-		// Silent return - container was not in pool (already released or never acquired)
-		return
+// Read implementa a interface io.Reader.
+func (r *readerCtx) Read(p []byte) (n int, err error) {
+	// 1. Verifica o cancelamento ANTES de cada chamada de Read bloqueante.
+	// Se o contexto for cancelado, Read() retorna imediatamente.
+	if err := r.ctx.Err(); err != nil {
+		return 0, err // Retorna context.Canceled
 	}
 
-	// Remove from active streams
-	delete(sp.activeStreams, containerID)
-	activeCount := len(sp.activeStreams)
-	sp.mu.Unlock()
-
-	// Only release semaphore if we actually had a slot
-	<-sp.streamSemaphore
-
-	// Update metrics
-	metrics.UpdateActiveStreams(activeCount)
-	metrics.UpdateStreamPoolUtilization(activeCount, sp.maxStreams)
+	// 2. Se não foi cancelado, prossiga com a leitura bloqueante real.
+	return r.r.Read(p)
 }
 
-// UpdateActivity updates the last active time for a stream
-func (sp *StreamPool) UpdateActivity(containerID string) {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
+// ===================================================================================
+// Solução 2 - Componente 2: O Gerenciador de Logs (LogManager)
+// ===================================================================================
 
-	if info, exists := sp.activeStreams[containerID]; exists {
-		info.lastActive = time.Now()
-	}
-}
+/*
+ * O "PORQUÊ": Em vez de lógica dispersa, centralizamos o estado. Este gerenciador
+ * mantém um mapa de todas as goroutines de coleta ativas e é o único
+ * responsável por iniciá-las e pará-las. Ele usa um mutex (collectorsMux)
+ * para garantir que o mapa seja seguro para concorrência.
+ */
 
-// GetActiveCount returns the current number of active streams
-func (sp *StreamPool) GetActiveCount() int {
-	sp.mu.RLock()
-	defer sp.mu.RUnlock()
-	return len(sp.activeStreams)
-}
-
-// ContainerMonitor monitora containers Docker
+// ContainerMonitor gerencia o ciclo de vida de todas as goroutines de coleta de logs.
 type ContainerMonitor struct {
+	// Docker client
+	cli *client.Client
+
+	// Context management
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// Collector tracking
+	collectors    map[string]context.CancelFunc
+	collectorsMux sync.Mutex
+
+	// Configuration
 	config          types.DockerConfig
-	dispatcher         types.Dispatcher
-	logger             *logrus.Logger
-	taskManager        types.TaskManager
-	positionManager    *positions.PositionBufferManager
-	timestampValidator *validation.TimestampValidator
-	feedbackGuard      *selfguard.FeedbackGuard
+	timestampConfig types.TimestampValidationConfig
+	drainDuration   time.Duration
 
-	dockerPool    *docker.PoolManager
-	containers    map[string]*monitoredContainer
-	streamPool    *StreamPool
-	mutex         sync.RWMutex
+	// Dependencies (integração com sistema)
+	dispatcher      types.Dispatcher
+	taskManager     types.TaskManager
+	positionManager *positions.PositionBufferManager
+	logger          *logrus.Logger
 
-	rotationInterval time.Duration
-
-	ctx       context.Context
-	cancel    context.CancelFunc
-	isRunning bool
+	// State
+	running    bool
+	runningMux sync.RWMutex
+	wg         sync.WaitGroup
 }
 
-// monitoredContainer representa um container sendo monitorado
-type monitoredContainer struct {
-	id              string
-	name            string
-	image           string
-	labels          map[string]string
-	since           time.Time
-	stream          io.ReadCloser
-	mu              sync.Mutex     // Protects stream access
-	lastRead        time.Time
-	cancel          context.CancelFunc
-	heartbeatWg     sync.WaitGroup // Rastreia goroutine de heartbeat (vida do container)
-	readerWg        sync.WaitGroup // Rastreia goroutine de reader (vida de cada stream)
-	streamCreatedAt time.Time      // When current stream was created
-	rotationCount   int            // Number of rotations performed
-}
-
-// NewContainerMonitor cria um novo monitor de containers
-func NewContainerMonitor(config types.DockerConfig, timestampConfig types.TimestampValidationConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*ContainerMonitor, error) {
-	// Converter config para o formato do validation package
-	validationConfig := validation.Config{
-		Enabled:             timestampConfig.Enabled,
-		MaxPastAgeSeconds:   timestampConfig.MaxPastAgeSeconds,
-		MaxFutureAgeSeconds: timestampConfig.MaxFutureAgeSeconds,
-		ClampEnabled:        timestampConfig.ClampEnabled,
-		ClampDLQ:            timestampConfig.ClampDLQ,
-		InvalidAction:       timestampConfig.InvalidAction,
-		DefaultTimezone:     timestampConfig.DefaultTimezone,
-		AcceptedFormats:     timestampConfig.AcceptedFormats,
-	}
-	timestampValidator := validation.NewTimestampValidator(validationConfig, logger, nil)
-
-	// Criar feedback guard com configuração padrão
-	feedbackConfig := selfguard.Config{
-		Enabled:                  false,
-		SelfIDShort:              "log_capturer_go",
-		SelfContainerName:        "log_capturer_go",
-		SelfNamespace:            "ssw",
-		AutoDetectSelf:           true,
-		SelfLogAction:            "drop",
-		ExcludeContainerPatterns: []string{"log_capturer_go"},
-		ExcludeMessagePatterns:   []string{".*ssw-logs-capture.*"},
-	}
-	feedbackGuard := selfguard.NewFeedbackGuard(feedbackConfig, logger)
-
-	if !config.Enabled {
-		return &ContainerMonitor{
-			config:             config,
-			dispatcher:         dispatcher,
-			logger:             logger,
-			taskManager:        taskManager,
-			positionManager:    positionManager,
-			timestampValidator: timestampValidator,
-			feedbackGuard:      feedbackGuard,
-			isRunning:          false,
-		}, nil
+// NewContainerMonitor cria um novo gerenciador de logs.
+func NewContainerMonitor(
+	config types.DockerConfig,
+	timestampConfig types.TimestampValidationConfig,
+	dispatcher types.Dispatcher,
+	taskManager types.TaskManager,
+	positionManager *positions.PositionBufferManager,
+	logger *logrus.Logger,
+) (*ContainerMonitor, error) {
+	if logger == nil {
+		return nil, fmt.Errorf("logger é obrigatório")
 	}
 
-	// Criar pool de conexões Docker
-	poolConfig := docker.PoolConfig{
-		PoolSize:            5, // Default pool size
-		SocketPath:          config.SocketPath,
-		MaxRetries:          3,
-		RetryDelay:          5 * time.Second,
-		HealthCheckInterval: 30 * time.Second,
-		ConnectionTimeout:   30 * time.Second,
-		IdleTimeout:        5 * time.Minute,
+	if dispatcher == nil {
+		return nil, fmt.Errorf("dispatcher é obrigatório")
 	}
 
-	dockerPool, err := docker.NewPoolManager(poolConfig, logger)
+	// Criar Docker client
+	cli, err := client.NewClientWithOpts(
+		client.FromEnv,
+		client.WithAPIVersionNegotiation(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create docker connection pool: %w", err)
+		return nil, fmt.Errorf("falha ao criar cliente Docker: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	// Testar conexão com Docker daemon
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	// Initialize stream pool with max 50 concurrent streams
-	streamPool := NewStreamPool(50)
+	if _, err := cli.Ping(ctx); err != nil {
+		cli.Close()
+		return nil, fmt.Errorf("falha ao conectar ao Docker daemon: %w", err)
+	}
 
-	// Set rotation interval to 5 minutes
-	rotationInterval := 5 * time.Minute
+	// Parse drain duration da config (com fallback para 1s)
+	drainDuration := 1 * time.Second
+	if config.DrainDuration > 0 {
+		drainDuration = config.DrainDuration
+	}
 
 	return &ContainerMonitor{
-		config:             config,
-		dispatcher:         dispatcher,
-		logger:             logger,
-		taskManager:        taskManager,
-		positionManager:    positionManager,
-		timestampValidator: timestampValidator,
-		feedbackGuard:      feedbackGuard,
-		dockerPool:         dockerPool,
-		containers:         make(map[string]*monitoredContainer),
-		streamPool:         streamPool,
-		rotationInterval:   rotationInterval,
-		ctx:                ctx,
-		cancel:             cancel,
+		cli:             cli,
+		config:          config,
+		timestampConfig: timestampConfig,
+		dispatcher:      dispatcher,
+		taskManager:     taskManager,
+		positionManager: positionManager,
+		logger:          logger,
+		collectors:      make(map[string]context.CancelFunc),
+		drainDuration:   drainDuration,
+		running:         false,
 	}, nil
 }
 
-// Start inicia o monitor de containers
+// Start implementa a interface Monitor.
+// Inicia o monitoramento de containers Docker com context-aware architecture.
 func (cm *ContainerMonitor) Start(ctx context.Context) error {
-	if !cm.config.Enabled {
-		cm.logger.Info("Container monitor disabled")
-		return nil
+	cm.runningMux.Lock()
+	if cm.running {
+		cm.runningMux.Unlock()
+		return fmt.Errorf("container monitor já está em execução")
 	}
-
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	if cm.isRunning {
-		return fmt.Errorf("container monitor already running")
-	}
-
-	cm.isRunning = true
-	cm.logger.Info("Starting container monitor")
-
-	// Set component health metric
-	metrics.SetComponentHealth("monitor", "container_monitor", true)
-
-	// Verificar conectividade com Docker
-	if err := cm.checkDockerConnection(); err != nil {
-		metrics.SetComponentHealth("monitor", "container_monitor", false)
-		return fmt.Errorf("docker connection check failed: %w", err)
-	}
-
-	// Iniciar task de monitoramento principal
-	if err := cm.taskManager.StartTask(ctx, "container_monitor", cm.monitorLoop); err != nil {
-		metrics.SetComponentHealth("monitor", "container_monitor", false)
-		return fmt.Errorf("failed to start container monitor task: %w", err)
-	}
-
-	// Iniciar task de monitoramento de eventos
-	if err := cm.taskManager.StartTask(ctx, "container_events", cm.eventsLoop); err != nil {
-		return fmt.Errorf("failed to start container events task: %w", err)
-	}
-
-	// Iniciar task de health check
-	if err := cm.taskManager.StartTask(ctx, "container_health_check", cm.healthCheckLoop); err != nil {
-		return fmt.Errorf("failed to start container health check task: %w", err)
-	}
-
-	return nil
-}
-
-// Stop para o monitor de containers
-func (cm *ContainerMonitor) Stop() error {
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	if !cm.isRunning {
-		return nil
-	}
-
-	cm.logger.Info("Stopping container monitor")
-	cm.isRunning = false
-
-	// Update component health
-	metrics.SetComponentHealth("monitor", "container_monitor", false)
-
-	// Cancelar contexto
-	cm.cancel()
-
-	// Parar tasks
-	cm.taskManager.StopTask("container_monitor")
-	cm.taskManager.StopTask("container_events")
-	cm.taskManager.StopTask("container_health_check")
-
-	// Parar monitoramento de containers - coletamos IDs primeiro para evitar concurrent map iteration/write
-	containerIDs := make([]string, 0, len(cm.containers))
-	for _, mc := range cm.containers {
-		containerIDs = append(containerIDs, mc.id)
-	}
-	for _, id := range containerIDs {
-		cm.stopContainerMonitoring(id)
-	}
-
-	// Fechar cliente Docker
-	if cm.dockerPool != nil {
-		cm.dockerPool.Close()
-	}
-
-	return nil
-}
-
-// IsHealthy verifica se o monitor está saudável
-func (cm *ContainerMonitor) IsHealthy() bool {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-	return cm.isRunning && cm.dockerPool != nil
-}
-
-// GetStatus retorna o status do monitor
-func (cm *ContainerMonitor) GetStatus() types.MonitorStatus {
-	cm.mutex.RLock()
-	defer cm.mutex.RUnlock()
-
-	return types.MonitorStatus{
-		Name:      "container_monitor",
-		IsRunning: cm.isRunning,
-		IsHealthy: cm.isRunning && cm.dockerPool != nil,
-	}
-}
-
-// checkDockerConnection verifica conectividade com Docker
-func (cm *ContainerMonitor) checkDockerConnection() error {
-	// O pool manager já gerencia as conexões e health checks
-	// Apenas retornar nil aqui pois o pool cuida da conectividade
-	return nil
-}
-
-// monitorLoop loop principal de monitoramento
-func (cm *ContainerMonitor) monitorLoop(ctx context.Context) error {
-	// Varredura inicial de containers - única vez
-	cm.logger.Info("Performing initial container discovery scan")
-	if err := cm.scanContainers(); err != nil {
-		cm.logger.WithError(err).Error("Initial container scan failed")
-	} else {
-		cm.logger.WithField("containers", len(cm.containers)).Info("Initial container discovery completed")
-	}
-
-	// Após varredura inicial, apenas aguardar contexto ser cancelado
-	// A descoberta agora é totalmente orientada a eventos
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			// Apenas heartbeat - sem scanning periódico
-			cm.taskManager.Heartbeat("container_monitor")
-		}
-	}
-}
-
-// eventsLoop monitora eventos do Docker
-func (cm *ContainerMonitor) eventsLoop(ctx context.Context) error {
-	cm.logger.Info("Starting Docker events listener for container discovery")
-
-	// Filtrar apenas eventos de containers
-	eventFilters := filters.NewArgs()
-	eventFilters.Add("type", "container")
-
-	eventChan, errChan := cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
-		Filters: eventFilters,
-	})
-
-	heartbeatTicker := time.NewTicker(30 * time.Second)
-	defer heartbeatTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			cm.logger.Info("Docker events listener stopped")
-			return nil
-
-		case event := <-eventChan:
-			cm.handleDockerEvent(event)
-
-		case err := <-errChan:
-			if err != nil {
-				cm.logger.WithError(err).Error("Docker events stream error - attempting to reconnect")
-				metrics.RecordError("container_monitor", "events_error")
-
-				// Aguardar antes de reconectar
-				select {
-				case <-ctx.Done():
-					return nil
-				case <-time.After(5 * time.Second):
-					// Recriar stream de eventos
-					eventChan, errChan = cm.dockerPool.Events(ctx, dockerTypes.EventsOptions{
-						Filters: eventFilters,
-					})
-					cm.logger.Info("Docker events stream reconnected")
-				}
-			}
-
-		case <-heartbeatTicker.C:
-			cm.taskManager.Heartbeat("container_events")
-		}
-	}
-}
-
-// healthCheckLoop verifica saúde dos containers monitorados
-func (cm *ContainerMonitor) healthCheckLoop(ctx context.Context) error {
-	ticker := time.NewTicker(cm.config.HealthCheckDelay)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-			cm.healthCheckContainers()
-		}
-
-		// Heartbeat
-		cm.taskManager.Heartbeat("container_health_check")
-	}
-}
-
-// scanContainers escaneia containers em execução
-func (cm *ContainerMonitor) scanContainers() error {
-	ctx, cancel := context.WithTimeout(cm.ctx, 30*time.Second)
-	defer cancel()
-
-	containers, err := cm.dockerPool.ContainerList(ctx, dockerTypes.ContainerListOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
-
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	// Containers em execução
-	runningContainers := make(map[string]bool)
-	for _, dockerContainer := range containers {
-		containerID := dockerContainer.ID[:12]
-		runningContainers[containerID] = true
-
-		// Verificar se já está sendo monitorado
-		if _, exists := cm.containers[containerID]; !exists {
-			cm.startContainerMonitoring(dockerContainer)
-		}
-	}
-
-	// Parar monitoramento de containers que não estão mais em execução
-	// Coletamos IDs primeiro para evitar concurrent map iteration/write
-	toRemove := make([]string, 0)
-	for id := range cm.containers {
-		if !runningContainers[id] {
-			toRemove = append(toRemove, id)
-		}
-	}
-	for _, id := range toRemove {
-		cm.stopContainerMonitoring(id)
-	}
-
-	// Atualizar métricas
-	metrics.SetActiveTasks("container_monitors", "running", len(cm.containers))
-
-	return nil
-}
-
-// handleDockerEvent processa eventos do Docker de forma reativa
-func (cm *ContainerMonitor) handleDockerEvent(event events.Message) {
-	containerID := event.Actor.ID[:12]
-	containerName := event.Actor.Attributes["name"]
+	cm.running = true
+	cm.runningMux.Unlock()
 
 	cm.logger.WithFields(logrus.Fields{
-		"event":          event.Action,
-		"container_id":   containerID,
-		"container_name": containerName,
-	}).Debug("Received Docker event")
+		"component": "container_monitor",
+		"approach":  "context-aware-reading",
+	}).Info("Iniciando Container Monitor com arquitetura anti-leak")
 
-	switch event.Action {
-	case "start":
-		// Container iniciado - adicionar diretamente
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": containerName,
-		}).Info("Container started - adding to monitoring")
+	// Criar contexto cancelável derivado do contexto da aplicação
+	cm.ctx, cm.cancel = context.WithCancel(ctx)
 
-		// Aguardar um pouco para garantir que container está pronto
-		taskName := "container_add_" + containerID
-		cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
-			defer cm.taskManager.StopTask(taskName) // Limpar task após conclusão
-
-			select {
-			case <-time.After(1 * time.Second):
-				// Buscar informações completas do container
-				return cm.addContainerByID(containerID)
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-
-	case "die", "stop":
-		// Container parado
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": containerName,
-		}).Info("Container stopped - removing from monitoring")
-
-		cm.mutex.Lock()
-		cm.stopContainerMonitoring(containerID)
-		cm.mutex.Unlock()
-
-		metrics.RecordContainerEvent("stopped", containerID)
-
-	case "destroy":
-		// Container removido - limpar posições
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": containerName,
-		}).Info("Container destroyed - cleaning up positions")
-
-		if cm.positionManager != nil {
-			cm.positionManager.SetContainerStatus(containerID, "removed")
-		}
-
-		metrics.RecordContainerEvent("destroyed", containerID)
-
-	case "pause":
-		// Container pausado - apenas log
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": containerName,
-		}).Debug("Container paused - monitoring continues")
-
-		metrics.RecordContainerEvent("paused", containerID)
-
-	case "unpause":
-		// Container despausado - apenas log
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": containerName,
-		}).Debug("Container unpaused - monitoring continues")
-
-		metrics.RecordContainerEvent("unpaused", containerID)
-	}
-}
-
-// addContainerByID adiciona um container específico para monitoramento por ID
-func (cm *ContainerMonitor) addContainerByID(containerID string) error {
-	ctx, cancel := context.WithTimeout(cm.ctx, 10*time.Second)
-	defer cancel()
-
-	// Buscar informações do container
-	containers, err := cm.dockerPool.ContainerList(ctx, dockerTypes.ContainerListOptions{
-		All:     true,
-		Filters: filters.NewArgs(filters.Arg("id", containerID)),
-	})
-
-	if err != nil {
-		cm.logger.WithError(err).WithField("container_id", containerID).Error("Failed to fetch container info")
-		return fmt.Errorf("failed to list container %s: %w", containerID, err)
-	}
-
-	if len(containers) == 0 {
-		cm.logger.WithField("container_id", containerID).Warn("Container not found")
-		return fmt.Errorf("container %s not found", containerID)
-	}
-
-	dockerContainer := containers[0]
-
-	// Verificar se já está sendo monitorado
-	cm.mutex.Lock()
-	defer cm.mutex.Unlock()
-
-	if _, exists := cm.containers[containerID]; exists {
-		cm.logger.WithField("container_id", containerID).Debug("Container already being monitored")
-		return nil
-	}
-
-	// Adicionar monitoramento
-	cm.startContainerMonitoring(dockerContainer)
-
-	return nil
-}
-
-// shouldMonitorContainer verifica se um container deve ser monitorado baseado nos filtros
-func (cm *ContainerMonitor) shouldMonitorContainer(dockerContainer dockerTypes.Container) bool {
-	name := strings.TrimPrefix(dockerContainer.Names[0], "/")
-	labels := dockerContainer.Labels
-
-	// Verificar nomes incluídos
-	if len(cm.config.IncludeNames) > 0 {
-		found := false
-		for _, includeName := range cm.config.IncludeNames {
-			if strings.Contains(name, includeName) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-
-	// Verificar nomes excluídos
-	for _, excludeName := range cm.config.ExcludeNames {
-		if strings.Contains(name, excludeName) {
-			return false
-		}
-	}
-
-	// Verificar labels incluídas
-	if len(cm.config.IncludeLabels) > 0 {
-		for key, value := range cm.config.IncludeLabels {
-			labelValue, exists := labels[key]
-			if !exists {
-				return false
-			}
-			if value != "" && labelValue != value {
-				return false
-			}
-		}
-	}
-
-	// Verificar labels excluídas
-	for key, value := range cm.config.ExcludeLabels {
-		labelValue, exists := labels[key]
-		if exists {
-			if value == "" || labelValue == value {
-				return false
-			}
-		}
-	}
-
-	return true
-}
-
-// startContainerMonitoring inicia monitoramento de um container
-func (cm *ContainerMonitor) startContainerMonitoring(dockerContainer dockerTypes.Container) {
-	containerID := dockerContainer.ID[:12]
-
-	// Verificar se deve monitorar este container
-	if !cm.shouldMonitorContainer(dockerContainer) {
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":   containerID,
-			"container_name": strings.TrimPrefix(dockerContainer.Names[0], "/"),
-			"image":          dockerContainer.Image,
-		}).Debug("Container filtered out, skipping monitoring")
-		return
-	}
-
-	// Extrair nome e imagem
-	name := strings.TrimPrefix(dockerContainer.Names[0], "/")
-	image := dockerContainer.Image
-
-	// Criar labels básicos
-	labels := map[string]string{
-		"container_id":   containerID,
-		"container_name": name,
-		"image":          image,
-	}
-
-	// Filtrar apenas labels essenciais do Docker para evitar excesso (Loki limite: 15)
-	essentialDockerLabels := []string{
-		"com.docker.compose.service",
-		"com.docker.compose.container-number",
-	}
-
-	for _, essential := range essentialDockerLabels {
-		if value, exists := dockerContainer.Labels[essential]; exists {
-			// Usar nome simplificado para economizar espaço
-			switch essential {
-			case "com.docker.compose.service":
-				labels["compose_service"] = value
-			case "com.docker.compose.container-number":
-				labels["instance"] = value
-			}
-
-			// Parar se já temos muitos labels (deixar espaço para labels do pipeline)
-			if len(labels) >= 10 {
-				break
-			}
-		}
-	}
-
-	// Get position-based since time, using container creation time for new containers
-	sinceTime := time.Now()
-	if cm.positionManager != nil {
-		// Usar data de criação do container para containers novos
-		createdTime := time.Unix(dockerContainer.Created, 0)
-		sinceTime = cm.positionManager.GetContainerSinceWithCreated(containerID, createdTime)
-		cm.positionManager.SetContainerStatus(containerID, "active")
-	}
-
-	mc := &monitoredContainer{
-		id:       containerID,
-		name:     name,
-		image:    image,
-		labels:   labels,
-		since:    sinceTime,
-		lastRead: time.Now(),
-	}
-
-	cm.containers[containerID] = mc
-
-	// Iniciar task de monitoramento do container
-	taskName := "container_" + containerID
-	cm.taskManager.StartTask(cm.ctx, taskName, func(ctx context.Context) error {
-		return cm.monitorContainer(ctx, mc)
-	})
-
-	// Atualizar métricas
-	metrics.SetContainerMonitored(containerID, name, image, true)
-	metrics.UpdateTotalContainersMonitored(len(cm.containers))
-
-	cm.logger.WithFields(logrus.Fields{
-		"container_id":   containerID,
-		"container_name": name,
-		"image":          image,
-	}).Info("Started container monitoring")
-}
-
-// stopContainerMonitoring para monitoramento de um container
-func (cm *ContainerMonitor) stopContainerMonitoring(containerID string) {
-	mc, exists := cm.containers[containerID]
-	if !exists {
-		return
-	}
-
-	cm.logger.WithFields(logrus.Fields{
-		"container_id":   containerID,
-		"container_name": mc.name,
-	}).Info("Stopping container monitoring")
-
-	// CRITICAL: Close stream BEFORE canceling context
-	// This interrupts the blocking stream.Read() syscall
-	mc.mu.Lock()
-	if mc.stream != nil {
-		mc.stream.Close()
-		mc.stream = nil
-	}
-	mc.mu.Unlock()
-
-	// Now cancel context to signal goroutines to exit
-	if mc.cancel != nil {
-		mc.cancel()
-	}
-
-	// Wait for reader goroutines to finish (OPTION 3 FIX)
-	// This ensures clean shutdown and no goroutine leaks
-	readerDone := make(chan struct{})
+	// Iniciar goroutine principal que executa Run()
+	cm.wg.Add(1)
 	go func() {
-		mc.readerWg.Wait()
-		close(readerDone)
+		defer cm.wg.Done()
+		cm.Run() // Chama o método Run() existente
 	}()
 
-	// Wait with timeout to prevent hanging
-	select {
-	case <-readerDone:
-		cm.logger.WithField("container_id", containerID).Debug("All reader goroutines stopped cleanly")
-	case <-time.After(10 * time.Second):
-		cm.logger.WithField("container_id", containerID).Warn("Timeout waiting for reader goroutines to stop")
-	}
-
-	// Parar task
-	taskName := "container_" + containerID
-	cm.taskManager.StopTask(taskName)
-
-	// Update container status in position manager
-	if cm.positionManager != nil {
-		cm.positionManager.SetContainerStatus(containerID, "stopped")
-	}
-
-	// Remover do mapa
-	delete(cm.containers, containerID)
-
-	// Atualizar métricas
-	metrics.SetContainerMonitored(containerID, mc.name, mc.image, false)
-	metrics.UpdateTotalContainersMonitored(len(cm.containers))
-
-	cm.logger.WithFields(logrus.Fields{
-		"container_id":   containerID,
-		"container_name": mc.name,
-	}).Info("Stopped container monitoring")
+	cm.logger.Info("Container Monitor iniciado com sucesso")
+	return nil
 }
 
-// HYBRID SHORT-LIVED STREAMS STRATEGY (FASE 6G)
-//
-// This implementation uses 30-second timeout streams with automatic reconnection.
-//
-// WHY THIS APPROACH:
-// - stream.Read() blocks in kernel syscall and CANNOT be interrupted by context or Close()
-// - All previous attempts to interrupt blocking reads FAILED (FASE 6, 6C, 6D, 6E, 6F)
-// - This approach ACCEPTS that goroutines may leak, but limits the leak duration to 30s
-//
-// LEAK CHARACTERISTICS:
-// - Maximum leaked goroutines: ~50 (one per container)
-// - Leak duration: Maximum 30 seconds (context timeout)
-// - Leak growth rate: 0 goroutines/min (stable, goroutines expire)
-//
-// TRADEOFFS:
-// - ✅ Simple implementation
-// - ✅ Streaming still works (low latency)
-// - ✅ No persistent leak (goroutines expire)
-// - ⚠️ Temporary goroutine accumulation (max 50 × 30s)
-// - ⚠️ Stream reconnection overhead (every 30s)
-func (cm *ContainerMonitor) monitorContainer(containerCtx context.Context, mc *monitoredContainer) error {
-	cm.logger.WithFields(logrus.Fields{
-		"container_id":   mc.id,
-		"container_name": mc.name,
-	}).Info("Starting container monitoring with hybrid short-lived streams")
+// Stop implementa a interface Monitor.
+// Para graciosamente o monitoramento, aguardando drain period.
+func (cm *ContainerMonitor) Stop() error {
+	cm.runningMux.Lock()
+	if !cm.running {
+		cm.runningMux.Unlock()
+		cm.logger.Warn("Container Monitor já está parado")
+		return nil
+	}
+	cm.running = false
+	cm.runningMux.Unlock()
 
-	// CRITICAL FIX (FASE 6H.1): Add heartbeat to prevent task timeout
-	// Task Manager expects heartbeat every 5 minutes, we send every 30s to be safe
-	taskName := "container_" + mc.id
-	heartbeatTicker := time.NewTicker(30 * time.Second)
-	defer heartbeatTicker.Stop()
+	cm.logger.WithField("component", "container_monitor").Info("Parando Container Monitor...")
 
-	lastTimestamp := time.Now().UTC()
+	// Cancelar contexto principal (dispara cancelamento em todos os coletores)
+	if cm.cancel != nil {
+		cm.cancel()
+	}
+
+	// Aguardar goroutine principal terminar (com timeout)
+	done := make(chan struct{})
+	go func() {
+		cm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		cm.logger.Info("Container Monitor parado graciosamente")
+	case <-time.After(10 * time.Second):
+		cm.logger.Warn("Timeout aguardando Container Monitor parar")
+	}
+
+	// Fechar Docker client
+	if cm.cli != nil {
+		if err := cm.cli.Close(); err != nil {
+			cm.logger.WithError(err).Warn("Erro ao fechar Docker client")
+		}
+	}
+
+	cm.logger.Info("Container Monitor encerrado")
+	return nil
+}
+
+// Run é o ponto de entrada principal. Ele inicia o monitor de eventos
+// e sincroniza o estado inicial com os contêineres em execução.
+func (cm *ContainerMonitor) Run() {
+	cm.logger.Info("Iniciando event monitor e sincronização inicial")
+
+	// 1. Iniciar o monitor de eventos em uma goroutine.
+	// Esta é a nossa *única* fonte de verdade para o ciclo de vida do contêiner.
+	go cm.StartEventMonitor()
+
+	// 2. Obter todos os contêineres *atualmente* em execução e iniciar a coleta.
+	// Isso lida com qualquer contêiner que já estava rodando antes de iniciarmos.
+	containers, err := cm.cli.ContainerList(cm.ctx, dockerTypes.ContainerListOptions{})
+	if err != nil {
+		cm.logger.WithError(err).Warn("Falha ao listar contêineres iniciais")
+		// Em produção, você pode querer tentar novamente.
+		return
+	}
+
+	cm.logger.WithField("count", len(containers)).Info("Iniciando coleta para contêineres existentes")
+	for _, c := range containers {
+		cm.logger.WithFields(logrus.Fields{
+			"container_id": c.ID[:12],
+			"image":        c.Image,
+		}).Debug("Iniciando coleta para contêiner existente")
+		cm.StartCollecting(c.ID)
+	}
+
+	// Mantém o Run() vivo até que o contexto principal seja cancelado.
+	<-cm.ctx.Done()
+	cm.logger.Info("Container monitor context cancelado, encerrando")
+}
+
+// StartEventMonitor ouve o stream de eventos do Docker.
+// Esta é a abordagem de "baixo impacto na API" que discutimos.
+func (cm *ContainerMonitor) StartEventMonitor() {
+	cm.logger.Info("Monitor de eventos do Docker iniciado")
+
+	// Filtros para eventos 'die' e 'start' de contêineres. [2]
+	filters := filters.NewArgs()
+	filters.Add("type", "container")
+	filters.Add("event", "start") // Para pegar novos contêineres
+	filters.Add("event", "die")   // Para parar coletores [3]
+
+	eventsCh, errCh := cm.cli.Events(cm.ctx, dockerTypes.EventsOptions{Filters: filters})
 
 	for {
 		select {
-		case <-containerCtx.Done():
-			cm.logger.WithField("container_id", mc.id).Debug("Container monitoring stopped")
-			return nil
-		case <-heartbeatTicker.C:
-			// Send heartbeat to Task Manager to prevent timeout
-			cm.taskManager.Heartbeat(taskName)
-		default:
+		case event := <-eventsCh:
+			switch event.Action {
+			case "start":
+				// Um novo contêiner iniciou, comece a coletar logs.
+				cm.logger.WithField("container_id", event.Actor.ID[:12]).Info("Evento 'start' detectado, iniciando coleta")
+				cm.StartCollecting(event.Actor.ID)
+
+			case "die":
+				// Um contêiner parou, inicie o processo de desligamento gracioso.
+				cm.logger.WithField("container_id", event.Actor.ID[:12]).Info("Evento 'die' detectado, iniciando drenagem")
+				cm.StopCollecting(event.Actor.ID)
+			}
+
+		case err := <-errCh:
+			cm.logger.WithError(err).Warn("Erro no stream de eventos")
+
+			// METRICS: Erro no stream de eventos
+			metrics.RecordStreamError("event_stream_error", "event_monitor")
+
+			// Se o contexto principal for cancelado, saia.
+			if cm.ctx.Err() != nil {
+				cm.logger.Info("Monitor de eventos encerrando devido ao cancelamento do contexto")
+				return
+			}
+
+			// METRICS: Reconexão do event monitor
+			metrics.ErrorsTotal.WithLabelValues("container_monitor", "event_monitor_reconnection").Inc()
+
+			// Tenta se reconectar após um breve período.
+			cm.logger.Info("Tentando reconectar o monitor de eventos em 3s")
+			time.Sleep(3 * time.Second)
+			// Reinicia o monitor (em uma nova goroutine) e termina esta.
+			go cm.StartEventMonitor()
+			return
+
+		case <-cm.ctx.Done():
+			cm.logger.Info("Monitor de eventos encerrando")
+			return
 		}
+	}
+}
 
-		// Create context with 5-minute timeout (OPTION 3 FIX)
-		// Reduces cycle frequency from 4/min to 0.4/min (10x reduction)
-		// This minimizes goroutine leak rate while maintaining auto-recovery
-		streamTimeout := 5 * time.Minute
-		cm.logger.WithFields(logrus.Fields{
-			"container_id":      mc.id,
-			"timeout_seconds":   int(streamTimeout.Seconds()),
-		}).Info("Creating stream with timeout")
-		streamCtx, streamCancel := context.WithTimeout(containerCtx, streamTimeout)
+// StartCollecting inicia uma nova goroutine de coleta para um contêiner.
+func (cm *ContainerMonitor) StartCollecting(containerID string) {
+	cm.collectorsMux.Lock()
+	if _, exists := cm.collectors[containerID]; exists {
+		cm.logger.WithField("container_id", containerID[:12]).Debug("Coletor já existe, ignorando")
+		cm.collectorsMux.Unlock()
+		return
+	}
 
-		// Log options with timestamp
-		logOptions := dockerTypes.ContainerLogsOptions{
+	// Cria um contexto *específico* para esta goroutine de coleta.
+	// Isso nos permite cancelar *apenas este* coletor.
+	collectCtx, cancel := context.WithCancel(cm.ctx)
+	cm.collectors[containerID] = cancel
+	activeCount := len(cm.collectors)
+	cm.collectorsMux.Unlock()
+
+	// METRICS: Incrementar contador de containers iniciados
+	metrics.ErrorsTotal.WithLabelValues("container_monitor", "container_started").Inc()
+
+	// METRICS: Atualizar gauge de coletores ativos
+	metrics.UpdateActiveStreams(activeCount)
+
+	// Inicia a goroutine de coleta real.
+	go func() {
+		cm.logger.WithField("container_id", containerID[:12]).Info("Coletor iniciado")
+
+		// Sempre garanta que o cancelamento seja removido do mapa ao sair.
+		defer func() {
+			cm.logger.WithField("container_id", containerID[:12]).Info("Coletor encerrando")
+			cm.collectorsMux.Lock()
+			delete(cm.collectors, containerID)
+			finalCount := len(cm.collectors)
+			cm.collectorsMux.Unlock()
+
+			// METRICS: Atualizar gauge quando coletor encerra
+			metrics.UpdateActiveStreams(finalCount)
+		}()
+
+		options := dockerTypes.ContainerLogsOptions{
 			ShowStdout: true,
 			ShowStderr: true,
 			Follow:     true,
-			Timestamps: true,
-			Since:      lastTimestamp.Format(time.RFC3339Nano),
+			Timestamps: true, // Útil para depuração
 		}
 
-		// Create NEW stream for this cycle
-		stream, err := cm.dockerPool.ContainerLogs(streamCtx, mc.id, logOptions)
+		logStream, err := cm.cli.ContainerLogs(collectCtx, containerID, options)
 		if err != nil {
-			streamCancel()
-
-			// Silently handle context cancellation (normal shutdown)
-			if err == context.Canceled {
-				return nil
+			if collectCtx.Err() != nil {
+				return // Contexto cancelado antes de começar, saída limpa.
 			}
-
-			// Log other errors
 			cm.logger.WithFields(logrus.Fields{
-				"container_id": mc.id,
-				"error":        err.Error(),
-			}).Warn("Failed to create container log stream")
+				"container_id": containerID[:12],
+				"error":        err,
+			}).Warn("Falha ao obter stream de logs")
 
-			// Brief pause before retry
-			select {
-			case <-containerCtx.Done():
-				return nil
-			case <-time.After(5 * time.Second):
-			}
-			continue
+			// METRICS: Erro na API do Docker
+			metrics.RecordStreamError("docker_api_error", containerID)
+
+			return
 		}
+		defer logStream.Close()
 
-		// Store stream reference and update metrics
-		mc.mu.Lock()
-		mc.stream = stream
-		mc.streamCreatedAt = time.Now()
-		mc.mu.Unlock()
+		// *** A MÁGICA DA SOLUÇÃO 2 ***
+		// 1. Envolve o logStream com nosso leitor consciente do contexto.
+		wrappedReader := newContextReader(collectCtx, logStream)
 
-		// Update active stream count
-		metrics.UpdateActiveStreams(cm.streamPool.GetActiveCount())
+		// 2. Usa stdcopy.StdCopy para demultiplexar o stream de log.
+		// O "PORQUÊ": O stream de log do Docker (sem TTY) multiplexa stdout
+		// e stderr. `io.Copy` imprimiria lixo. `stdcopy.StdCopy`
+		// entende esse formato e o divide corretamente.
+		//
+		// Esta chamada irá bloquear no `wrappedReader.Read()`.
+		// Quando `collectCtx` é cancelado, `wrappedReader.Read()` retornará
+		// `context.Canceled`, e `stdcopy.StdCopy` irá parar e retornar.
+		cm.logger.WithField("container_id", containerID[:12]).Debug("Iniciando cópia de logs")
 
-		// Read from stream with SAME 30s timeout
-		// When timeout expires, we abandon the stream and reader goroutine
-		// The goroutine will expire naturally after 30s maximum
-		readErr := cm.readContainerLogsShortLived(streamCtx, mc, stream)
+		// FASE 4: Criar writers que capturam logs e enviam para dispatcher.
+		// Substitui prefixedWriter para integrar com o sistema de processamento.
+		stdoutWriter := newLogCaptureWriter(containerID, "stdout", cm.dispatcher, cm.logger)
+		stderrWriter := newLogCaptureWriter(containerID, "stderr", cm.dispatcher, cm.logger)
 
-		// Update last timestamp
-		lastTimestamp = time.Now().UTC()
+		_, err = stdcopy.StdCopy(stdoutWriter, stderrWriter, wrappedReader)
 
-		// Clean up
-		stream.Close() // Best effort close (may not interrupt blocking read)
-		streamCancel()
-
-		mc.mu.Lock()
-		mc.stream = nil
-		mc.mu.Unlock()
-
-		// Update active stream count after closing
-		metrics.UpdateActiveStreams(cm.streamPool.GetActiveCount())
-
-		// Handle read errors
-		if readErr != nil {
-			if readErr == context.DeadlineExceeded {
-				// EXPECTED timeout - normal for short-lived streams
-				mc.rotationCount++
-				streamAge := time.Since(mc.streamCreatedAt)
-				metrics.RecordStreamRotation(mc.id, mc.name, streamAge.Seconds())
-
-				cm.logger.WithFields(logrus.Fields{
-					"container_id":    mc.id,
-					"container_name":  mc.name,
-					"rotation_count":  mc.rotationCount,
-					"stream_age_secs": int(streamAge.Seconds()),
-				}).Debug("Stream rotated successfully")
-
-				// Send heartbeat after successful rotation
-				cm.taskManager.Heartbeat(taskName)
-			} else if readErr == context.Canceled {
-				// Parent context cancelled
-				return nil
-			} else {
-				// Other error
-				cm.logger.WithFields(logrus.Fields{
-					"container_id": mc.id,
-					"error":        readErr.Error(),
-				}).Debug("Stream read error, reconnecting")
-			}
+		if err != nil && err != context.Canceled {
+			cm.logger.WithFields(logrus.Fields{
+				"container_id": containerID[:12],
+				"error":        err,
+			}).Warn("Erro ao copiar logs")
+		} else if err == context.Canceled {
+			cm.logger.WithField("container_id", containerID[:12]).Info("Coleta cancelada graciosamente")
 		}
-
-		// Brief pause before reconnecting (avoid tight loop)
-		select {
-		case <-containerCtx.Done():
-			return nil
-		case <-time.After(1 * time.Second):
-		}
-	}
+	}()
 }
 
-// readContainerLogsShortLived reads logs from a short-lived stream
-// This function is designed to work with 5-minute timeout streams (OPTION 3 FIX)
+// StopCollecting inicia o desligamento gracioso com drenagem.
+func (cm *ContainerMonitor) StopCollecting(containerID string) {
+	cm.collectorsMux.Lock()
+	cancel, exists := cm.collectors[containerID]
+	if !exists {
+		// Já foi parado ou nunca foi rastreado.
+		cm.collectorsMux.Unlock()
+		return
+	}
+	cm.collectorsMux.Unlock() // Desbloqueia o mutex *antes* de operações longas
+
+	// *** A LÓGICA DE DRENAGEM "SEM PERDA DE LOGS" ***
+	cm.logger.WithFields(logrus.Fields{
+		"container_id":   containerID[:12],
+		"drain_duration": cm.drainDuration.Seconds(),
+	}).Info("Contêiner morto, aguardando drenagem de logs")
+
+	// 1. Espera pelo período de drenagem.
+	// Usamos um timer em vez de time.Sleep para que possamos
+	// parar se o contexto principal (cm.ctx) for cancelado.
+	drainTimer := time.NewTimer(cm.drainDuration)
+
+	select {
+	case <-drainTimer.C:
+		// Tempo de drenagem esgotado.
+		cm.logger.WithField("container_id", containerID[:12]).Info("Período de drenagem concluído, enviando cancelamento")
+
+	case <-cm.ctx.Done():
+		// O programa principal está encerrando, cancela imediatamente.
+		cm.logger.WithField("container_id", containerID[:12]).Info("Encerrando drenagem antecipadamente devido ao desligamento")
+		drainTimer.Stop()
+	}
+
+	// 2. *Agora* chama a função de cancelamento.
+	// Isso fará com que o readerCtx.Read() retorne context.Canceled.
+	cancel()
+
+	// METRICS: Incrementar contador de containers parados
+	metrics.ErrorsTotal.WithLabelValues("container_monitor", "container_stopped").Inc()
+}
+
+// ===================================================================================
+// FASE 4: Integração com Dispatcher - logCaptureWriter
+// ===================================================================================
+
+// logCaptureWriter captura logs do Docker e envia para o dispatcher.
+// Implementa io.Writer para ser compatível com stdcopy.StdCopy.
 //
-// GOROUTINE LEAK FIX: Reader goroutines are now properly tracked with WaitGroup.
-// Timeout increased from 30s to 5min to reduce cycle frequency (4/min → 0.4/min).
-// During shutdown, streams are closed to interrupt Read() syscalls, and we wait
-// for goroutines with a 10s timeout. This reduces leak rate from 32/min to <1/min.
-func (cm *ContainerMonitor) readContainerLogsShortLived(ctx context.Context, mc *monitoredContainer, stream io.Reader) error {
-	incomplete := ""
-	logCount := int64(0)
-	bytesRead := int64(0)
+// Este writer substitui prefixedWriter para integrar os logs de containers
+// ao sistema de processamento central, permitindo que logs sejam:
+// - Roteados para sinks (Loki, Elasticsearch, arquivos locais)
+// - Processados por pipelines (enriquecimento, filtragem)
+// - Monitorados via métricas e traces
+type logCaptureWriter struct {
+	containerID string
+	streamType  string // "stdout" ou "stderr"
+	dispatcher  types.Dispatcher
+	logger      *logrus.Logger
+}
 
-	// Channel to receive data from stream reader goroutine
-	type readResult struct {
-		data []byte
-		err  error
-	}
-	readCh := make(chan readResult, 10)
-
-	// Spawn reader goroutine with WaitGroup tracking (OPTION 3 FIX)
-	// This ensures proper cleanup during shutdown
-	mc.readerWg.Add(1)
-	go func() {
-		defer mc.readerWg.Done()  // Ensure cleanup
-		defer close(readCh)
-		defer func() {
-			if r := recover(); r != nil {
-				cm.logger.WithFields(logrus.Fields{
-					"container_id": mc.id,
-					"panic":        r,
-				}).Error("Reader goroutine panic recovered")
-			}
-		}()
-
-		for {
-			buf := make([]byte, 8192)
-			n, err := stream.Read(buf) // May block in kernel syscall
-
-			// Copy data if any
-			var data []byte
-			if n > 0 {
-				data = make([]byte, n)
-				copy(data, buf[:n])
-			}
-
-			// Try to send result (with timeout to avoid blocking sender)
-			select {
-			case readCh <- readResult{data: data, err: err}:
-				if err != nil {
-					return // Exit on error (EOF, etc.)
-				}
-			case <-time.After(5 * time.Second):
-				// Channel full or no receiver, abandon
-				return
-			}
-		}
-	}()
-
-	// Main loop: read from channel until context expires or error
-	for {
-		select {
-		case <-ctx.Done():
-			// Context expired (30s timeout or parent cancellation)
-			// Reader goroutine will be abandoned but will expire soon
-			return ctx.Err()
-
-		case result, ok := <-readCh:
-			if !ok {
-				// Channel closed, reader exited
-				return nil
-			}
-
-			data := result.data
-			err := result.err
-
-			// Process data if any
-			if len(data) > 0 {
-				bytesRead += int64(len(data))
-
-				// Parse Docker header if present
-				actualData := data
-				if len(data) >= 8 {
-					// Docker multiplexed stream has 8-byte header
-					// [stream_type, 0, 0, 0, size_byte1, size_byte2, size_byte3, size_byte4]
-					streamType := data[0]
-					if streamType == 1 || streamType == 2 { // stdout or stderr
-						frameSize := int(data[4])<<24 | int(data[5])<<16 | int(data[6])<<8 | int(data[7])
-						if len(data) >= 8+frameSize {
-							actualData = data[8 : 8+frameSize]
-						}
-					}
-				}
-
-				// Split into lines
-				dataStr := incomplete + string(actualData)
-				lines := strings.Split(dataStr, "\n")
-
-				// Last element may be incomplete
-				incomplete = lines[len(lines)-1]
-				lines = lines[:len(lines)-1]
-
-				// Process complete lines
-				for _, line := range lines {
-					if len(strings.TrimSpace(line)) == 0 {
-						continue
-					}
-
-					logCount++
-
-					// Parse timestamp if present and remove from message
-					message := line
-					if strings.Contains(line, "T") && len(line) > 30 {
-						if spaceIdx := strings.Index(line, " "); spaceIdx > 0 && spaceIdx < 35 {
-							message = line[spaceIdx+1:]
-						}
-					}
-
-					message = strings.TrimSpace(message)
-					if message == "" {
-						continue
-					}
-
-					// Dispatch log entry with copied labels
-					standardLabels := cm.copyLabels(mc.labels)
-					if err := cm.dispatcher.Handle(ctx, "docker", mc.id, message, standardLabels); err != nil {
-						cm.logger.WithFields(logrus.Fields{
-							"container_id": mc.id,
-							"error":        err.Error(),
-						}).Debug("Failed to dispatch log entry")
-					} else {
-						// Update last read time on successful dispatch
-						mc.lastRead = time.Now()
-					}
-
-					// Update metrics
-					metrics.RecordLogProcessed("docker", mc.id, "container_monitor")
-				}
-			}
-
-			// Handle read error
-			if err != nil {
-				if err == io.EOF {
-					cm.logger.WithFields(logrus.Fields{
-						"container_id": mc.id,
-						"logs_read":    logCount,
-						"bytes_read":   bytesRead,
-					}).Debug("Container log stream ended (EOF)")
-					return nil
-				}
-
-				// Other error
-				return err
-			}
-		}
+// newLogCaptureWriter cria um novo writer que captura logs e envia para o dispatcher.
+//
+// Parâmetros:
+//   - containerID: ID completo do container Docker
+//   - streamType: "stdout" ou "stderr" para identificar origem
+//   - dispatcher: Interface do dispatcher para enviar logs
+//   - logger: Logger estruturado para diagnóstico
+func newLogCaptureWriter(
+	containerID string,
+	streamType string,
+	dispatcher types.Dispatcher,
+	logger *logrus.Logger,
+) io.Writer {
+	return &logCaptureWriter{
+		containerID: containerID,
+		streamType:  streamType,
+		dispatcher:  dispatcher,
+		logger:      logger,
 	}
 }
 
-// readContainerLogs lê logs de um stream de container
-func (cm *ContainerMonitor) readContainerLogs(ctx context.Context, mc *monitoredContainer, stream io.Reader) error {
-	incomplete := ""
-	logCount := int64(0)
-	bytesRead := int64(0)
-
-	// Canal para receber dados do stream em goroutine separada
-	type readResult struct {
-		data []byte
-		err  error
-	}
-	readCh := make(chan readResult, 10) // Increased buffer to prevent blocking
-
-	// Context for reader goroutine with explicit cleanup
-	// CRITICAL FIX (FASE 6B): Use ctx (which IS streamCtx from caller) as parent
-	// instead of global ctx to ensure reader goroutine is cancelled when stream rotates,
-	// preventing goroutine leak. Previously this was context.WithCancel(ctx) where ctx
-	// was the global app context, causing reader goroutines to never be cancelled on rotation.
-	readerCtx, readerCancel := context.WithCancel(ctx)
-	defer readerCancel() // Ensure reader goroutine is cancelled when function exits
-
-	// Goroutine para ler do stream - TRACKED WITH READER WAITGROUP
-	// Esta goroutine é recriada a cada rotação de stream
-	mc.readerWg.Add(1) // Track this goroutine
-	go func() {
-		defer mc.readerWg.Done() // Always cleanup
-		defer close(readCh)      // Close channel when exiting to unblock readers
-
-		for {
-			// Check context before blocking read
-			select {
-			case <-readerCtx.Done():
-				return // Exit immediately if context cancelled
-			default:
-			}
-
-			localBuf := make([]byte, 8192)
-			n, err := stream.Read(localBuf)
-
-			// Copiar apenas os bytes lidos
-			var data []byte
-			if n > 0 {
-				data = make([]byte, n)
-				copy(data, localBuf[:n])
-			}
-
-			select {
-			case readCh <- readResult{data: data, err: err}:
-				if err != nil {
-					return // Sair se houver erro (incluindo EOF)
-				}
-			case <-readerCtx.Done():
-				return // Context cancelado, sair
-			}
-		}
-	}()
-
-	for {
-		// Aguardar dados do stream OU cancelamento do context
-		var result readResult
-		var ok bool
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case result, ok = <-readCh:
-			if !ok {
-				// Channel closed, reader goroutine exited
-				return nil
-			}
-			// Dados recebidos, processar abaixo
-		}
-
-		data := result.data
-		err := result.err
-
-		if len(data) > 0 {
-			bytesRead += int64(len(data))
-
-			// Processar dados lidos
-			dataStr := incomplete + string(data)
-			lines := strings.Split(dataStr, "\n")
-
-			// Última linha pode estar incompleta
-			incomplete = lines[len(lines)-1]
-			lines = lines[:len(lines)-1]
-
-			// Processar linhas completas
-			for _, line := range lines {
-				if line == "" {
-					continue
-				}
-
-				// Remover header do Docker (8 bytes) se presente
-				if len(line) > 8 && (line[0] == 1 || line[0] == 2) {
-					line = line[8:]
-				}
-
-				// Parse timestamp se presente
-				if strings.Contains(line, "T") && len(line) > 30 {
-					if spaceIdx := strings.Index(line, " "); spaceIdx > 0 && spaceIdx < 35 {
-						line = line[spaceIdx+1:]
-					}
-				}
-
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-
-				// Enviar para dispatcher com labels padrão
-				sourceID := mc.id
-				standardLabels := addStandardLabels(mc.labels)
-
-				// Criar entry para validações
-				traceID := uuid.New().String()
-				entry := &types.LogEntry{
-					TraceID:     traceID,
-					Timestamp:   time.Now().UTC(), // Force UTC to prevent Loki "timestamp too new" errors
-					Message:     line,
-					SourceType:  "docker",
-					SourceID:    sourceID,
-					Labels:      standardLabels,
-					ProcessedAt: time.Now().UTC(),
-				}
-
-				// Verificar se é self-log usando feedback guard (temporariamente desabilitado)
-				/*
-				if cm.feedbackGuard != nil {
-					guardResult := cm.feedbackGuard.CheckEntry(entry)
-					if guardResult.IsSelfLog && guardResult.Action == "drop" {
-						cm.logger.WithFields(logrus.Fields{
-							"container_id":   mc.id,
-							"container_name": mc.name,
-							"reason":         guardResult.Reason,
-							"match_pattern":  guardResult.MatchPattern,
-						}).Debug("Self-log dropped by feedback guard")
-						continue
-					}
-				}
-				*/
-
-				// Validar timestamp se o timestamp validator estiver disponível
-				if cm.timestampValidator != nil {
-					result := cm.timestampValidator.ValidateTimestamp(entry)
-					if !result.Valid && result.Action == "rejected" {
-						cm.logger.WithFields(logrus.Fields{
-							"container_id":   mc.id,
-							"container_name": mc.name,
-							"reason":         result.Reason,
-							"line":           line,
-						}).Warn("Container log line rejected due to invalid timestamp")
-						continue
-					}
-				}
-
-				if err := cm.dispatcher.Handle(ctx, "docker", sourceID, line, standardLabels); err != nil {
-					cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to dispatch container log")
-					metrics.RecordError("container_monitor", "dispatch_error")
-				} else {
-					logCount++
-					// CRÍTICO: Só atualizar lastRead quando efetivamente processamos um log
-					mc.lastRead = time.Now()
-
-					// Log periódico para debug (a cada 10 logs para não fazer spam)
-					if logCount%10 == 0 {
-						cm.logger.WithFields(logrus.Fields{
-							"container_id":   mc.id,
-							"container_name": mc.name,
-							"logs_processed": logCount,
-							"last_read":      mc.lastRead,
-						}).Debug("Container logs processed")
-					}
-				}
-
-				// Métricas
-				metrics.RecordLogProcessed("docker", sourceID, "container_monitor")
-			}
-
-			// Update position if we processed logs successfully
-			if logCount > 0 && cm.positionManager != nil {
-				cm.positionManager.UpdateContainerPosition(mc.id, mc.lastRead, logCount, bytesRead)
-				// Reset counters for next batch
-				logCount = 0
-				bytesRead = 0
-			}
-		}
-
-		// Handle read errors
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-	}
-}
-
-// containerExists verifica se um container ainda existe
-func (cm *ContainerMonitor) containerExists(containerID string) bool {
-	ctx, cancel := context.WithTimeout(cm.ctx, 5*time.Second)
-	defer cancel()
-
-	_, err := cm.dockerPool.ContainerInspect(ctx, containerID)
-	return err == nil
-}
-
-// checkContainerRecentLogs verifica se container teve logs recentes via API
-func (cm *ContainerMonitor) checkContainerRecentLogs(containerID string) bool {
-	ctx, cancel := context.WithTimeout(cm.ctx, 5*time.Second)
-	defer cancel()
-
-	// Verificar logs dos últimos 30 segundos
-	since := time.Now().Add(-30 * time.Second).Format(time.RFC3339)
-
-	logOptions := dockerTypes.ContainerLogsOptions{
-		ShowStdout: true,
-		ShowStderr: true,
-		Since:      since,
-		Tail:       "1", // Apenas verificar se há pelo menos 1 log
+// Write implementa io.Writer.
+// Cada chamada representa uma linha (ou chunk) de log do container.
+//
+// IMPORTANTE: Este método é chamado por stdcopy.StdCopy de forma síncrona.
+// Para não bloquear a leitura de logs do Docker, SEMPRE retornamos sucesso
+// (len(p), nil) mesmo se o dispatcher falhar. Erros são apenas logados.
+func (w *logCaptureWriter) Write(p []byte) (n int, err error) {
+	// Validação básica
+	if len(p) == 0 {
+		return 0, nil
 	}
 
-	stream, err := cm.dockerPool.ContainerLogs(ctx, containerID, logOptions)
-	if err != nil {
-		return false
-	}
-	defer stream.Close()
+	// Converter bytes para string (uma linha de log)
+	message := string(p)
 
-	// Ler até 1KB para verificar se há conteúdo
-	buf := make([]byte, 1024)
-	n, _ := stream.Read(buf)
-	return n > 0
-}
-
-// healthCheckContainers verifica saúde dos containers monitorados
-func (cm *ContainerMonitor) healthCheckContainers() {
-	cm.mutex.RLock()
-	containers := make([]*monitoredContainer, 0, len(cm.containers))
-	for _, mc := range cm.containers {
-		containers = append(containers, mc)
-	}
-	cm.mutex.RUnlock()
-
-	for _, mc := range containers {
-		// Verificar se o container ainda existe
-		if !cm.containerExists(mc.id) {
-			cm.mutex.Lock()
-			cm.stopContainerMonitoring(mc.id)
-			cm.mutex.Unlock()
-			continue
-		}
-
-		// Verificar se logs foram lidos recentemente (relaxar o tempo para containers com pouca atividade)
-		timeSinceLastRead := time.Since(mc.lastRead)
-		if timeSinceLastRead > 10*time.Minute {
-			// Verificar se container realmente tem logs recentes
-			hasRecentLogs := cm.checkContainerRecentLogs(mc.id)
-
-			logLevel := logrus.DebugLevel
-			message := "Container has been quiet - normal for low activity containers"
-
-			if hasRecentLogs {
-				logLevel = logrus.WarnLevel
-				message = "Container has recent logs but our stream is not capturing them - possible stream disconnection"
-
-				// Se detectou desconexão de stream, forçar reconexão
-				if timeSinceLastRead > 15*time.Minute {
-					cm.logger.WithFields(logrus.Fields{
-						"container_id":   mc.id,
-						"container_name": mc.name,
-						"minutes_since_read": int(timeSinceLastRead.Minutes()),
-					}).Warn("Forcing container stream reconnection due to prolonged disconnection")
-
-					// Parar e reiniciar monitoramento do container
-					cm.mutex.Lock()
-					cm.stopContainerMonitoring(mc.id)
-
-					// Obter informações atualizadas do container
-					containers, err := cm.dockerPool.ContainerList(context.Background(), dockerTypes.ContainerListOptions{
-						All: true,
-						Filters: filters.NewArgs(filters.Arg("id", mc.id)),
-					})
-
-					if err != nil || len(containers) == 0 {
-						cm.logger.WithError(err).WithField("container_id", mc.id).Error("Failed to get container info for reconnection")
-						cm.mutex.Unlock()
-						continue
-					}
-
-					// Reiniciar monitoramento com informações atualizadas
-					cm.startContainerMonitoring(containers[0])
-					cm.mutex.Unlock()
-
-					cm.logger.WithFields(logrus.Fields{
-						"container_id":   mc.id,
-						"container_name": mc.name,
-					}).Info("Container stream reconnection completed")
-					continue
-				}
-			}
-
-			cm.logger.WithFields(logrus.Fields{
-				"container_id":        mc.id,
-				"container_name":      mc.name,
-				"minutes_since_read":  int(timeSinceLastRead.Minutes()),
-				"last_read":           mc.lastRead,
-				"since_time":          mc.since,
-				"has_recent_logs":     hasRecentLogs,
-			}).Log(logLevel, message)
-		}
-	}
-}
-
-// getHostIP obtém o IP do host
-func getHostIP() string {
-	// Tentar obter IP através de interface de rede
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return "unknown"
+	// Criar labels para identificar a origem do log.
+	// NOTA: Este map será copiado internamente pelo dispatcher (DeepCopy),
+	// então é seguro reutilizar esta estrutura em múltiplas chamadas.
+	labels := map[string]string{
+		"container_id": w.containerID,
+		"stream":       w.streamType,
+		"source":       "docker",
+		"monitor":      "container_monitor",
 	}
 
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue // Interface down ou loopback
-		}
+	// Usar context.Background() para não bloquear a leitura de logs.
+	// O dispatcher tem seu próprio timeout e controle de fluxo.
+	ctx := context.Background()
 
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
+	// Enviar log para o dispatcher.
+	// Assinatura: Handle(ctx context.Context, sourceType, sourceID, message string, labels map[string]string) error
+	if err := w.dispatcher.Handle(ctx, "docker", w.containerID, message, labels); err != nil {
+		// Log error mas NÃO falhe a escrita - isso bloquearia stdcopy.StdCopy
+		// e interromperia a coleta de logs do container.
+		w.logger.WithFields(logrus.Fields{
+			"container_id": w.containerID[:12],
+			"stream":       w.streamType,
+			"error":        err,
+		}).Warn("Falha ao enviar log para dispatcher")
 
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-				if ipnet.IP.To4() != nil {
-					return ipnet.IP.String()
-				}
-			}
-		}
+		// METRICS: Erro ao enviar para dispatcher
+		metrics.RecordStreamError("dispatch_failed", w.containerID)
+
+		// CRÍTICO: Retorna sucesso mesmo com erro para não bloquear leitura.
+		// Os logs do dispatcher indicarão o problema (backpressure, sink offline, etc.)
+		return len(p), nil
 	}
 
-	return "unknown"
-}
+	// METRICS: Log coletado com sucesso
+	// Usar a métrica global que rastreia logs por container e stream
+	metrics.ErrorsTotal.WithLabelValues("container_monitor", "log_collected_"+w.streamType).Inc()
 
-// getHostname obtém o nome do host
-func getHostname() string {
-	hostname, err := os.Hostname()
-	if err != nil {
-		return "unknown"
-	}
-	return hostname
-}
-
-// copyLabels creates a deep copy of container labels
-func (cm *ContainerMonitor) copyLabels(labels map[string]string) map[string]string {
-	if labels == nil {
-		return make(map[string]string)
-	}
-
-	labelsCopy := make(map[string]string, len(labels))
-	for k, v := range labels {
-		labelsCopy[k] = v
-	}
-	return labelsCopy
-}
-
-// addStandardLabels adiciona labels padrão para logs de containers
-func addStandardLabels(labels map[string]string) map[string]string {
-	// Criar um novo mapa copiando as labels existentes
-	result := make(map[string]string)
-
-	// Copiar apenas labels permitidas (filtrar labels indesejadas do Docker Compose)
-	forbiddenLabels := map[string]bool{
-		"test_label":                               true,
-		"service_name":                             true,
-		"project":                                  true,
-		"log_type":                                 true,
-		"maintainer":                               true,
-		"job":                                      true,
-		"environment":                              true,
-		"com.docker.compose.project":               true,
-		"com.docker.compose.project.config_files": true,
-		"com.docker.compose.project.working_dir":   true,
-		"com.docker.compose.config-hash":           true,
-		"com.docker.compose.version":               true,
-		"com.docker.compose.oneoff":                true,
-		"com.docker.compose.depends_on":            true,
-		"com.docker.compose.image":                 true,
-		"org.opencontainers.image.source":          true,
-	}
-
-	for k, v := range labels {
-		if !forbiddenLabels[k] {
-			result[k] = v
-		}
-	}
-
-	// Labels padrão obrigatórias (sobrescrevem as existentes)
-	result["service"] = "ssw-log-capturer"
-	result["source"] = "docker"
-	result["instance"] = getHostIP()
-	result["instance_name"] = getHostname()
-
-	return result
+	// Sucesso - log foi enviado para o dispatcher
+	// Debug log removido para evitar overhead - use métricas do dispatcher para monitorar
+	return len(p), nil
 }

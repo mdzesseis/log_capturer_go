@@ -225,7 +225,7 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 			TLSHandshakeTimeout:   10 * time.Second, // Timeout for TLS handshake
 			ExpectContinueTimeout: 1 * time.Second,  // Timeout for Expect: 100-continue
 			ResponseHeaderTimeout: timeout,          // Timeout waiting for response headers
-			DisableKeepAlives:     false,            // Keep connection pooling enabled for efficiency
+			DisableKeepAlives:     true,             // INTERIM FIX: Disable pooling to stop goroutine leak (trades 10-20% perf for stability)
 			ForceAttemptHTTP2:     false,            // Stick to HTTP/1.1 for simplicity
 		},
 	}
@@ -916,9 +916,28 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 		"algorithm":       string(compressionResult.Algorithm),
 	}).Debug("Loki payload compressed")
 
+	// DIAGNOSTIC: Log detailed request information to diagnose failure rate
+	ls.logger.WithFields(logrus.Fields{
+		"url":              url,
+		"entries":          len(entries),
+		"payload_size":     compressionResult.CompressedSize,
+		"content_type":     compressionResult.ContentType,
+		"content_encoding": compressionResult.Encoding,
+		"tenant_id":        ls.config.TenantID,
+		"timeout":          ls.requestTimeout.String(),
+	}).Info("Sending Loki request")
+
 	// Enviar request
 	resp, err := ls.httpClient.Do(req)
 	if err != nil {
+		// DIAGNOSTIC: Enhanced error logging to diagnose connection issues
+		ls.logger.WithFields(logrus.Fields{
+			"url":     url,
+			"error":   err.Error(),
+			"entries": len(entries),
+			"timeout": ls.requestTimeout.String(),
+		}).Error("Loki request failed - HTTP client error")
+
 		// C11: Differentiate timeout from cancellation errors
 		if errors.Is(err, context.DeadlineExceeded) {
 			return fmt.Errorf("request timeout after %v: %w", ls.requestTimeout, err)
@@ -955,11 +974,13 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 		if copyErr != nil {
 			ls.logger.WithError(copyErr).Warn("Failed to drain response body (may cause connection leak)")
 		}
+		// DIAGNOSTIC: Log successful requests to track success rate
 		ls.logger.WithFields(logrus.Fields{
 			"status":      resp.StatusCode,
 			"bytes_read":  bytesRead,
 			"entries":     len(entries),
-		}).Debug("Loki request successful, body drained")
+			"url":         url,
+		}).Info("Loki request successful")
 	}
 
 	// Process error responses

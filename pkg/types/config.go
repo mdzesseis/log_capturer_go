@@ -134,6 +134,7 @@ type ContainerMonitorConfig struct {
 	MaxConcurrent     int               `yaml:"max_concurrent"`      // Maximum concurrent container connections
 	ReconnectInterval string            `yaml:"reconnect_interval"`  // Docker API reconnection interval
 	HealthCheckDelay  string            `yaml:"health_check_delay"`  // Container health check delay
+	DrainDuration     string            `yaml:"drain_duration"`      // Log drain period before stopping collector
 	IncludeLabels     map[string]string `yaml:"include_labels"`      // Container labels to include
 	ExcludeLabels     map[string]string `yaml:"exclude_labels"`      // Container labels to exclude
 	IncludeNames      []string          `yaml:"include_names"`       // Container names to include
@@ -499,6 +500,7 @@ type DockerConfig struct {
 	MaxConcurrent     int               `yaml:"max_concurrent"`
 	ReconnectInterval time.Duration     `yaml:"reconnect_interval"`
 	HealthCheckDelay  time.Duration     `yaml:"health_check_delay"`
+	DrainDuration     time.Duration     `yaml:"drain_duration"`      // Log drain period before stopping collector
 	IncludeLabels     map[string]string `yaml:"include_labels"`
 	ExcludeLabels     map[string]string `yaml:"exclude_labels"`
 	IncludeNames      []string          `yaml:"include_names"`

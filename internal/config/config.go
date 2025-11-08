@@ -246,6 +246,9 @@ func applyDefaults(config *types.Config) {
 	if config.ContainerMonitor.ReconnectInterval == "" {
 		config.ContainerMonitor.ReconnectInterval = "30s"
 	}
+	if config.ContainerMonitor.DrainDuration == "" {
+		config.ContainerMonitor.DrainDuration = "1s"
+	}
 	if config.ContainerMonitor.MaxConcurrent == 0 {
 		config.ContainerMonitor.MaxConcurrent = 50
 	}

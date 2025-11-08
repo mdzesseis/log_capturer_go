@@ -195,22 +195,14 @@ func (app *App) initSinks() error {
 func (app *App) initMonitors() error {
 	// File Monitor
 	if app.config.FileMonitorService.Enabled {
-		// Construir a configuração legada para manter a compatibilidade da função NewFileMonitor por enquanto
-		fileConfig := types.FileConfig{
-			Enabled:            app.config.FileMonitorService.Enabled,
-			PollInterval:       parseDurationSafe(app.config.FileMonitorService.PollInterval, 10*time.Second),
-			BufferSize:         app.config.FileMonitorService.ReadBufferSize,
-			PositionsPath:      app.config.Positions.Directory,
-			WatchDirectories:   app.config.FilesConfig.WatchDirectories,
-			IncludePatterns:    app.config.FilesConfig.IncludePatterns,
-			ExcludePatterns:    app.config.FilesConfig.ExcludePatterns,
-			ExcludeDirectories: app.config.FilesConfig.ExcludeDirectories,
-			ReadInterval:       parseDurationSafe(app.config.FileMonitorService.ReadInterval, 200*time.Millisecond),
-			Recursive:          app.config.FileMonitorService.Recursive,
-			FollowSymlinks:     app.config.FileMonitorService.FollowSymlinks,
-			PipelineConfig:     app.config.FileMonitorService.PipelineConfig, // Add PipelineConfig from loaded file_pipeline.yml
-		}
-		fileMonitor, err := monitors.NewFileMonitor(fileConfig, app.config.TimestampValidation, app.dispatcher, app.taskManager, app.positionManager, app.logger)
+		// BLOCKER-001 FIX: Use new refactored signature (5 params, no legacy FileConfig)
+		fileMonitor, err := monitors.NewFileMonitor(
+			app.config.FileMonitorService, // Directly use new config structure
+			app.dispatcher,
+			app.taskManager,
+			app.positionManager, // Already *positions.PositionBufferManager
+			app.logger,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to create file monitor: %w", err)
 		}
