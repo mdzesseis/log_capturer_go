@@ -17,6 +17,9 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/sirupsen/logrus"
+
+	// Import pprof for goroutine leak analysis
+	"net/http/pprof"
 )
 
 // Health check helper functions
@@ -157,6 +160,12 @@ func (app *App) registerHandlers(router *mux.Router) {
 	router.Handle("/debug/goroutines", middleware(http.HandlerFunc(app.debugGoroutinesHandler))).Methods("GET")
 	router.Handle("/debug/memory", middleware(http.HandlerFunc(app.debugMemoryHandler))).Methods("GET")
 	router.Handle("/debug/positions/validate", middleware(http.HandlerFunc(app.debugPositionsValidateHandler))).Methods("GET")
+
+	// pprof endpoints for leak analysis (no middleware for direct access)
+	router.HandleFunc("/pprof/", app.pprofIndexHandler).Methods("GET")
+	router.HandleFunc("/pprof/goroutine", app.pprofGoroutineHandler).Methods("GET")
+	router.HandleFunc("/pprof/heap", app.pprofHeapHandler).Methods("GET")
+	router.HandleFunc("/pprof/profile", app.pprofProfileHandler).Methods("GET")
 
 	// Resource monitoring endpoint
 	router.Handle("/api/resources/metrics", middleware(http.HandlerFunc(app.handleResourceMetrics))).Methods("GET")
@@ -1082,6 +1091,26 @@ func (app *App) debugGoroutinesHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(debugInfo)
+}
+
+// pprofGoroutineHandler provides full pprof goroutine profile
+func (app *App) pprofGoroutineHandler(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("goroutine").ServeHTTP(w, r)
+}
+
+// pprofHeapHandler provides full pprof heap profile
+func (app *App) pprofHeapHandler(w http.ResponseWriter, r *http.Request) {
+	pprof.Handler("heap").ServeHTTP(w, r)
+}
+
+// pprofIndexHandler provides pprof index page
+func (app *App) pprofIndexHandler(w http.ResponseWriter, r *http.Request) {
+	pprof.Index(w, r)
+}
+
+// pprofProfileHandler provides CPU profile
+func (app *App) pprofProfileHandler(w http.ResponseWriter, r *http.Request) {
+	pprof.Profile(w, r)
 }
 
 // debugMemoryHandler returns detailed memory usage and garbage collection statistics.

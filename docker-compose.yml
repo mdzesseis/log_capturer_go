@@ -31,7 +31,7 @@ services:
       - DEBUG_MODE=true
     ports:
      # - "8080:8080"  # Minimal API
-      - "8401:8401"  # API
+      - "8401:8401"  # API (includes pprof at /debug/pprof/)
       - "8001:8001"  # Metrics
     ulimits:
       nofile:
