@@ -930,15 +930,40 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 	}
 	defer resp.Body.Close()
 
-	// Verificar status e capturar detalhes do erro
-	if resp.StatusCode >= 300 {
-		// Ler o body da resposta para obter detalhes do erro
-		bodyBytes, bodyErr := io.ReadAll(resp.Body)
-		if bodyErr != nil {
-			return fmt.Errorf("loki returned status %d (failed to read error details: %v)", resp.StatusCode, bodyErr)
-		}
+	// CRITICAL FIX: Must FULLY READ response body to enable HTTP connection reuse
+	// HTTP/1.1 connection pooling requires reading the entire response body
+	// Without this, connections accumulate and leak (each spawns 2 goroutines)
+	// See: https://pkg.go.dev/net/http#Response - "It is the caller's responsibility to close Body"
+	// AND: https://github.com/golang/go/issues/23427
 
-		errorBody := string(bodyBytes)
+	// Read response body based on status
+	var errorBody string
+	if resp.StatusCode >= 300 {
+		// Error response - read body for error details (limited to 64KB)
+		bodyBytes, readErr := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+		if readErr != nil {
+			// Drain any remaining data before returning
+			io.Copy(io.Discard, resp.Body)
+			return fmt.Errorf("loki returned status %d (failed to read error details: %v)", resp.StatusCode, readErr)
+		}
+		errorBody = string(bodyBytes)
+	} else {
+		// Success response (2xx) - body is typically empty for Loki
+		// Must drain it completely to enable connection reuse
+		// Use io.Copy instead of ReadAll to handle empty bodies correctly
+		bytesRead, copyErr := io.Copy(io.Discard, resp.Body)
+		if copyErr != nil {
+			ls.logger.WithError(copyErr).Warn("Failed to drain response body (may cause connection leak)")
+		}
+		ls.logger.WithFields(logrus.Fields{
+			"status":      resp.StatusCode,
+			"bytes_read":  bytesRead,
+			"entries":     len(entries),
+		}).Debug("Loki request successful, body drained")
+	}
+
+	// Process error responses
+	if resp.StatusCode >= 300 {
 		ls.logger.WithFields(logrus.Fields{
 			"status_code": resp.StatusCode,
 			"error_body":  errorBody,
@@ -974,6 +999,7 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 		}
 	}
 
+	// SUCCESS (2xx) - Body has been drained by deferred function above
 	return nil
 }
 
