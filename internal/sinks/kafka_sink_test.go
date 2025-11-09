@@ -167,7 +167,8 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 		t.Skip("Skipping Kafka integration test in short mode")
 	}
 
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			// This would require a mock Kafka broker or testing the internal function
 			// For now, we document the expected behavior
@@ -221,7 +222,8 @@ func TestKafkaSinkPartitionKeyGeneration(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			// Test partition key generation logic
 			// This would require exposing the determinePartitionKey function or testing via integration
@@ -508,8 +510,8 @@ func BenchmarkKafkaSinkTopicDetermination(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		for _, entry := range entries {
-			_ = sink.determineTopic(entry)
+		for j := range entries {
+			_ = sink.determineTopic(&entries[j])
 		}
 	}
 }
@@ -546,6 +548,6 @@ func BenchmarkKafkaSinkPartitionKeyGeneration(b *testing.B) {
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = sink.determinePartitionKey(entry)
+		_ = sink.determinePartitionKey(&entry)
 	}
 }

@@ -92,6 +92,11 @@ type ContainerMonitor struct {
 	running    bool
 	runningMux sync.RWMutex
 	wg         sync.WaitGroup
+
+	// Self-monitoring protection
+	mu                 sync.RWMutex
+	excludeNames       []string
+	circuitBreaker     *circuitBreaker
 }
 
 // NewContainerMonitor cria um novo gerenciador de logs.
@@ -135,7 +140,7 @@ func NewContainerMonitor(
 		drainDuration = config.DrainDuration
 	}
 
-	return &ContainerMonitor{
+	cm := &ContainerMonitor{
 		cli:             cli,
 		config:          config,
 		timestampConfig: timestampConfig,
@@ -146,7 +151,13 @@ func NewContainerMonitor(
 		collectors:      make(map[string]context.CancelFunc),
 		drainDuration:   drainDuration,
 		running:         false,
-	}, nil
+		excludeNames:    make([]string, 0),
+	}
+
+	// Initialize circuit breaker for self-monitoring detection
+	cm.circuitBreaker = newCircuitBreaker(cm)
+
+	return cm, nil
 }
 
 // Start implementa a interface Monitor.
@@ -192,6 +203,11 @@ func (cm *ContainerMonitor) Stop() error {
 	cm.runningMux.Unlock()
 
 	cm.logger.WithField("component", "container_monitor").Info("Parando Container Monitor...")
+
+	// Stop circuit breaker first
+	if cm.circuitBreaker != nil {
+		cm.circuitBreaker.stop()
+	}
 
 	// Cancelar contexto principal (dispara cancelamento em todos os coletores)
 	if cm.cancel != nil {
@@ -329,7 +345,7 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 	cm.collectorsMux.Unlock()
 
 	// METRICS: Incrementar contador de containers iniciados
-	metrics.ErrorsTotal.WithLabelValues("container_monitor", "container_started").Inc()
+	metrics.ContainerEvents.WithLabelValues("started", containerID).Inc()
 
 	// METRICS: Atualizar gauge de coletores ativos
 	metrics.UpdateActiveStreams(activeCount)
@@ -349,6 +365,13 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 			// METRICS: Atualizar gauge quando coletor encerra
 			metrics.UpdateActiveStreams(finalCount)
 		}()
+
+		// Get container info to extract name for circuit breaker
+		containerName := containerID[:12] // fallback to short ID
+		containerInfo, err := cm.cli.ContainerInspect(collectCtx, containerID)
+		if err == nil && containerInfo.Name != "" {
+			containerName = containerInfo.Name
+		}
 
 		options := dockerTypes.ContainerLogsOptions{
 			ShowStdout: true,
@@ -390,8 +413,8 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 
 		// FASE 4: Criar writers que capturam logs e enviam para dispatcher.
 		// Substitui prefixedWriter para integrar com o sistema de processamento.
-		stdoutWriter := newLogCaptureWriter(containerID, "stdout", cm.dispatcher, cm.logger)
-		stderrWriter := newLogCaptureWriter(containerID, "stderr", cm.dispatcher, cm.logger)
+		stdoutWriter := newLogCaptureWriter(containerID, containerName, "stdout", cm.dispatcher, cm.logger, cm)
+		stderrWriter := newLogCaptureWriter(containerID, containerName, "stderr", cm.dispatcher, cm.logger, cm)
 
 		_, err = stdcopy.StdCopy(stdoutWriter, stderrWriter, wrappedReader)
 
@@ -444,7 +467,7 @@ func (cm *ContainerMonitor) StopCollecting(containerID string) {
 	cancel()
 
 	// METRICS: Incrementar contador de containers parados
-	metrics.ErrorsTotal.WithLabelValues("container_monitor", "container_stopped").Inc()
+	metrics.ContainerEvents.WithLabelValues("stopped", containerID).Inc()
 }
 
 // ===================================================================================
@@ -460,30 +483,38 @@ func (cm *ContainerMonitor) StopCollecting(containerID string) {
 // - Processados por pipelines (enriquecimento, filtragem)
 // - Monitorados via métricas e traces
 type logCaptureWriter struct {
-	containerID string
-	streamType  string // "stdout" ou "stderr"
-	dispatcher  types.Dispatcher
-	logger      *logrus.Logger
+	containerID   string
+	containerName string
+	streamType    string // "stdout" ou "stderr"
+	dispatcher    types.Dispatcher
+	logger        *logrus.Logger
+	monitor       *ContainerMonitor
 }
 
 // newLogCaptureWriter cria um novo writer que captura logs e envia para o dispatcher.
 //
 // Parâmetros:
 //   - containerID: ID completo do container Docker
+//   - containerName: Nome do container Docker
 //   - streamType: "stdout" ou "stderr" para identificar origem
 //   - dispatcher: Interface do dispatcher para enviar logs
 //   - logger: Logger estruturado para diagnóstico
+//   - monitor: Referência ao ContainerMonitor para circuit breaker
 func newLogCaptureWriter(
 	containerID string,
+	containerName string,
 	streamType string,
 	dispatcher types.Dispatcher,
 	logger *logrus.Logger,
+	monitor *ContainerMonitor,
 ) io.Writer {
 	return &logCaptureWriter{
-		containerID: containerID,
-		streamType:  streamType,
-		dispatcher:  dispatcher,
-		logger:      logger,
+		containerID:   containerID,
+		containerName: containerName,
+		streamType:    streamType,
+		dispatcher:    dispatcher,
+		logger:        logger,
+		monitor:       monitor,
 	}
 }
 
@@ -497,6 +528,11 @@ func (w *logCaptureWriter) Write(p []byte) (n int, err error) {
 	// Validação básica
 	if len(p) == 0 {
 		return 0, nil
+	}
+
+	// Track log for circuit breaker (self-monitoring detection)
+	if w.monitor != nil && w.monitor.circuitBreaker != nil {
+		w.monitor.circuitBreaker.trackLog(w.containerID, w.containerName)
 	}
 
 	// Converter bytes para string (uma linha de log)
@@ -537,7 +573,7 @@ func (w *logCaptureWriter) Write(p []byte) (n int, err error) {
 
 	// METRICS: Log coletado com sucesso
 	// Usar a métrica global que rastreia logs por container e stream
-	metrics.ErrorsTotal.WithLabelValues("container_monitor", "log_collected_"+w.streamType).Inc()
+	metrics.LogsCollected.WithLabelValues(w.streamType, w.containerID).Inc()
 
 	// Sucesso - log foi enviado para o dispatcher
 	// Debug log removido para evitar overhead - use métricas do dispatcher para monitorar

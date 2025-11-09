@@ -29,6 +29,7 @@ services:
       - LOG_LEVEL=debug
       - LOG_FORMAT=json
       - DEBUG_MODE=true
+      - TZ=America/Sao_Paulo
     ports:
      # - "8080:8080"  # Minimal API
       - "8401:8401"  # API (includes pprof at /debug/pprof/)
@@ -48,6 +49,8 @@ services:
       - /var/log/monitoring_data_suite/batch_persistence:/app/batch_persistence
       - /var/log/monitoring_data_suite/debug:/app/debug
       - /var/log:/var/log:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       loki:
         condition: service_healthy
@@ -101,8 +104,10 @@ services:
     volumes:
       - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     environment:
-      - TZ=UTC
+      - TZ=America/Sao_Paulo
       - LOKI_MAX_DATA_SIZE=5GB
       - LOKI_CLEANUP_ENABLED=true
       - LOKI_RETENTION_POLICY=size_and_time
@@ -137,11 +142,14 @@ services:
     ports:
       - "3000:3000"
     environment:
+      - TZ=America/Sao_Paulo
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,hamedkarbasi93-kafka-datasource
     volumes:
       - grafana_data:/var/lib/grafana
       - ./provisioning:/etc/grafana/provisioning:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       loki:
         condition: service_healthy
@@ -172,6 +180,10 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=America/Sao_Paulo
     logging:
       driver: "json-file"
       options:
@@ -217,8 +229,11 @@ services:
           sleep 15
         done
       "
-    # networks:
-    #   - logs-network
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=America/Sao_Paulo
     logging:
       driver: "json-file"
       options:
@@ -256,8 +271,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # Zookeeper - Kafka coordination service
+  
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper
@@ -265,16 +279,19 @@ services:
     ports:
       - "2181:2181"
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      ZOOKEEPER_SYNC_LIMIT: 2
-      ZOOKEEPER_INIT_LIMIT: 5
-      ZOOKEEPER_MAX_CLIENT_CNXNS: 60
-      ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT: 3
-      ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL: 24
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+      - ZOOKEEPER_SYNC_LIMIT=2
+      - ZOOKEEPER_INIT_LIMIT=5
+      - ZOOKEEPER_MAX_CLIENT_CNXNS=60
+      - ZOOKEEPER_AUTOPURGE_SNAP_RETAIN_COUNT=3
+      - ZOOKEEPER_AUTOPURGE_PURGE_INTERVAL=24
+      - TZ=America/Sao_Paulo
     volumes:
       - zookeeper_data:/var/lib/zookeeper/data
       - zookeeper_logs:/var/lib/zookeeper/log
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     healthcheck:
       test: ["CMD", "bash", "-c", "echo srvr | nc localhost 2181 | grep -q 'Mode: standalone'"]
       interval: 10s
@@ -296,29 +313,32 @@ services:
       - "9092:9092"
       - "9093:9093"
     environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-      KAFKA_LOG_RETENTION_HOURS: 168
-      KAFKA_LOG_RETENTION_BYTES: 1073741824
-      KAFKA_LOG_SEGMENT_BYTES: 1073741824
-      KAFKA_COMPRESSION_TYPE: snappy
-      KAFKA_NUM_PARTITIONS: 3
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
-      KAFKA_MIN_INSYNC_REPLICAS: 1
-      KAFKA_MESSAGE_MAX_BYTES: 1048576
-      KAFKA_REPLICA_FETCH_MAX_BYTES: 1048576
-      KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE: "false"
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9093
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true # <--- CORRIGIDO
+      - KAFKA_LOG_RETENTION_HOURS=168
+      - KAFKA_LOG_RETENTION_BYTES=1073741824
+      - KAFKA_LOG_SEGMENT_BYTES=1073741824
+      - KAFKA_COMPRESSION_TYPE=snappy
+      - KAFKA_NUM_PARTITIONS=3
+      - KAFKA_DEFAULT_REPLICATION_FACTOR=1
+      - KAFKA_MIN_INSYNC_REPLICAS=1
+      - KAFKA_MESSAGE_MAX_BYTES=1048576
+      - KAFKA_REPLICA_FETCH_MAX_BYTES=1048576
+      - KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false # <--- CORRIGIDO
+      - TZ=America/Sao_Paulo
     volumes:
       - kafka_data:/var/lib/kafka/data
       - ./kafka:/etc/kafka/custom:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       zookeeper:
         condition: service_healthy
@@ -350,10 +370,14 @@ services:
     ports:
       - "8080:8080"
     environment:
-      KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
-      DYNAMIC_CONFIG_ENABLED: "true"
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+      - DYNAMIC_CONFIG_ENABLED=true # <--- CORRIGIDO
+      - TZ=America/Sao_Paulo
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     depends_on:
       kafka:
         condition: service_healthy

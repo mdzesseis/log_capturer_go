@@ -102,7 +102,11 @@
       "id": 2,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -188,7 +192,11 @@
       "id": 3,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -270,7 +278,12 @@
       "id": 50,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max", "min"],
+          "calcs": [
+            "mean",
+            "last",
+            "max",
+            "min"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -285,11 +298,6 @@
           "expr": "logs_per_second",
           "legendFormat": "{{component}}",
           "refId": "A"
-        },
-        {
-          "expr": "",
-          "legendFormat": "{{component}} (janela: {{measurement_window}})",
-          "refId": "B"
         }
       ],
       "title": "Throughput - Logs por Segundo (Real-time)",
@@ -377,7 +385,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "",
+          "expr": "component_health",
           "legendFormat": "{{component_type}}: {{component_name}}",
           "refId": "A"
         }
@@ -455,7 +463,11 @@
       "id": 6,
       "options": {
         "legend": {
-          "calcs": ["sum", "mean", "last"],
+          "calcs": [
+            "sum",
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -467,14 +479,9 @@
       },
       "targets": [
         {
-          "expr": "",
+          "expr": "rate(errors_total[5m])",
           "legendFormat": "{{component}} - {{error_type}}",
           "refId": "A"
-        },
-        {
-          "expr": "",
-          "legendFormat": "{{component}} - {{error_type}} ({{severity}})",
-          "refId": "B"
         }
       ],
       "title": "Taxa de Erros por Componente e Tipo",
@@ -549,8 +556,8 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "",
-          "legendFormat": "{{sink_name}} ({{sink_type}})",
+          "expr": "component_health{component_type=\"sink\"}",
+          "legendFormat": "{{component_name}}",
           "refId": "A"
         }
       ],
@@ -690,7 +697,9 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value"]
+          "values": [
+            "value"
+          ]
         },
         "pieType": "pie",
         "reduceOptions": {
@@ -758,7 +767,9 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value"]
+          "values": [
+            "value"
+          ]
         },
         "pieType": "donut",
         "reduceOptions": {
@@ -840,13 +851,13 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "",
-          "legendFormat": "Containers Monitorados",
+          "expr": "total_files_monitored",
+          "legendFormat": "Arquivos Monitorados",
           "refId": "A"
         },
         {
-          "expr": "",
-          "legendFormat": "Arquivos Monitorados",
+          "expr": "total_containers_monitored",
+          "legendFormat": "Containers Monitorados",
           "refId": "B"
         }
       ],
@@ -982,7 +993,11 @@
       "id": 12,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1007,21 +1022,6 @@
           "expr": "histogram_quantile(0.99, rate(processing_duration_seconds_bucket[5m]))",
           "legendFormat": "P99 (pior caso) - {{component}}/{{operation}}",
           "refId": "C"
-        },
-        {
-          "expr": "",
-          "legendFormat": "P50 SSW - {{pipeline}}/{{stage}}",
-          "refId": "D"
-        },
-        {
-          "expr": "",
-          "legendFormat": "P95 SSW - {{pipeline}}/{{stage}}",
-          "refId": "E"
-        },
-        {
-          "expr": "",
-          "legendFormat": "P99 SSW - {{pipeline}}/{{stage}}",
-          "refId": "F"
         }
       ],
       "title": "Latência de Processamento de Logs (P50/P95/P99)",
@@ -1097,7 +1097,11 @@
       "id": 13,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1189,7 +1193,11 @@
       "id": 53,
       "options": {
         "legend": {
-          "calcs": ["mean", "max", "last"],
+          "calcs": [
+            "mean",
+            "max",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -1201,9 +1209,19 @@
       },
       "targets": [
         {
-          "expr": "",
-          "legendFormat": "P99 - {{operation}} ({{component}})",
+          "expr": "histogram_quantile(0.99, rate(response_time_seconds_bucket[5m]))",
+          "legendFormat": "P99 - {{endpoint}} {{method}}",
           "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(response_time_seconds_bucket[5m]))",
+          "legendFormat": "P95 - {{endpoint}} {{method}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(response_time_seconds_bucket[5m]))",
+          "legendFormat": "P50 - {{endpoint}} {{method}}",
+          "refId": "C"
         }
       ],
       "title": "Tempo de Resposta de Operações (P99)",
@@ -1292,7 +1310,11 @@
       "id": 15,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1307,11 +1329,6 @@
           "expr": "queue_size",
           "legendFormat": "{{component}} - {{queue_type}}",
           "refId": "A"
-        },
-        {
-          "expr": "",
-          "legendFormat": "{{queue_type}} ({{component}})",
-          "refId": "B"
         }
       ],
       "title": "Tamanho das Filas Internas",
@@ -1393,7 +1410,11 @@
       "id": 16,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1557,7 +1578,10 @@
       "id": 18,
       "options": {
         "legend": {
-          "calcs": ["mean", "last"],
+          "calcs": [
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1639,7 +1663,10 @@
       "id": 19,
       "options": {
         "legend": {
-          "calcs": ["mean", "last"],
+          "calcs": [
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1651,8 +1678,8 @@
       },
       "targets": [
         {
-          "expr": "",
-          "legendFormat": "{{task_type}}",
+          "expr": "rate(task_heartbeats_total[5m])",
+          "legendFormat": "{{task_type}} - {{task_id}}",
           "refId": "A"
         }
       ],
@@ -1742,7 +1769,11 @@
       "id": 21,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -1926,7 +1957,11 @@
       "id": 23,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2026,7 +2061,11 @@
       "id": 55,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2038,9 +2077,14 @@
       },
       "targets": [
         {
-          "expr": "ssw_file_descriptors_count",
+          "expr": "file_descriptors_open",
           "legendFormat": "File Descriptors",
           "refId": "A"
+        },
+        {
+          "expr": "process_open_fds{job=~\".*log.*\"}",
+          "legendFormat": "FDs (process) - {{instance}}",
+          "refId": "B"
         }
       ],
       "title": "File Descriptors Abertos (Arquivos/Sockets)",
@@ -2108,7 +2152,10 @@
       "id": 56,
       "options": {
         "legend": {
-          "calcs": ["last", "max"],
+          "calcs": [
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2120,8 +2167,8 @@
       },
       "targets": [
         {
-          "expr": "ssw_disk_usage_bytes",
-          "legendFormat": "{{path}} ({{type}})",
+          "expr": "disk_usage_bytes",
+          "legendFormat": "{{mount_point}} ({{device}})",
           "refId": "A"
         }
       ],
@@ -2211,7 +2258,11 @@
       "id": 25,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2222,11 +2273,6 @@
         }
       },
       "targets": [
-        {
-          "expr": "rate(go_gc_duration_seconds_count{job=~\".*log.*\"}[5m])",
-          "legendFormat": "GC Rate - {{instance}}",
-          "refId": "A"
-        },
         {
           "expr": "rate(gc_runs_total[5m])",
           "legendFormat": "GC Runs Custom",
@@ -2306,7 +2352,11 @@
       "id": 57,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2318,18 +2368,18 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(go_gc_duration_seconds_bucket{job=~\".*log.*\"}[5m]))",
-          "legendFormat": "P50 GC Pause - {{instance}}",
+          "expr": "histogram_quantile(0.99, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "legendFormat": "P99 GC Pause",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(go_gc_duration_seconds_bucket{job=~\".*log.*\"}[5m]))",
-          "legendFormat": "P95 GC Pause - {{instance}}",
+          "expr": "histogram_quantile(0.95, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95 GC Pause",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(go_gc_duration_seconds_bucket{job=~\".*log.*\"}[5m]))",
-          "legendFormat": "P99 GC Pause - {{instance}}",
+          "expr": "histogram_quantile(0.50, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "legendFormat": "P50 GC Pause",
           "refId": "C"
         }
       ],
@@ -2419,7 +2469,11 @@
       "id": 27,
       "options": {
         "legend": {
-          "calcs": ["sum", "mean", "last"],
+          "calcs": [
+            "sum",
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2514,7 +2568,11 @@
       "id": 59,
       "options": {
         "legend": {
-          "calcs": ["mean", "last", "max"],
+          "calcs": [
+            "mean",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2526,9 +2584,24 @@
       },
       "targets": [
         {
-          "expr": "ssw_connection_pool_stats",
-          "legendFormat": "{{pool_type}} - {{metric}}",
+          "expr": "connection_pool_stats{stat_type=\"active\"}",
+          "legendFormat": "{{pool_name}} - Active",
           "refId": "A"
+        },
+        {
+          "expr": "connection_pool_stats{stat_type=\"idle\"}",
+          "legendFormat": "{{pool_name}} - Idle",
+          "refId": "B"
+        },
+        {
+          "expr": "connection_pool_stats{stat_type=\"max\"}",
+          "legendFormat": "{{pool_name}} - Max",
+          "refId": "C"
+        },
+        {
+          "expr": "connection_pool_stats{stat_type=\"wait_time\"}",
+          "legendFormat": "{{pool_name}} - Wait Time (ms)",
+          "refId": "D"
         }
       ],
       "title": "Estatísticas de Connection Pools",
@@ -2596,7 +2669,10 @@
       "id": 60,
       "options": {
         "legend": {
-          "calcs": ["mean", "last"],
+          "calcs": [
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2608,8 +2684,8 @@
       },
       "targets": [
         {
-          "expr": "ssw_compression_ratio",
-          "legendFormat": "{{algorithm}} - {{sink}}",
+          "expr": "compression_ratio",
+          "legendFormat": "{{component}} - {{algorithm}}",
           "refId": "A"
         }
       ],
@@ -2678,7 +2754,10 @@
       "id": 61,
       "options": {
         "legend": {
-          "calcs": ["mean", "last"],
+          "calcs": [
+            "mean",
+            "last"
+          ],
           "displayMode": "table",
           "placement": "bottom",
           "showLegend": true
@@ -2690,9 +2769,24 @@
       },
       "targets": [
         {
-          "expr": "ssw_batching_stats",
-          "legendFormat": "{{component}} - {{metric}}",
+          "expr": "batching_stats{stat_type=\"batch_size\"}",
+          "legendFormat": "{{component}} - Batch Size",
           "refId": "A"
+        },
+        {
+          "expr": "batching_stats{stat_type=\"batch_fill_rate\"}",
+          "legendFormat": "{{component}} - Fill Rate",
+          "refId": "B"
+        },
+        {
+          "expr": "batching_stats{stat_type=\"flush_time\"}",
+          "legendFormat": "{{component}} - Flush Time (ms)",
+          "refId": "C"
+        },
+        {
+          "expr": "batching_stats{stat_type=\"batches_per_second\"}",
+          "legendFormat": "{{component}} - Batches/sec",
+          "refId": "D"
         }
       ],
       "title": "Estatísticas de Batching (Agrupamento de Logs)",
@@ -2777,7 +2871,11 @@
       "id": 63,
       "options": {
         "legend": {
-          "calcs": ["sum", "last", "max"],
+          "calcs": [
+            "sum",
+            "last",
+            "max"
+          ],
           "displayMode": "table",
           "placement": "right",
           "showLegend": true
@@ -2789,9 +2887,19 @@
       },
       "targets": [
         {
-          "expr": "ssw_resource_leak_detection",
-          "legendFormat": "{{resource_type}} - {{metric}}",
+          "expr": "leak_detection{resource_type=\"fd_leak\"}",
+          "legendFormat": "{{component}} - File Descriptors Leak",
           "refId": "A"
+        },
+        {
+          "expr": "leak_detection{resource_type=\"goroutine_leak\"}",
+          "legendFormat": "{{component}} - Goroutine Leak",
+          "refId": "B"
+        },
+        {
+          "expr": "leak_detection{resource_type=\"memory_leak\"}",
+          "legendFormat": "{{component}} - Memory Leak (MB)",
+          "refId": "C"
         }
       ],
       "title": "Detecção de Vazamentos de Recursos (FD, Goroutines, Memória)",
@@ -2836,7 +2944,7 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Log Capturer Go - Dashboard COMPLETO (Todas as Métricas)",
+  "title": "Log Capturer Go - Dashboard COMPLETO",
   "uid": "log-capturer-go-complete-v2",
   "version": 1,
   "weekStart": ""

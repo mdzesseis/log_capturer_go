@@ -51,44 +51,44 @@ func NewRetryManager(
 //  - If retries >= maxRetries: Send to DLQ
 //  - If retry queue full: Send directly to DLQ to prevent goroutine explosion
 func (rm *RetryManager) HandleFailedBatch(batch []dispatchItem, err error, queue chan<- dispatchItem) {
-	for _, item := range batch {
-		if item.Retries < rm.config.MaxRetries {
-			rm.scheduleRetry(item, queue)
+	for i := range batch {
+		if batch[i].Retries < rm.config.MaxRetries {
+			rm.scheduleRetry(&batch[i], queue)
 		} else {
-			rm.sendToDLQ(item, err, "max_retries_exceeded", "all_sinks")
+			rm.sendToDLQ(&batch[i], err, "max_retries_exceeded", "all_sinks")
 		}
 	}
 }
 
 // scheduleRetry schedules a retry for a failed item with exponential backoff
-func (rm *RetryManager) scheduleRetry(item dispatchItem, queue chan<- dispatchItem) {
-	item.Retries++
-	retryDelay := rm.config.RetryDelay * time.Duration(item.Retries)
+func (rm *RetryManager) scheduleRetry(itemPtr *dispatchItem, queue chan<- dispatchItem) {
+	itemPtr.Retries++
+	retryDelay := rm.config.RetryDelay * time.Duration(itemPtr.Retries)
 
 	// Try to acquire semaphore slot
 	select {
 	case rm.retrySemaphore <- struct{}{}:
 		// Successfully acquired - create retry goroutine
 		rm.wg.Add(1)
-		go rm.retryWorker(item, retryDelay, queue)
+		go rm.retryWorker(itemPtr, retryDelay, queue)
 
 	default:
 		// Semaphore full - too many concurrent retries
 		// Send directly to DLQ to prevent goroutine explosion
 		rm.logger.WithFields(logrus.Fields{
-			"retries":                item.Retries,
+			"retries":                itemPtr.Retries,
 			"max_concurrent_retries": rm.maxConcurrentRetries,
-			"source_type":            item.Entry.SourceType,
-			"source_id":              item.Entry.SourceID,
+			"source_type":            itemPtr.Entry.SourceType,
+			"source_id":              itemPtr.Entry.SourceID,
 		}).Warn("Retry queue full - sending to DLQ to prevent goroutine explosion")
 
-		rm.sendToDLQ(item, fmt.Errorf("retry queue full"), "retry_queue_full", "all_sinks")
+		rm.sendToDLQ(itemPtr, fmt.Errorf("retry queue full"), "retry_queue_full", "all_sinks")
 		metrics.RecordError("dispatcher", "retry_queue_full")
 	}
 }
 
 // retryWorker is a goroutine that waits and retries a failed item
-func (rm *RetryManager) retryWorker(item dispatchItem, delay time.Duration, queue chan<- dispatchItem) {
+func (rm *RetryManager) retryWorker(itemPtr *dispatchItem, delay time.Duration, queue chan<- dispatchItem) {
 	defer rm.wg.Done()
 	defer func() { <-rm.retrySemaphore }() // Release semaphore
 
@@ -106,15 +106,15 @@ func (rm *RetryManager) retryWorker(item dispatchItem, delay time.Duration, queu
 	case <-timer.C:
 		// Try to re-queue
 		select {
-		case queue <- item:
-			rm.logger.WithField("retries", item.Retries).Debug("Item rescheduled successfully")
+		case queue <- *itemPtr:
+			rm.logger.WithField("retries", itemPtr.Retries).Debug("Item rescheduled successfully")
 		case <-rm.ctx.Done():
 			// Context cancelled during re-queue
 			return
 		default:
 			// Queue full - send to DLQ
 			rm.logger.Warn("Failed to reschedule item, queue full")
-			rm.sendToDLQ(item, fmt.Errorf("queue full on retry"), "queue_full_on_retry", "all_sinks")
+			rm.sendToDLQ(itemPtr, fmt.Errorf("queue full on retry"), "queue_full_on_retry", "all_sinks")
 		}
 
 	case <-rm.ctx.Done():
@@ -124,7 +124,7 @@ func (rm *RetryManager) retryWorker(item dispatchItem, delay time.Duration, queu
 }
 
 // sendToDLQ sends a failed entry to the Dead Letter Queue
-func (rm *RetryManager) sendToDLQ(item dispatchItem, err error, errorType, failedSink string) {
+func (rm *RetryManager) sendToDLQ(itemPtr *dispatchItem, err error, errorType, failedSink string) {
 	if rm.config.DLQEnabled && rm.deadLetterQueue != nil {
 		context := map[string]string{
 			"worker_id": "retry_manager",
@@ -132,35 +132,35 @@ func (rm *RetryManager) sendToDLQ(item dispatchItem, err error, errorType, faile
 		}
 
 		dlqErr := rm.deadLetterQueue.AddEntry(
-			&item.Entry,
+			&itemPtr.Entry,
 			err.Error(),
 			errorType,
 			failedSink,
-			item.Retries,
+			itemPtr.Retries,
 			context,
 		)
 
 		if dlqErr != nil {
 			rm.logger.WithFields(logrus.Fields{
-				"trace_id":    item.Entry.TraceID,
-				"source_type": item.Entry.SourceType,
-				"source_id":   item.Entry.SourceID,
+				"trace_id":    itemPtr.Entry.TraceID,
+				"source_type": itemPtr.Entry.SourceType,
+				"source_id":   itemPtr.Entry.SourceID,
 				"failed_sink": failedSink,
 				"error_type":  errorType,
 				"error":       err.Error(),
-				"retry_count": item.Retries,
+				"retry_count": itemPtr.Retries,
 				"dlq_error":   dlqErr.Error(),
 			}).Error("Failed to send entry to DLQ")
 			return
 		}
 
 		rm.logger.WithFields(logrus.Fields{
-			"trace_id":    item.Entry.TraceID,
-			"source_type": item.Entry.SourceType,
-			"source_id":   item.Entry.SourceID,
+			"trace_id":    itemPtr.Entry.TraceID,
+			"source_type": itemPtr.Entry.SourceType,
+			"source_id":   itemPtr.Entry.SourceID,
 			"failed_sink": failedSink,
 			"error_type":  errorType,
-			"retry_count": item.Retries,
+			"retry_count": itemPtr.Retries,
 		}).Debug("Entry sent to DLQ")
 	}
 }
@@ -187,7 +187,7 @@ func (rm *RetryManager) HandleCircuitBreaker(batch []dispatchItem, err error) {
 		"batch_size": len(batch),
 	}).Warn("Circuit breaker triggered - all sinks failed, sending to DLQ")
 
-	for _, item := range batch {
-		rm.sendToDLQ(item, err, "all_sinks_failed", "all_sinks")
+	for i := range batch {
+		rm.sendToDLQ(&batch[i], err, "all_sinks_failed", "all_sinks")
 	}
 }

@@ -295,7 +295,7 @@
       },
       "targets": [
         {
-          "expr": "logs_per_second",
+          "expr": "log_capturer_logs_per_second",
           "legendFormat": "{{component}}",
           "refId": "A"
         }
@@ -385,7 +385,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "component_health",
+          "expr": "log_capturer_component_health",
           "legendFormat": "{{component_type}}: {{component_name}}",
           "refId": "A"
         }
@@ -716,7 +716,7 @@
       },
       "targets": [
         {
-          "expr": "files_monitored",
+          "expr": "log_capturer_files_monitored",
           "legendFormat": "{{filepath}}",
           "refId": "A"
         }
@@ -786,7 +786,7 @@
       },
       "targets": [
         {
-          "expr": "containers_monitored",
+          "expr": "log_capturer_containers_monitored",
           "legendFormat": "{{container_name}} ({{container_id}})",
           "refId": "A"
         }
@@ -851,12 +851,12 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "total_files_monitored",
+          "expr": "log_capturer_total_files_monitored",
           "legendFormat": "Arquivos Monitorados",
           "refId": "A"
         },
         {
-          "expr": "total_containers_monitored",
+          "expr": "log_capturer_total_containers_monitored",
           "legendFormat": "Containers Monitorados",
           "refId": "B"
         }
@@ -1326,7 +1326,7 @@
       },
       "targets": [
         {
-          "expr": "queue_size",
+          "expr": "log_capturer_queue_size",
           "legendFormat": "{{component}} - {{queue_type}}",
           "refId": "A"
         }
@@ -1426,7 +1426,7 @@
       },
       "targets": [
         {
-          "expr": "sink_queue_utilization",
+          "expr": "log_capturer_sink_queue_utilization",
           "legendFormat": "{{sink_type}}",
           "refId": "A"
         }
@@ -1495,7 +1495,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "dispatcher_queue_utilization",
+          "expr": "log_capturer_dispatcher_queue_utilization",
           "legendFormat": "Dispatcher Queue",
           "refId": "A"
         }
@@ -1593,7 +1593,7 @@
       },
       "targets": [
         {
-          "expr": "active_tasks",
+          "expr": "log_capturer_active_tasks",
           "legendFormat": "{{task_type}} - {{state}}",
           "refId": "A"
         }
@@ -1795,7 +1795,7 @@
           "refId": "B"
         },
         {
-          "expr": "memory_usage_bytes",
+          "expr": "log_capturer_memory_usage_bytes",
           "legendFormat": "{{type}} - custom",
           "refId": "C"
         },
@@ -1874,7 +1874,7 @@
           "refId": "A"
         },
         {
-          "expr": "cpu_usage_percent",
+          "expr": "log_capturer_cpu_usage_percent",
           "legendFormat": "CPU Custom",
           "refId": "B"
         },
@@ -1978,7 +1978,7 @@
           "refId": "A"
         },
         {
-          "expr": "goroutines",
+          "expr": "log_capturer_goroutines",
           "legendFormat": "Goroutines Custom",
           "refId": "B"
         },
@@ -2077,7 +2077,7 @@
       },
       "targets": [
         {
-          "expr": "file_descriptors_open",
+          "expr": "log_capturer_file_descriptors_open",
           "legendFormat": "File Descriptors",
           "refId": "A"
         },
@@ -2167,7 +2167,7 @@
       },
       "targets": [
         {
-          "expr": "disk_usage_bytes",
+          "expr": "log_capturer_disk_usage_bytes",
           "legendFormat": "{{mount_point}} ({{device}})",
           "refId": "A"
         }
@@ -2684,7 +2684,7 @@
       },
       "targets": [
         {
-          "expr": "compression_ratio",
+          "expr": "log_capturer_compression_ratio",
           "legendFormat": "{{component}} - {{algorithm}}",
           "refId": "A"
         }

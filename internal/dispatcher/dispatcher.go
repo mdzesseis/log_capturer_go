@@ -1070,7 +1070,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 			case d.retrySemaphore <- struct{}{}:
 				// Successfully acquired semaphore slot - create retry goroutine
 				d.wg.Add(1)
-				go func(item dispatchItem, delay time.Duration) {
+				go func(itemPtr *dispatchItem, delay time.Duration) {
 					defer d.wg.Done()
 					defer func() { <-d.retrySemaphore }() // Release semaphore slot when done
 
@@ -1090,22 +1090,22 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 					case <-timer.C:
 						// Tentar reagendar com context
 						select {
-						case d.queue <- item:
+						case d.queue <- *itemPtr:
 							// Reagendado com sucesso
-							d.logger.WithField("retries", item.Retries).Debug("Item rescheduled successfully")
+							d.logger.WithField("retries", itemPtr.Retries).Debug("Item rescheduled successfully")
 						case <-d.ctx.Done():
 							// Context cancelado
 							return
 						default:
 							// Fila cheia, enviar para DLQ se disponível
 							d.logger.Warn("Failed to reschedule failed item, queue full")
-							d.sendToDLQ(&item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
+							d.sendToDLQ(&itemPtr.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", itemPtr.Retries)
 						}
 					case <-d.ctx.Done():
 						// Context cancelado durante espera - timer será limpo no defer
 						return
 					}
-				}(item, retryDelay)
+				}(&item, retryDelay)
 
 			default:
 				// Semaphore full - too many concurrent retries

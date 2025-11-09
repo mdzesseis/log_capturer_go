@@ -1,0 +1,117 @@
+# PHASE 1 - FILES REQUIRING FIXES
+# Generated: 2025-11-08
+# Total Files: 11 production files + 3 test files
+
+## PRIORITY 1: HOT PATH (CRITICAL)
+
+### Sinks - High Throughput Functions
+1. /home/mateus/log_capturer_go/internal/sinks/loki_sink.go
+   - Line 657: addToBatch(entry types.LogEntry) → addToBatch(entry *types.LogEntry)
+   - Line 1197: sendToDLQ(entry types.LogEntry, ...) → sendToDLQ(entry *types.LogEntry, ...)
+   - Multiple range loops copying locks
+
+2. /home/mateus/log_capturer_go/internal/sinks/local_file_sink.go
+   - Line 356: writeLogEntry(entry types.LogEntry) → writeLogEntry(entry *types.LogEntry)
+   - Line 325: addToDLQ(entry types.LogEntry, ...) → addToDLQ(entry *types.LogEntry, ...)
+   - Line 431: getLogFileName(entry types.LogEntry) → getLogFileName(entry *types.LogEntry)
+   - Line 473: buildFilenameFromPattern(..., entry types.LogEntry) → buildFilenameFromPattern(..., entry *types.LogEntry)
+   - Line 731: writeEntry(entry types.LogEntry) → writeEntry(entry *types.LogEntry)
+   - Line 797: formatJSONOutput(entry types.LogEntry) → formatJSONOutput(entry *types.LogEntry)
+   - Line 826: formatTextOutput(entry types.LogEntry) → formatTextOutput(entry *types.LogEntry)
+
+### Batching & Buffering
+3. /home/mateus/log_capturer_go/pkg/batching/adaptive_batcher.go
+   - Line 156: Add(entry types.LogEntry) → Add(entry *types.LogEntry)
+   - Line 165: append() call copies lock
+
+4. /home/mateus/log_capturer_go/pkg/buffer/disk_buffer.go
+   - Line 192: Write(entry types.LogEntry) → Write(entry *types.LogEntry)
+   - Line 203: literal copies lock
+   - Line 207: json.Marshal copies lock
+
+## PRIORITY 2: PUBLIC APIS (HIGH)
+
+### Dead Letter Queue
+5. /home/mateus/log_capturer_go/pkg/dlq/dead_letter_queue.go
+   - Line 334: AddEntry(originalEntry types.LogEntry, ...) → AddEntry(originalEntry *types.LogEntry, ...)
+   - Line 395: writeEntry(entry DLQEntry) → writeEntry(entry *DLQEntry)
+   - Multiple range loops (lines 918, 1036, 1098, 1110, 1139, 1182)
+   - Multiple append calls copying locks
+
+### Dispatcher
+6. /home/mateus/log_capturer_go/internal/dispatcher/dispatcher.go
+   - Line 333: literal copies statsMutex (sync.RWMutex)
+   - Line 336: literal copies wg (sync.WaitGroup)
+   - Line 726: assignment copies lock
+   - Line 792: sendToDLQ(entry types.LogEntry, ...) → sendToDLQ(entry *types.LogEntry, ...)
+   - Line 1073: Anonymous func passes dispatchItem by value
+   - Line 1331: reprocessLogEntry(entry types.LogEntry) → reprocessLogEntry(entry *types.LogEntry)
+   - Line 1396: reprocessToAnySink(entry types.LogEntry, ...) → reprocessToAnySink(entry *types.LogEntry, ...)
+   - Multiple range loops
+
+7. /home/mateus/log_capturer_go/internal/dispatcher/retry_manager.go
+   - Line 64: scheduleRetry(item dispatchItem) → scheduleRetry(item *dispatchItem)
+   - Line 91: retryWorker(item dispatchItem) → retryWorker(item *dispatchItem)
+   - Line 127: sendToDLQ(item dispatchItem) → sendToDLQ(item *dispatchItem)
+   - Multiple range loops
+
+## PRIORITY 3: SPECIALIZED FUNCTIONS (MEDIUM)
+
+### Kafka Sink
+8. /home/mateus/log_capturer_go/internal/sinks/kafka_sink.go
+   - Line 541: determineTopic(entry types.LogEntry) → determineTopic(entry *types.LogEntry)
+   - Line 562: determinePartitionKey(entry types.LogEntry) → determinePartitionKey(entry *types.LogEntry)
+   - Multiple range loops
+   - Multiple json.Marshal calls
+
+### Timestamp Learning
+9. /home/mateus/log_capturer_go/internal/sinks/timestamp_learner.go
+   - Line 119: LearnFromRejection(errorMsg string, entry types.LogEntry) → LearnFromRejection(errorMsg string, entry *types.LogEntry)
+   - Line 166: ValidateTimestamp(entry types.LogEntry) → ValidateTimestamp(entry *types.LogEntry)
+
+## PRIORITY 4: BATCH PROCESSOR (MEDIUM)
+
+10. /home/mateus/log_capturer_go/internal/dispatcher/batch_processor.go
+    - Line 48: range var item copies lock
+    - Line 65: range var entry copies lock
+    - Line 205: assignment copies lock
+    - Line 226: assignment copies lock
+
+## CORE TYPE DEFINITION
+
+11. /home/mateus/log_capturer_go/pkg/types/types.go
+    - Line 161: DeepCopy() method copies entire struct including mutex
+    - Consider: Remove DeepCopy or implement without mutex copy
+
+## TEST CODE (DEFERRED - LOW PRIORITY)
+
+### Build Failures
+12. /home/mateus/log_capturer_go/pkg/cleanup/disk_manager_test.go
+    - Declared but unused: ctx (multiple lines)
+    - Undefined methods: getDiskSpace, matchesPattern
+    - Truncated constant
+
+13. /home/mateus/log_capturer_go/pkg/security/auth_test.go
+    - Undefined: SecurityConfig, AuthorizationConfig, NewSecurityManager
+    - Unused import: context
+
+14. /home/mateus/log_capturer_go/pkg/validation/timestamp_validator_test.go
+    - Unknown fields in Config struct
+    - Wrong argument type
+
+## SUMMARY
+
+Production Files Requiring Changes: 11
+- Sinks: 3 files (loki, local_file, kafka)
+- Dispatcher: 3 files (dispatcher, retry_manager, batch_processor)
+- Packages: 4 files (batching, buffer, dlq, types)
+- Test Files: 3 files (deferred)
+
+Total Function Signatures to Update: 25
+Total Range Loops to Fix: ~30
+Total json.Marshal calls to fix: ~15
+Total append calls to fix: ~20
+
+Estimated Lines of Code Changed: 200-300 lines
+Estimated Files Modified: 11 files
+Estimated Call Sites Updated: 100+ locations

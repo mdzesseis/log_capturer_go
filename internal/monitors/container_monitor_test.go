@@ -602,9 +602,11 @@ func TestLogCaptureWriter_Write(t *testing.T) {
 
 	writer := newLogCaptureWriter(
 		"test_container_12345678",
+		"test_container",
 		"stdout",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for this test
 	)
 
 	message := "test log message\n"
@@ -630,9 +632,11 @@ func TestLogCaptureWriter_EmptyWrite(t *testing.T) {
 
 	writer := newLogCaptureWriter(
 		"test_container_12345678",
+		"test_container",
 		"stdout",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for this test
 	)
 
 	n, err := writer.Write([]byte{})
@@ -651,9 +655,11 @@ func TestLogCaptureWriter_DispatcherError(t *testing.T) {
 
 	writer := newLogCaptureWriter(
 		"test_container_12345678",
+		"test_container",
 		"stderr",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for this test
 	)
 
 	message := "error log message\n"
@@ -673,9 +679,11 @@ func TestLogCaptureWriter_ConcurrentWrites(t *testing.T) {
 
 	writer := newLogCaptureWriter(
 		"test_container_12345678",
+		"test_container",
 		"stdout",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for this test
 	)
 
 	const goroutines = 50
@@ -701,9 +709,10 @@ func TestLogCaptureWriter_Labels(t *testing.T) {
 	logger := newTestLogger()
 
 	containerID := "test_container_abcdef123456"
+	containerName := "test_container"
 	streamType := "stderr"
 
-	writer := newLogCaptureWriter(containerID, streamType, dispatcher, logger)
+	writer := newLogCaptureWriter(containerID, containerName, streamType, dispatcher, logger, nil)
 
 	message := "test message with labels\n"
 	writer.Write([]byte(message))
@@ -728,9 +737,11 @@ func BenchmarkLogCaptureWriter_Write(b *testing.B) {
 
 	writer := newLogCaptureWriter(
 		"bench_container_12345678",
+		"bench_container",
 		"stdout",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for benchmark
 	)
 
 	data := []byte("Benchmark log message for performance testing\n")
@@ -749,9 +760,11 @@ func BenchmarkLogCaptureWriter_ConcurrentWrite(b *testing.B) {
 
 	writer := newLogCaptureWriter(
 		"bench_container_12345678",
+		"bench_container",
 		"stdout",
 		dispatcher,
 		logger,
+		nil, // monitor not needed for benchmark
 	)
 
 	data := []byte("Concurrent benchmark log message\n")
