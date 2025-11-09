@@ -11,7 +11,7 @@ app:
   name: "ssw-logs-capture"
   version: "v0.0.2"
   environment: "production"
-  log_level: "info"
+  log_level: "debug"
   log_format: "json"
   log_file: ""
   operation_timeout: "1h"
@@ -60,12 +60,12 @@ files_config:
   watch_directories:
     - "/var/log"
   include_patterns:
-    # - "*.log"
+    - "*.log"
     # - "*.txt"
     # - "syslog"
     # - "dmesg"
     # - "kern.log"
-    # - "messages"
+    - "messages"
   exclude_patterns:
     - "*.gz"
     - "*.zip"
@@ -80,7 +80,7 @@ files_config:
 # CONFIGURAÇÕES DO SERVIÇO DE MONITORAMENTO DE ARQUIVOS
 # -----------------------------------------------------------------------------
 file_monitor_service:
-  enabled: false  # Temporarily disabled - files in pipeline don't exist in container
+  enabled: true  # Temporarily disabled - files in pipeline don't exist in container
   pipeline_file: "/app/configs/file_pipeline.yml"
   poll_interval: "30s"
   read_buffer_size: 65536
@@ -293,7 +293,7 @@ sinks:
 
   local_file:
     enabled: true  # Re-enabled after circuit breaker fix DE LEAK
-    directory: "/tmp/logs/output"
+    directory: "/app/logs/output"
     filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
     #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
     #filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
@@ -318,7 +318,7 @@ sinks:
     worker_count: 4                  # Number of concurrent workers processing the queue
 
   kafka:
-    enabled: false  # Temporarily disabled for testing file_monitor
+    enabled: true  # Temporarily disabled for testing file_monitor
     brokers:
       - "kafka:9092"                    # Kafka broker addresses
     topic: "logs"                       # Default topic (can be overridden by routing)
@@ -389,7 +389,7 @@ timestamp_validation:
   clamp_enabled: true             # Habilitar clamping automático
   clamp_dlq: false               # Enviar timestamps corrigidos para DLQ
   invalid_action: "clamp"         # Ação: "clamp", "reject", "warn"
-  default_timezone: "UTC"         # Timezone padrão
+  default_timezone: "America/Sao_Paulo"         # Timezone padrão
   accepted_formats:               # Formatos aceitos para parsing
     - "2006-01-02T15:04:05Z07:00"  # RFC3339
     - "2006-01-02T15:04:05.000Z"   # RFC3339Nano variant
@@ -403,7 +403,7 @@ service_discovery:
   enabled: false
   update_interval: "30s"          # Intervalo de atualização
   docker_enabled: false            # Descoberta de containers Docker
-  file_enabled: true            # Descoberta baseada em arquivos
+  file_enabled: false            # Descoberta baseada em arquivos
   kubernetes_enabled: false      # Descoberta Kubernetes (futuro)
 
   # Configuração Docker Discovery
@@ -428,7 +428,7 @@ service_discovery:
       - "/app/service-configs/*.json"
     auto_detect_logs: true
     required_labels:
-      service_type: "logs"
+      # service_type: "logs"
 
   # Configuração Kubernetes (futuro)
   # kubernetes:
@@ -477,7 +477,7 @@ cleanup:
   critical_space_threshold: 5.0    # 5% de espaço livre
   warning_space_threshold: 15.0    # 15% de espaço livre
   directories:
-    - path: "/app/logs"
+    - path: "/app/logs/output"
       max_size_mb: 1024              # 1GB máximo
       retention_days: 7
       file_patterns:
@@ -520,7 +520,7 @@ resource_monitoring:
 # -----------------------------------------------------------------------------
 disk_buffer:
   enabled: true                    # Desabilitado por padrão
-  directory: "/tmp/buffer"
+  directory: "/app/buffer"
   max_file_size: 104857600          # 100MB por arquivo
   max_total_size: 1073741824        # 1GB total
   max_files: 50

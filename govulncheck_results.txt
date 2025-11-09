@@ -1,3 +1,0 @@
-2025/11/02 05:46:25 internal error: error "package requires newer Go version go1.24" (*errors.errorString) without position
-2025/11/02 05:46:25 internal error: error "package requires newer Go version go1.24" (*errors.errorString) without position
-2025/11/02 05:46:26 internal error: package "golang.org/x/sys/unix" without types was imported from "github.com/fsnotify/fsnotify"

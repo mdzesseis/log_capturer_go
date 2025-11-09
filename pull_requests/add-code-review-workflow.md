@@ -1,1 +1,0 @@
-This PR adds a GitHub Actions workflow that performs automated code review on each push to main, generating reports and creating issues for problems found.
