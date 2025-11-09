@@ -33,6 +33,12 @@ var (
 		[]string{"component"},
 	)
 
+	// Gauge para profundidade da fila do dispatcher (número de itens)
+	DispatcherQueueDepth = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "log_capturer_dispatcher_queue_depth",
+		Help: "Current number of entries in dispatcher queue",
+	})
+
 	// Gauge para utilização da fila do dispatcher
 	DispatcherQueueUtilization = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "log_capturer_dispatcher_queue_utilization",
@@ -498,6 +504,24 @@ var (
 	// CONTAINER MONITOR STREAM METRICS
 	// =============================================================================
 
+	// Logs collected from containers
+	LogsCollected = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_logs_collected_total",
+			Help: "Total number of log lines collected from containers",
+		},
+		[]string{"stream", "container"},
+	)
+
+	// Container lifecycle events
+	ContainerEvents = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "log_capturer_container_events_total",
+			Help: "Total number of container lifecycle events",
+		},
+		[]string{"event_type", "container"},
+	)
+
 	// Active container log streams
 	ActiveContainerStreams = prometheus.NewGauge(
 		prometheus.GaugeOpts{
@@ -900,6 +924,8 @@ func NewMetricsServer(addr string, logger *logrus.Logger) *MetricsServer {
 		safeRegister(KafkaDLQMessagesTotal)
 		safeRegister(KafkaConnectionStatus)
 		// Container monitor stream metrics
+		safeRegister(LogsCollected)
+		safeRegister(ContainerEvents)
 		safeRegister(ActiveContainerStreams)
 		safeRegister(StreamRotationsTotal)
 		safeRegister(StreamAgeSeconds)

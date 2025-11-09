@@ -127,11 +127,19 @@ func NewEnhancedTracingManager(config EnhancedTracingConfig, logger *logrus.Logg
 	// Initialize adaptive sampler
 	if config.Mode == ModeHybrid && config.AdaptiveSampling.Enabled {
 		tm.adaptiveSampler = NewAdaptiveSampler(config.AdaptiveSampling, logger)
+		// Record initial adaptive sampling state
+		tm.metrics.RecordAdaptiveSamplingActive(true)
+	} else {
+		tm.metrics.RecordAdaptiveSamplingActive(false)
 	}
 
 	// Initialize on-demand controller
 	if config.Mode == ModeHybrid && config.OnDemand.Enabled {
 		tm.onDemandCtrl = NewOnDemandController()
+		// Record initial on-demand rules (0 at start)
+		tm.metrics.RecordOnDemandRulesActive(0)
+	} else {
+		tm.metrics.RecordOnDemandRulesActive(0)
 	}
 
 	// Record initial mode in metrics
@@ -360,13 +368,22 @@ func (tm *EnhancedTracingManager) ReloadConfig(newConfig EnhancedTracingConfig) 
 		} else {
 			tm.adaptiveSampler.UpdateConfig(newConfig.AdaptiveSampling)
 		}
+		tm.metrics.RecordAdaptiveSamplingActive(true)
+	} else {
+		tm.metrics.RecordAdaptiveSamplingActive(false)
 	}
 
 	// Reinitialize on-demand controller if needed
 	if newConfig.Mode == ModeHybrid && newConfig.OnDemand.Enabled {
 		if tm.onDemandCtrl == nil {
 			tm.onDemandCtrl = NewOnDemandController()
+			tm.metrics.RecordOnDemandRulesActive(0)
+		} else {
+			// Keep existing rules count
+			tm.metrics.RecordOnDemandRulesActive(len(tm.onDemandCtrl.rules))
 		}
+	} else {
+		tm.metrics.RecordOnDemandRulesActive(0)
 	}
 
 	// Update metrics

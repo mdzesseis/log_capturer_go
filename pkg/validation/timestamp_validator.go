@@ -214,7 +214,7 @@ func (tv *TimestampValidator) handleInvalidTimestamp(entry *types.LogEntry, resu
 					"clamped_timestamp":  now.Format(time.RFC3339),
 					"reason":            result.Reason,
 				}
-				tv.dlq.AddEntry(*entry, "timestamp_clamped", "timestamp_validation", "timestamp_validator", 0, context)
+				tv.dlq.AddEntry(entry, "timestamp_clamped", "timestamp_validation", "timestamp_validator", 0, context)
 			}
 		} else {
 			result.Action = "rejected"

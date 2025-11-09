@@ -262,10 +262,10 @@ func (lfs *LocalFileSink) Send(ctx context.Context, entries []types.LogEntry) er
 		return nil
 	}
 
-	for _, entry := range entries {
+	for i := range entries {
 		// SEMPRE respeitar o contexto para evitar deadlock
 		select {
-		case lfs.queue <- entry:
+		case lfs.queue <- entries[i]:
 			// Enviado para fila com sucesso
 		case <-ctx.Done():
 			// Contexto cancelado/timeout - retornar erro imediatamente
@@ -300,8 +300,10 @@ func (lfs *LocalFileSink) processLoop(workerID int) {
 		case <-lfs.ctx.Done():
 			lfs.logger.WithField("worker_id", workerID).Debug("Local file sink worker stopped")
 			return
-		case entry := <-lfs.queue:
-			lfs.writeLogEntry(entry)
+		case entryCopy := <-lfs.queue:
+			// Cria ponteiro local - não compartilhado entre goroutines
+			entry := entryCopy
+			lfs.writeLogEntry(&entry)
 		}
 	}
 }
@@ -322,7 +324,7 @@ func (lfs *LocalFileSink) rotationLoop() {
 }
 
 // addToDLQ adds a failed entry to the dead letter queue if available
-func (lfs *LocalFileSink) addToDLQ(entry types.LogEntry, errorMsg, errorType string, retryCount int) {
+func (lfs *LocalFileSink) addToDLQ(entry *types.LogEntry, errorMsg, errorType string, retryCount int) {
 	if lfs.deadLetterQueue == nil {
 		return
 	}
@@ -340,7 +342,7 @@ func (lfs *LocalFileSink) addToDLQ(entry types.LogEntry, errorMsg, errorType str
 			"source_id":   entry.SourceID,
 		}
 
-		if err := dlq.AddEntry(entry, errorMsg, errorType, "local_file", retryCount, context); err != nil {
+		if err := dlq.AddEntry(*entry, errorMsg, errorType, "local_file", retryCount, context); err != nil {
 			lfs.logger.WithError(err).Warn("Failed to add entry to DLQ")
 		} else {
 			lfs.logger.WithFields(logrus.Fields{
@@ -353,7 +355,7 @@ func (lfs *LocalFileSink) addToDLQ(entry types.LogEntry, errorMsg, errorType str
 }
 
 // writeLogEntry escreve uma entrada de log
-func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
+func (lfs *LocalFileSink) writeLogEntry(entry *types.LogEntry) {
 	// Verificação robusta de espaço em disco antes de processar
 	if !lfs.isDiskSpaceAvailable() {
 		lfs.logger.WithFields(logrus.Fields{
@@ -428,7 +430,7 @@ func (lfs *LocalFileSink) writeLogEntry(entry types.LogEntry) {
 }
 
 // getLogFileName determina o nome do arquivo de log
-func (lfs *LocalFileSink) getLogFileName(entry types.LogEntry) string {
+func (lfs *LocalFileSink) getLogFileName(entry *types.LogEntry) string {
 	// Escolher pattern baseado no source_type
 	var pattern string
 
@@ -470,7 +472,7 @@ func (lfs *LocalFileSink) getLogFileName(entry types.LogEntry) string {
 }
 
 // buildFilenameFromPattern constrói o nome do arquivo substituindo placeholders no pattern
-func (lfs *LocalFileSink) buildFilenameFromPattern(entry types.LogEntry, pattern string) string {
+func (lfs *LocalFileSink) buildFilenameFromPattern(entry *types.LogEntry, pattern string) string {
 
 	// Substituir {date} - formato: YYYY-MM-DD
 	date := entry.Timestamp.Format("2006-01-02")
@@ -728,7 +730,7 @@ func (lfs *LocalFileSink) cleanupOldFiles() {
 }
 
 // writeEntry escreve uma entrada no arquivo
-func (lf *logFile) writeEntry(entry types.LogEntry, config types.LocalFileConfig) error {
+func (lf *logFile) writeEntry(entry *types.LogEntry, config types.LocalFileConfig) error {
 	lf.mutex.Lock()
 	defer lf.mutex.Unlock()
 
@@ -794,7 +796,7 @@ func (lf *logFile) close() {
 }
 
 // formatJSONOutput formata entrada como JSON
-func (lf *logFile) formatJSONOutput(entry types.LogEntry) string {
+func (lf *logFile) formatJSONOutput(entry *types.LogEntry) string {
 	// Criar estrutura para JSON
 	output := map[string]interface{}{
 		"timestamp":    entry.Timestamp.Format(time.RFC3339Nano),
@@ -823,7 +825,7 @@ func (lf *logFile) formatJSONOutput(entry types.LogEntry) string {
 }
 
 // formatTextOutput formata entrada como texto puro
-func (lf *logFile) formatTextOutput(entry types.LogEntry, config types.LocalFileConfig) string {
+func (lf *logFile) formatTextOutput(entry *types.LogEntry, config types.LocalFileConfig) string {
 	var parts []string
 
 	// Adicionar timestamp se habilitado

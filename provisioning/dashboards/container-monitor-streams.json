@@ -187,7 +187,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(log_capturer_goroutines[5m]) * 60",
+          "expr": "deriv(log_capturer_goroutines[5m]) * 60",
           "legendFormat": "Growth Rate (goroutines/min)",
           "range": true,
           "refId": "A"

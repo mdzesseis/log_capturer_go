@@ -728,6 +728,26 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 		}
 	}
 
+	// Calculate current queue utilization for backpressure
+	queueDepth := len(d.queue)
+	queueSize := cap(d.queue)
+	utilization := float64(queueDepth) / float64(queueSize) * 100
+
+	// Update metrics
+	metrics.DispatcherQueueDepth.Set(float64(queueDepth))
+	metrics.DispatcherQueueUtilization.Set(utilization)
+
+	// Apply backpressure at 95% threshold
+	if utilization >= 95.0 {
+		d.logger.Warn("dispatcher queue at critical capacity - applying backpressure",
+			"queue_depth", queueDepth,
+			"queue_size", queueSize,
+			"utilization_percent", utilization,
+		)
+		metrics.RecordError("dispatcher", "queue_backpressure")
+		return fmt.Errorf("dispatcher queue near full: %.1f%% utilization", utilization)
+	}
+
 	// C5: Race Condition Fix - Use deep copy to avoid sharing mutex
 	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
@@ -769,7 +789,7 @@ func (d *Dispatcher) GetRetryQueueStats() map[string]interface{} {
 }
 
 // sendToDLQ envia entrada para Dead Letter Queue
-func (d *Dispatcher) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
+func (d *Dispatcher) sendToDLQ(entry *types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
 	if d.config.DLQEnabled && d.deadLetterQueue != nil {
 		context := map[string]string{
 			"worker_id": "dispatcher",
@@ -1004,7 +1024,7 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 		// Send all items directly to DLQ
 		for _, item := range batch {
-			d.sendToDLQ(item.Entry, lastErr.Error(), "all_sinks_failed", "all_sinks", item.Retries)
+			d.sendToDLQ(&item.Entry, lastErr.Error(), "all_sinks_failed", "all_sinks", item.Retries)
 		}
 	} else if successCount < healthySinks && healthySinks > 0 {
 		// Some sinks failed, some succeeded - handle normally with retry
@@ -1079,7 +1099,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 						default:
 							// Fila cheia, enviar para DLQ se disponível
 							d.logger.Warn("Failed to reschedule failed item, queue full")
-							d.sendToDLQ(item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
+							d.sendToDLQ(&item.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", item.Retries)
 						}
 					case <-d.ctx.Done():
 						// Context cancelado durante espera - timer será limpo no defer
@@ -1096,7 +1116,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 					"source_type":            item.Entry.SourceType,
 					"source_id":              item.Entry.SourceID,
 				}).Warn("Retry queue full - sending directly to DLQ to prevent goroutine explosion")
-				d.sendToDLQ(item.Entry, "retry_queue_full", "max_concurrent_retries_exceeded", "all_sinks", item.Retries)
+				d.sendToDLQ(&item.Entry, "retry_queue_full", "max_concurrent_retries_exceeded", "all_sinks", item.Retries)
 				metrics.RecordError("dispatcher", "retry_queue_full")
 			}
 		} else {
@@ -1110,7 +1130,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 			}).Error("Max retries reached for log entry, sending to DLQ")
 
 			// Enviar para Dead Letter Queue
-			d.sendToDLQ(item.Entry, err.Error(), "max_retries_exceeded", "all_sinks", item.Retries)
+			d.sendToDLQ(&item.Entry, err.Error(), "max_retries_exceeded", "all_sinks", item.Retries)
 		}
 	}
 }
@@ -1196,7 +1216,7 @@ func (d *Dispatcher) handleLowPriorityEntry(ctx context.Context, sourceType, sou
 		// Adicionar tag indicando que foi throttled (thread-safe)
 		entry.SetLabel("throttle_reason", "backpressure_low_priority")
 
-		if err := d.deadLetterQueue.AddEntry(entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
+		if err := d.deadLetterQueue.AddEntry(&entry, "throttled due to backpressure", "backpressure", "dispatcher", 0, map[string]string{
 			"throttle_level": d.backpressureManager.GetLevel().String(),
 		}); err != nil {
 			d.logger.WithError(err).Warn("Failed to add throttled entry to DLQ")
@@ -1308,7 +1328,7 @@ func (d *Dispatcher) setupDLQReprocessing() {
 }
 
 // reprocessLogEntry tenta reprocessar uma entrada da DLQ
-func (d *Dispatcher) reprocessLogEntry(entry types.LogEntry, originalSink string) error {
+func (d *Dispatcher) reprocessLogEntry(entry *types.LogEntry, originalSink string) error {
 	d.logger.WithFields(logrus.Fields{
 		"source_type":    entry.SourceType,
 		"source_id":      entry.SourceID,
@@ -1333,7 +1353,7 @@ func (d *Dispatcher) reprocessLogEntry(entry types.LogEntry, originalSink string
 	}
 
 	// Tentar enviar para o sink original
-	if err := targetSink.Send(ctx, []types.LogEntry{entry}); err != nil {
+	if err := targetSink.Send(ctx, []types.LogEntry{*entry}); err != nil {
 		d.logger.WithError(err).WithFields(logrus.Fields{
 			"source_type":   entry.SourceType,
 			"source_id":     entry.SourceID,
@@ -1373,7 +1393,7 @@ func (d *Dispatcher) findSinkByName(sinkName string) types.Sink {
 }
 
 // reprocessToAnySink tenta reprocessar para qualquer sink healthy disponível
-func (d *Dispatcher) reprocessToAnySink(ctx context.Context, entry types.LogEntry) error {
+func (d *Dispatcher) reprocessToAnySink(ctx context.Context, entry *types.LogEntry) error {
 	d.mutex.RLock()
 	healthySinks := make([]types.Sink, 0)
 	for _, sink := range d.sinks {
@@ -1390,7 +1410,7 @@ func (d *Dispatcher) reprocessToAnySink(ctx context.Context, entry types.LogEntr
 	// Tentar enviar para cada sink healthy
 	var lastError error
 	for _, sink := range healthySinks {
-		if err := sink.Send(ctx, []types.LogEntry{entry}); err != nil {
+		if err := sink.Send(ctx, []types.LogEntry{*entry}); err != nil {
 			lastError = err
 			d.logger.WithError(err).WithFields(logrus.Fields{
 				"source_type": entry.SourceType,

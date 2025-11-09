@@ -18,7 +18,7 @@ import (
 )
 
 // ReprocessCallback função callback para reprocessamento
-type ReprocessCallback func(entry types.LogEntry, originalSink string) error
+type ReprocessCallback func(entry *types.LogEntry, originalSink string) error
 
 // DeadLetterQueue gerencia logs que falharam no processamento
 type DeadLetterQueue struct {
@@ -140,7 +140,7 @@ type AlertConfig struct {
 // DLQEntry entrada na Dead Letter Queue
 type DLQEntry struct {
 	Timestamp     time.Time         `json:"timestamp"`
-	OriginalEntry types.LogEntry    `json:"original_entry"`
+	OriginalEntry *types.LogEntry   `json:"original_entry"`
 	ErrorMessage  string            `json:"error_message"`
 	ErrorType     string            `json:"error_type"`
 	FailedSink    string            `json:"failed_sink"`
@@ -331,7 +331,7 @@ func (dlq *DeadLetterQueue) Stop() error {
 }
 
 // AddEntry adiciona entrada à DLQ
-func (dlq *DeadLetterQueue) AddEntry(originalEntry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int, context map[string]string) error {
+func (dlq *DeadLetterQueue) AddEntry(originalEntry *types.LogEntry, errorMsg, errorType, failedSink string, retryCount int, context map[string]string) error {
 	if !dlq.config.Enabled {
 		return nil
 	}

@@ -47,8 +47,8 @@ type LokiSink struct {
 	deadLetterQueue *dlq.DeadLetterQueue
 	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection
 
-	queue        chan types.LogEntry
-	batch        []types.LogEntry
+	queue        chan *types.LogEntry
+	batch        []*types.LogEntry
 	batchMutex   sync.Mutex
 	lastSent     time.Time
 
@@ -77,9 +77,9 @@ type LokiSink struct {
 	maxConcurrentSends int
 
 	// Worker pool for batch processing (architectural fix for goroutine leak)
-	batchQueue   chan []types.LogEntry // Queue of batches to process
-	workerCount  int                    // Number of fixed worker goroutines
-	workersWg    sync.WaitGroup         // Track worker goroutines
+	batchQueue   chan []*types.LogEntry // Queue of batches to process
+	workerCount  int                     // Number of fixed worker goroutines
+	workersWg    sync.WaitGroup          // Track worker goroutines
 
 	// Métricas de backpressure
 	backpressureCount int64
@@ -270,14 +270,14 @@ func NewLokiSink(config types.LokiConfig, logger *logrus.Logger, deadLetterQueue
 		compressor:         compressor,
 		deadLetterQueue:    deadLetterQueue,
 		enhancedMetrics:    enhancedMetrics,
-		queue:              make(chan types.LogEntry, queueSize),
-		batch:              make([]types.LogEntry, 0, config.BatchSize),
+		queue:              make(chan *types.LogEntry, queueSize),
+		batch:              make([]*types.LogEntry, 0, config.BatchSize),
 		ctx:                ctx,
 		cancel:             cancel,
 		requestTimeout:     timeout, // C11: Store timeout for request-specific contexts
 		sendSemaphore:      make(chan struct{}, 15), // Limit to 15 concurrent sendBatch goroutines
 		maxConcurrentSends: 15,
-		batchQueue:         make(chan []types.LogEntry, 100), // Queue for worker pool (100 batches buffer)
+		batchQueue:         make(chan []*types.LogEntry, 100), // Queue for worker pool (100 batches buffer)
 		workerCount:        10,                                // Fixed pool of 10 workers
 		name:               "loki",                            // Sink name for metrics
 	}
@@ -483,16 +483,22 @@ func (ls *LokiSink) Stop() error {
 //   4. Optional: Clamp old timestamps if configured
 //
 // Returns: Slice of valid entries ready for sending
-func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []types.LogEntry {
+func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []*types.LogEntry {
 	if ls.timestampLearner == nil {
-		return entries // Learner disabled, pass all entries
+		// Learner disabled, convert all entries to pointers
+		validEntries := make([]*types.LogEntry, len(entries))
+		for i := range entries {
+			validEntries[i] = &entries[i]
+		}
+		return validEntries
 	}
 
-	validEntries := make([]types.LogEntry, 0, len(entries))
+	validEntries := make([]*types.LogEntry, 0, len(entries))
 
-	for _, entry := range entries {
+	for i := range entries {
+		entry := &entries[i]
 		// Optional: Try to clamp timestamp first (if configured)
-		if ls.timestampLearner.ClampTimestamp(&entry) {
+		if ls.timestampLearner.ClampTimestamp(entry) {
 			metrics.RecordTimestampClamped(ls.name)
 			ls.logger.WithFields(logrus.Fields{
 				"original_age_hours": entry.Labels["_original_age_hours"],
@@ -501,7 +507,7 @@ func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []type
 		}
 
 		// Validate timestamp
-		if err := ls.timestampLearner.ValidateTimestamp(entry); err != nil {
+		if err := ls.timestampLearner.ValidateTimestamp(*entry); err != nil {
 			// Timestamp invalid - send to DLQ without retry
 			reason := "validation_failed"
 			if errors.Is(err, ErrTimestampTooOld) {
@@ -551,10 +557,11 @@ func (ls *LokiSink) Send(ctx context.Context, entries []types.LogEntry) error {
 		return nil // All entries rejected by timestamp validation
 	}
 
-	for _, entry := range validEntries {
+	for i := range validEntries {
+		entry := validEntries[i]
 		if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
 			// Usar adaptive batcher
-			if err := ls.adaptiveBatcher.Add(entry); err != nil {
+			if err := ls.adaptiveBatcher.Add(*entry); err != nil {
 				ls.sendToDLQ(entry, "adaptive_batcher_error", err.Error(), "loki", 0)
 				atomic.AddInt64(&ls.droppedCount, 1)
 				metrics.RecordError("loki_sink", "adaptive_batcher_error")
@@ -654,7 +661,7 @@ func (ls *LokiSink) flushLoop() {
 }
 
 // addToBatch adiciona entrada ao batch
-func (ls *LokiSink) addToBatch(entry types.LogEntry) {
+func (ls *LokiSink) addToBatch(entry *types.LogEntry) {
 	ls.batchMutex.Lock()
 	defer ls.batchMutex.Unlock()
 
@@ -680,7 +687,7 @@ func (ls *LokiSink) flushBatchUnsafe() {
 	}
 
 	// Criar cópia do batch
-	entries := make([]types.LogEntry, len(ls.batch))
+	entries := make([]*types.LogEntry, len(ls.batch))
 	copy(entries, ls.batch)
 
 	// Limpar batch
@@ -698,7 +705,7 @@ func (ls *LokiSink) flushBatchUnsafe() {
 }
 
 // sendBatch envia um batch para o Loki
-func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
+func (ls *LokiSink) sendBatch(entries []*types.LogEntry) {
 	defer ls.sendWg.Done() // C6: Signal completion when sendBatch finishes
 
 	startTime := time.Now()
@@ -754,8 +761,8 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 
 			// Learn from timestamp errors
 			if dataErr != nil && dataErr.IsTimestampError && ls.timestampLearner != nil {
-				for _, entry := range entries {
-					ls.timestampLearner.LearnFromRejection(errorMsg, entry)
+				for i := range entries {
+					ls.timestampLearner.LearnFromRejection(errorMsg, *entries[i])
 				}
 				metrics.RecordTimestampLearningEvent(ls.name)
 				// Update metrics with new threshold
@@ -764,8 +771,8 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 			}
 
 			// Send to DLQ with retryCount=0 (permanent failure)
-			for _, entry := range entries {
-				ls.sendToDLQ(entry, errorMsg, "loki_permanent_error", "loki", 0)
+			for i := range entries {
+				ls.sendToDLQ(entries[i], errorMsg, "loki_permanent_error", "loki", 0)
 			}
 
 			metrics.RecordLogSent("loki", "permanent_error")
@@ -778,8 +785,8 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 			metrics.RecordError("loki_sink", "rate_limit")
 
 			// Send to DLQ with retryCount=1 (will retry)
-			for _, entry := range entries {
-				ls.sendToDLQ(entry, errorMsg, "loki_rate_limit", "loki", 1)
+			for i := range entries {
+				ls.sendToDLQ(entries[i], errorMsg, "loki_rate_limit", "loki", 1)
 			}
 
 		case LokiErrorServer, LokiErrorTemporary:
@@ -789,8 +796,8 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 			metrics.RecordError("loki_sink", "send_error")
 
 			// Send to DLQ with retryCount=1 (will retry)
-			for _, entry := range entries {
-				ls.sendToDLQ(entry, errorMsg, "send_failed", "loki", 1)
+			for i := range entries {
+				ls.sendToDLQ(entries[i], errorMsg, "send_failed", "loki", 1)
 			}
 		}
 	} else {
@@ -808,7 +815,7 @@ func (ls *LokiSink) sendBatch(entries []types.LogEntry) {
 }
 
 // sendToLoki envia dados para o Loki
-func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
+func (ls *LokiSink) sendToLoki(entries []*types.LogEntry) error {
 	// C11: Check if context is already cancelled before starting HTTP request
 	select {
 	case <-ls.ctx.Done():
@@ -1025,10 +1032,11 @@ func (ls *LokiSink) sendToLoki(entries []types.LogEntry) error {
 }
 
 // groupByStream agrupa entradas por stream
-func (ls *LokiSink) groupByStream(entries []types.LogEntry) []LokiStream {
+func (ls *LokiSink) groupByStream(entries []*types.LogEntry) []LokiStream {
 	streamMap := make(map[string]*LokiStream)
 
-	for _, entry := range entries {
+	for i := range entries {
+		entry := entries[i]
 		// Criar chave do stream baseada nos labels
 		streamKey := ls.createStreamKey(entry.Labels)
 
@@ -1194,7 +1202,7 @@ func (ls *LokiSink) sanitizeLabelName(name string) string {
 }
 
 // sendToDLQ envia entrada para Dead Letter Queue
-func (ls *LokiSink) sendToDLQ(entry types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
+func (ls *LokiSink) sendToDLQ(entry *types.LogEntry, errorMsg, errorType, failedSink string, retryCount int) {
 	if ls.deadLetterQueue != nil {
 		context := map[string]string{
 			"sink_type":        "loki",
@@ -1268,6 +1276,12 @@ func (ls *LokiSink) adaptiveBatchLoop() {
 			}
 
 			if len(batch) > 0 {
+				// Convert batch to pointers
+				batchPtrs := make([]*types.LogEntry, len(batch))
+				for i := range batch {
+					batchPtrs[i] = &batch[i]
+				}
+
 				// Acquire semaphore slot (blocks if limit reached)
 				ls.sendSemaphore <- struct{}{}
 
@@ -1277,7 +1291,7 @@ func (ls *LokiSink) adaptiveBatchLoop() {
 					defer func() {
 						<-ls.sendSemaphore // Release semaphore slot
 					}()
-					ls.sendBatch(batch)
+					ls.sendBatch(batchPtrs)
 				}()
 
 				// Log básico de métricas do adaptive batcher

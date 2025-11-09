@@ -132,7 +132,7 @@ func (rm *RetryManager) sendToDLQ(item dispatchItem, err error, errorType, faile
 		}
 
 		dlqErr := rm.deadLetterQueue.AddEntry(
-			item.Entry,
+			&item.Entry,
 			err.Error(),
 			errorType,
 			failedSink,

@@ -27,7 +27,7 @@ scrape_configs:
     scrape_timeout: 10s
 
   # Main log capturer application
-  - job_name: 'log_capturer'
+  - job_name: 'log-capturer'
     static_configs:
       - targets: ['log_capturer_go:8001']
     scrape_interval: 10s

@@ -29,8 +29,8 @@ type KafkaSink struct {
 	deadLetterQueue *dlq.DeadLetterQueue
 	enhancedMetrics *metrics.EnhancedMetrics
 
-	queue       chan types.LogEntry
-	batch       []types.LogEntry
+	queue       chan *types.LogEntry
+	batch       []*types.LogEntry
 	batchMutex  sync.Mutex
 	lastSent    time.Time
 
@@ -203,7 +203,7 @@ func NewKafkaSink(config types.KafkaSinkConfig, logger *logrus.Logger, deadLette
 		compressor:      compressor,
 		deadLetterQueue: deadLetterQueue,
 		enhancedMetrics: enhancedMetrics,
-		queue:           make(chan types.LogEntry, queueSize),
+		queue:           make(chan *types.LogEntry, queueSize),
 		ctx:             ctx,
 		cancel:          cancel,
 	}
@@ -289,7 +289,8 @@ func (ks *KafkaSink) Send(ctx context.Context, entries []types.LogEntry) error {
 		return nil
 	}
 
-	for _, entry := range entries {
+	for i := range entries {
+		entry := &entries[i]
 		select {
 		case ks.queue <- entry:
 			// Successfully queued
@@ -404,7 +405,7 @@ func (ks *KafkaSink) flushBatch() {
 	}
 
 	batch := ks.batch
-	ks.batch = make([]types.LogEntry, 0, ks.config.BatchSize)
+	ks.batch = make([]*types.LogEntry, 0, ks.config.BatchSize)
 	ks.lastSent = time.Now()
 	ks.batchMutex.Unlock()
 
@@ -419,15 +420,15 @@ func (ks *KafkaSink) flushBatch() {
 
 		// Send to DLQ if configured
 		if ks.deadLetterQueue != nil && ks.config.DLQConfig.SendOnError {
-			for _, entry := range batch {
-				ks.deadLetterQueue.AddEntry(entry, fmt.Sprintf("kafka_send_error: %v", err), "send_error", "kafka_sink", 0, nil)
+			for i := range batch {
+				ks.deadLetterQueue.AddEntry(batch[i], fmt.Sprintf("kafka_send_error: %v", err), "send_error", "kafka_sink", 0, nil)
 			}
 		}
 	}
 }
 
 // sendBatch envia batch de entries para Kafka
-func (ks *KafkaSink) sendBatch(entries []types.LogEntry) error {
+func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -437,7 +438,9 @@ func (ks *KafkaSink) sendBatch(entries []types.LogEntry) error {
 	errorCount := 0
 
 	// Send each entry to Kafka producer
-	for _, entry := range entries {
+	for i := range entries {
+		entry := entries[i]
+
 		// Determine topic (pode ser customizado baseado em labels)
 		topic := ks.determineTopic(entry)
 
@@ -538,7 +541,7 @@ func (ks *KafkaSink) handleProducerResponses() {
 }
 
 // determineTopic determina o tópico Kafka baseado em entry labels
-func (ks *KafkaSink) determineTopic(entry types.LogEntry) string {
+func (ks *KafkaSink) determineTopic(entry *types.LogEntry) string {
 	// Check for priority-based routing
 	if level, ok := entry.Labels["level"]; ok {
 		switch strings.ToLower(level) {
@@ -559,7 +562,7 @@ func (ks *KafkaSink) determineTopic(entry types.LogEntry) string {
 }
 
 // determinePartitionKey determina a chave de particionamento
-func (ks *KafkaSink) determinePartitionKey(entry types.LogEntry) string {
+func (ks *KafkaSink) determinePartitionKey(entry *types.LogEntry) string {
 	if !ks.config.Partitioning.Enabled {
 		return ""
 	}
