@@ -38,74 +38,7 @@ version: "1.0"
 # IMPORTANTE: Deixe esta seção VAZIA ([]) se não quiser monitorar nenhum arquivo específico
 # Exemplo de seção vazia: files: []
 #
-files:
-  # System logs - APENAS OS QUE EXISTEM
-  - path: "/var/log/syslog"
-    labels:
-      source: "file"
-      file_path: "/var/log/syslog"
-      file_name: "syslog"
-    enabled: true
-
-  - path: "/var/log/auth.log"
-    labels:
-      source: "file"
-      file_path: "/var/log/auth.log"
-      file_name: "auth.log"
-      log_type: "authentication"
-    enabled: true
-
-  # - path: "/var/log/kern.log"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/kern.log"
-  #     file_name: "kern.log"
-  #     log_type: "kernel"
-  #   enabled: true
-
-  # - path: "/var/log/daemon.log"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/daemon.log"
-  #     file_name: "daemon.log"
-  #     log_type: "daemon"
-  #   enabled: false  # File does not exist on this system
-
-  # - path: "/var/log/dpkg.log"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/dpkg.log"
-  #     file_name: "dpkg.log"
-  #     log_type: "package_management"
-  #   enabled: true
-
-  # - path: "/var/log/apt/history.log"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/apt/history.log"
-  #     file_name: "apt_history.log"
-  #     log_type: "package_management"
-  #   enabled: true
-
-  # - path: "/var/log/dmesg"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/dmesg"
-  #     file_name: "dmesg"
-  #     log_type: "kernel"
-  #   enabled: true
-
-  # Application logs from monitoring suite
-  # - path: "/var/log/monitoring_data_suite/logs/app.log"
-  #   labels:
-  #     source: "file"
-  #     file_path: "/var/log/monitoring_data_suite/logs/app.log"
-  #     file_name: "monitoring_suite_app.log"
-  #     log_type: "application"
-  #     service: "monitoring_suite"
-  #   enabled: false  # Disabled to avoid feedback loop
-
-  # Adicione mais arquivos conforme necessário
+files: [] # Commented out to rely on directory watching
 
 # -----------------------------------------------------------------------------
 # DIRETÓRIOS PARA DESCOBERTA AUTOMÁTICA
@@ -147,33 +80,50 @@ files:
 #   - "*secret*", "*password*" (arquivos com credenciais)
 #   - "*.gz", "*.zip" (arquivos comprimidos)
 #
-# directories:
+directories:
   # ⚠️ EXEMPLO DESABILITADO - Descoberta automática em /var/log
   # Descomente e ajuste se quiser ativar descoberta automática
-  # - path: "/var/log"
-  #   patterns:
-  #     - "*.log"
-  #     - "syslog"
-  #   exclude_patterns:
-  #     - "*.gz"
-  #     - "*.zip"
-  #     - "*.old"
-  #   exclude_directories:
-  #     - "monitoring_data_suite"
-  #   recursive: false
-  #   default_labels:
-  #     source: "file"
-  #     log_type: "system"
-    # enabled: true
+  - path: "/var/log"
+    patterns:
+      - "*.log"
+      - "syslog*"
+      - "messages"
+      - "auth.log"
+    exclude_patterns:
+      - "*.gz"
+      - "*.zip"
+      - "*.old"
+      - "*.bak"
+      - "*~"
+    exclude_directories:
+      - "monitoring_data_suite"
+      - "apt" # Excluir diretório apt para evitar logs duplicados se já monitorado
+    recursive: true
+    default_labels:
+      source: "file"
+      log_type: "system"
+    enabled: true
+
+  # Monitor Docker container logs
+  - path: "/var/lib/docker/containers"
+    patterns:
+      - "*.log"
+    exclude_patterns:
+      - "*.gz"
+    recursive: true
+    default_labels:
+      source: "docker_container_file"
+      log_type: "container"
+    enabled: true
 
   # ⚠️ IMPORTANTE: Logs da aplicação log_capturer (EVITAR FEEDBACK LOOP)
   # Esta entrada está desabilitada para prevenir monitoramento dos próprios logs
-  # - path: "/app/logs"
-  #   patterns: []
-  #   exclude_patterns: []
-  #   recursive: false
-  #   default_labels: {}
-  #   enabled: false
+  - path: "/app/logs"
+    patterns: []
+    exclude_patterns: []
+    recursive: false
+    default_labels: {}
+    enabled: false
 
   # ✅ TEMPLATE: Adicione seus próprios diretórios aqui
   # Descomente e ajuste conforme necessário
