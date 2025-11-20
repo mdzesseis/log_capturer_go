@@ -16,7 +16,7 @@ import (
 // mockDispatcher for testing
 type mockDispatcher struct {
 	mu      sync.Mutex
-	entries []types.LogEntry
+	entries []*types.LogEntry
 }
 
 func (m *mockDispatcher) AddSink(sink types.Sink) {
@@ -27,7 +27,7 @@ func (m *mockDispatcher) Handle(ctx context.Context, sourceType, sourceID, messa
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Message: message,
 		Labels:  labels,
 	}

@@ -507,7 +507,7 @@ func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []*typ
 		}
 
 		// Validate timestamp
-		if err := ls.timestampLearner.ValidateTimestamp(*entry); err != nil {
+		if err := ls.timestampLearner.ValidateTimestamp(entry); err != nil {
 			// Timestamp invalid - send to DLQ without retry
 			reason := "validation_failed"
 			if errors.Is(err, ErrTimestampTooOld) {
@@ -560,8 +560,8 @@ func (ls *LokiSink) Send(ctx context.Context, entries []types.LogEntry) error {
 	for i := range validEntries {
 		entry := validEntries[i]
 		if ls.useAdaptiveBatching && ls.adaptiveBatcher != nil {
-			// Usar adaptive batcher
-			if err := ls.adaptiveBatcher.Add(*entry); err != nil {
+			// Usar adaptive batcher (entry já é ponteiro)
+			if err := ls.adaptiveBatcher.Add(entry); err != nil {
 				ls.sendToDLQ(entry, "adaptive_batcher_error", err.Error(), "loki", 0)
 				atomic.AddInt64(&ls.droppedCount, 1)
 				metrics.RecordError("loki_sink", "adaptive_batcher_error")
@@ -762,7 +762,7 @@ func (ls *LokiSink) sendBatch(entries []*types.LogEntry) {
 			// Learn from timestamp errors
 			if dataErr != nil && dataErr.IsTimestampError && ls.timestampLearner != nil {
 				for i := range entries {
-					ls.timestampLearner.LearnFromRejection(errorMsg, *entries[i])
+					ls.timestampLearner.LearnFromRejection(errorMsg, entries[i])
 				}
 				metrics.RecordTimestampLearningEvent(ls.name)
 				// Update metrics with new threshold
@@ -1276,23 +1276,19 @@ func (ls *LokiSink) adaptiveBatchLoop() {
 			}
 
 			if len(batch) > 0 {
-				// Convert batch to pointers
-				batchPtrs := make([]*types.LogEntry, len(batch))
-				for i := range batch {
-					batchPtrs[i] = &batch[i]
-				}
+				// batch já é []*types.LogEntry (P1 FIX aplicado no adaptive_batcher)
 
 				// Acquire semaphore slot (blocks if limit reached)
 				ls.sendSemaphore <- struct{}{}
 
 				// C6: Track sendBatch goroutine for proper shutdown
 				ls.sendWg.Add(1)
-				go func() {
+				go func(entries []*types.LogEntry) {
 					defer func() {
 						<-ls.sendSemaphore // Release semaphore slot
 					}()
-					ls.sendBatch(batchPtrs)
-				}()
+					ls.sendBatch(entries)
+				}(batch)
 
 				// Log básico de métricas do adaptive batcher
 				stats := ls.adaptiveBatcher.GetStats()

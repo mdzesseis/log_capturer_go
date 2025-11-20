@@ -33,8 +33,8 @@ func (lts *LatencyTrackingSink) Send(ctx context.Context, entries []types.LogEnt
 
 	// Track latency for each entry
 	lts.mu.Lock()
-	for _, entry := range entries {
-		latency := receiveTime.Sub(entry.Timestamp)
+	for i := range entries {
+		latency := receiveTime.Sub(entries[i].Timestamp)
 		lts.latencies = append(lts.latencies, latency)
 	}
 	lts.mu.Unlock()

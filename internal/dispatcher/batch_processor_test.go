@@ -48,7 +48,7 @@ func TestBatchProcessor_CollectBatch_BatchSize(t *testing.T) {
 
 	// Add items to queue
 	for i := 0; i < 5; i++ {
-		entry := types.LogEntry{
+		entry := &types.LogEntry{
 			Message: "test message",
 			Labels:  make(map[string]string),
 		}
@@ -76,7 +76,7 @@ func TestBatchProcessor_CollectBatch_Timeout(t *testing.T) {
 
 	// Add only 2 items - less than batch size
 	for i := 0; i < 2; i++ {
-		entry := types.LogEntry{
+		entry := &types.LogEntry{
 			Message: "test message",
 			Labels:  make(map[string]string),
 		}
@@ -145,7 +145,7 @@ func TestBatchProcessor_ProcessBatch_Success(t *testing.T) {
 	batch := make([]dispatchItem, 3)
 	for i := 0; i < 3; i++ {
 		batch[i] = dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test message",
 				Labels:     map[string]string{"key": "value"},
 				SourceType: "test",
@@ -203,7 +203,7 @@ func TestBatchProcessor_ProcessBatch_ErrorHandling(t *testing.T) {
 
 	batch := make([]dispatchItem, 1)
 	batch[0] = dispatchItem{
-		Entry: types.LogEntry{
+		Entry: &types.LogEntry{
 			Message: "test message",
 			Labels:  make(map[string]string),
 		},
@@ -238,7 +238,7 @@ func TestBatchProcessor_ProcessBatch_MultiSink(t *testing.T) {
 
 	batch := make([]dispatchItem, 1)
 	batch[0] = dispatchItem{
-		Entry: types.LogEntry{
+		Entry: &types.LogEntry{
 			Message: "test message",
 			Labels:  make(map[string]string),
 		},
@@ -283,7 +283,7 @@ func TestBatchProcessor_ProcessBatch_PartialSuccess(t *testing.T) {
 
 	batch := make([]dispatchItem, 1)
 	batch[0] = dispatchItem{
-		Entry: types.LogEntry{
+		Entry: &types.LogEntry{
 			Message: "test message",
 			Labels:  make(map[string]string),
 		},
@@ -340,7 +340,7 @@ func TestBatchProcessor_ValidateBatch(t *testing.T) {
 			batch := make([]dispatchItem, tt.batchSize)
 			for i := 0; i < tt.batchSize; i++ {
 				batch[i] = dispatchItem{
-					Entry: types.LogEntry{
+					Entry: &types.LogEntry{
 						Message: "test",
 						Labels:  make(map[string]string),
 					},
@@ -361,7 +361,7 @@ func TestBatchProcessor_ValidateBatch(t *testing.T) {
 func TestBatchProcessor_DeepCopyBatch(t *testing.T) {
 	original := []dispatchItem{
 		{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "original message",
 				Labels:  map[string]string{"key1": "value1"},
 			},
@@ -418,7 +418,7 @@ func BenchmarkBatchProcessor_ProcessBatch(b *testing.B) {
 	batch := make([]dispatchItem, 100)
 	for i := 0; i < 100; i++ {
 		batch[i] = dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "benchmark message",
 				Labels:  map[string]string{"key": "value"},
 			},
@@ -451,7 +451,7 @@ func BenchmarkBatchProcessor_CollectBatch(b *testing.B) {
 	queue := make(chan dispatchItem, 1000)
 	for i := 0; i < 1000; i++ {
 		queue <- dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "benchmark",
 				Labels:  make(map[string]string),
 			},
@@ -468,7 +468,7 @@ func BenchmarkBatchProcessor_CollectBatch(b *testing.B) {
 		if len(queue) < 100 {
 			for j := 0; j < 100; j++ {
 				queue <- dispatchItem{
-					Entry: types.LogEntry{
+					Entry: &types.LogEntry{
 						Message: "benchmark",
 						Labels:  make(map[string]string),
 					},
@@ -483,7 +483,7 @@ func BenchmarkDeepCopyBatch(b *testing.B) {
 	batch := make([]dispatchItem, 100)
 	for i := 0; i < 100; i++ {
 		batch[i] = dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "benchmark message",
 				Labels:  map[string]string{"key1": "value1", "key2": "value2"},
 			},

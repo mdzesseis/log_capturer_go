@@ -109,7 +109,8 @@ func TestLokiSinkStopWithPendingBatches(t *testing.T) {
 			SourceID:   "test-001",
 		}
 		// Ignore errors as Loki may not be running
-		_ = sink.Send(ctx, []types.LogEntry{entry})
+		// Use DeepCopy to avoid copying mutex
+		_ = sink.Send(ctx, []types.LogEntry{*entry.DeepCopy()})
 	}
 
 	// Wait a bit for batches to be created
@@ -454,7 +455,7 @@ func TestLokiSinkRequestTimeout(t *testing.T) {
 	}
 
 	// sendToLoki will be called internally and should timeout
-	err = sink.sendToLoki([]types.LogEntry{entry})
+	err = sink.sendToLoki([]*types.LogEntry{&entry})
 
 	// Verify we get a timeout error
 	if err == nil {
@@ -505,7 +506,7 @@ func TestLokiSinkContextCancellation(t *testing.T) {
 	}
 
 	start := time.Now()
-	err = sink.sendToLoki([]types.LogEntry{entry})
+	err = sink.sendToLoki([]*types.LogEntry{&entry})
 	duration := time.Since(start)
 
 	// Should fail fast (under 100ms) with cancellation error
@@ -602,7 +603,7 @@ func TestLokiSinkConcurrentRequestsCancellation(t *testing.T) {
 			}
 
 			// This will timeout or be cancelled
-			_ = sink.sendToLoki([]types.LogEntry{entry})
+			_ = sink.sendToLoki([]*types.LogEntry{&entry})
 		}(i)
 	}
 

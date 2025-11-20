@@ -18,15 +18,15 @@ func TestNoGoroutineLeaks(t *testing.T) {
 	)
 
 	// Simular inicialização e parada de componentes
-	ctx, cancel := context.WithCancel(context.Background())
-	
+	_, cancel := context.WithCancel(context.Background())
+
 	// Iniciar componentes aqui
 	// app := NewApp(config)
 	// app.Start(ctx)
-	
+
 	// Aguardar um pouco
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Parar componentes
 	cancel()
 	

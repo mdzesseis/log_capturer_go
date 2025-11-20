@@ -33,8 +33,8 @@ func (bs *BenchmarkSink) Send(ctx context.Context, entries []types.LogEntry) err
 
 	// Simulate some work (count bytes)
 	var bytes int64
-	for _, entry := range entries {
-		bytes += int64(len(entry.Message))
+	for i := range entries {
+		bytes += int64(len(entries[i].Message))
 	}
 	bs.totalBytes.Add(bytes)
 

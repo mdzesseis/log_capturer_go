@@ -158,9 +158,36 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
-	newEntry := *e
-	// Reset mutex for the new entry (don't copy lock state)
-	newEntry.mu = sync.RWMutex{}
+	// P0 FIX: Criar novo entry explicitamente para evitar "passes lock by value"
+	// Não usar `newEntry := *e` pois copia o mutex
+	newEntry := &LogEntry{
+		// Distributed tracing
+		TraceID:      e.TraceID,
+		SpanID:       e.SpanID,
+		ParentSpanID: e.ParentSpanID,
+
+		// Timing
+		Timestamp:   e.Timestamp,
+		Duration:    e.Duration,
+		ProcessedAt: e.ProcessedAt,
+
+		// Content
+		Message: e.Message,
+		Level:   e.Level,
+
+		// Source
+		SourceType: e.SourceType,
+		SourceID:   e.SourceID,
+
+		// Pipeline
+		Pipeline: e.Pipeline,
+
+		// Enterprise
+		DataClassification: e.DataClassification,
+		RetentionPolicy:    e.RetentionPolicy,
+
+		// mu fica com valor zero (novo mutex não copiado)
+	}
 
 	// Deep copy slices
 	if e.Tags != nil {
@@ -207,7 +234,7 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 		}
 	}
 
-	return &newEntry
+	return newEntry
 }
 
 // Thread-safe methods for Labels access

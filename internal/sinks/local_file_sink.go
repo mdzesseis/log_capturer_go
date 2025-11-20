@@ -29,7 +29,7 @@ type LocalFileSink struct {
 	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection
 	deadLetterQueue interface{} // DLQ interface for failed entries (using interface{} to avoid import cycle)
 
-	queue     chan types.LogEntry
+	queue     chan *types.LogEntry
 	files     map[string]*logFile
 	filesMutex sync.RWMutex
 
@@ -133,7 +133,7 @@ func NewLocalFileSink(config types.LocalFileConfig, logger *logrus.Logger, enhan
 		compressor:      compressor,
 		enhancedMetrics: enhancedMetrics,
 		deadLetterQueue: deadLetterQueue,
-		queue:           make(chan types.LogEntry, queueSize),
+		queue:           make(chan *types.LogEntry, queueSize),
 		files:           make(map[string]*logFile),
 		ctx:             ctx,
 		cancel:          cancel,
@@ -263,9 +263,12 @@ func (lfs *LocalFileSink) Send(ctx context.Context, entries []types.LogEntry) er
 	}
 
 	for i := range entries {
+		// Create pointer copy to avoid pass lock by value
+		entryCopy := entries[i].DeepCopy()
+
 		// SEMPRE respeitar o contexto para evitar deadlock
 		select {
-		case lfs.queue <- entries[i]:
+		case lfs.queue <- entryCopy:
 			// Enviado para fila com sucesso
 		case <-ctx.Done():
 			// Contexto cancelado/timeout - retornar erro imediatamente
@@ -300,10 +303,9 @@ func (lfs *LocalFileSink) processLoop(workerID int) {
 		case <-lfs.ctx.Done():
 			lfs.logger.WithField("worker_id", workerID).Debug("Local file sink worker stopped")
 			return
-		case entryCopy := <-lfs.queue:
-			// Cria ponteiro local - não compartilhado entre goroutines
-			entry := entryCopy
-			lfs.writeLogEntry(&entry)
+		case entry := <-lfs.queue:
+			// Entry já é ponteiro - não compartilhado entre goroutines
+			lfs.writeLogEntry(entry)
 		}
 	}
 }
@@ -331,7 +333,7 @@ func (lfs *LocalFileSink) addToDLQ(entry *types.LogEntry, errorMsg, errorType st
 
 	// Use type assertion to check if it has AddEntry method
 	type DLQInterface interface {
-		AddEntry(types.LogEntry, string, string, string, int, map[string]string) error
+		AddEntry(*types.LogEntry, string, string, string, int, map[string]string) error
 	}
 
 	if dlq, ok := lfs.deadLetterQueue.(DLQInterface); ok {
@@ -342,7 +344,7 @@ func (lfs *LocalFileSink) addToDLQ(entry *types.LogEntry, errorMsg, errorType st
 			"source_id":   entry.SourceID,
 		}
 
-		if err := dlq.AddEntry(*entry, errorMsg, errorType, "local_file", retryCount, context); err != nil {
+		if err := dlq.AddEntry(entry, errorMsg, errorType, "local_file", retryCount, context); err != nil {
 			lfs.logger.WithError(err).Warn("Failed to add entry to DLQ")
 		} else {
 			lfs.logger.WithFields(logrus.Fields{

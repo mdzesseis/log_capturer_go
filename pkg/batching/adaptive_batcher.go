@@ -27,7 +27,7 @@ type AdaptiveBatcher struct {
 	lastFlushTime      int64 // unix nanoseconds
 
 	// Batch state
-	batch          []types.LogEntry
+	batch          []*types.LogEntry
 	batchMutex     sync.Mutex
 	flushTimer     *time.Timer
 	timerMutex     sync.Mutex
@@ -36,7 +36,7 @@ type AdaptiveBatcher struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	isRunning  bool
-	flushChan  chan []types.LogEntry
+	flushChan  chan []*types.LogEntry
 
 	// Statistics
 	stats      BatchingStats
@@ -112,9 +112,9 @@ func NewAdaptiveBatcher(config AdaptiveBatchConfig, logger *logrus.Logger) *Adap
 		currentFlushDelay: int64(config.InitialFlushDelay),
 		ctx:               ctx,
 		cancel:            cancel,
-		flushChan:         make(chan []types.LogEntry, config.BufferSize/config.MaxBatchSize),
+		flushChan:         make(chan []*types.LogEntry, config.BufferSize/config.MaxBatchSize),
 		lastFlushTime:     time.Now().UnixNano(),
-		batch:             make([]types.LogEntry, 0, config.MaxBatchSize),
+		batch:             make([]*types.LogEntry, 0, config.MaxBatchSize),
 	}
 
 	return batcher
@@ -153,7 +153,8 @@ func (ab *AdaptiveBatcher) Stop() error {
 }
 
 // Add adds an entry to the batch
-func (ab *AdaptiveBatcher) Add(entry types.LogEntry) error {
+// P1 FIX: Recebe ponteiro para evitar pass lock by value
+func (ab *AdaptiveBatcher) Add(entry *types.LogEntry) error {
 	if !ab.isRunning {
 		return ErrBatcherStopped
 	}
@@ -161,7 +162,7 @@ func (ab *AdaptiveBatcher) Add(entry types.LogEntry) error {
 	ab.batchMutex.Lock()
 	defer ab.batchMutex.Unlock()
 
-	// Add to batch
+	// Add to batch (usando ponteiro)
 	ab.batch = append(ab.batch, entry)
 	atomic.AddInt64(&ab.stats.TotalItems, 1)
 
@@ -179,7 +180,8 @@ func (ab *AdaptiveBatcher) Add(entry types.LogEntry) error {
 }
 
 // GetBatch returns the next batch of entries (blocking)
-func (ab *AdaptiveBatcher) GetBatch(ctx context.Context) ([]types.LogEntry, error) {
+// P1 FIX: Retorna ponteiros para evitar pass lock by value
+func (ab *AdaptiveBatcher) GetBatch(ctx context.Context) ([]*types.LogEntry, error) {
 	select {
 	case batch := <-ab.flushChan:
 		return batch, nil
@@ -191,7 +193,8 @@ func (ab *AdaptiveBatcher) GetBatch(ctx context.Context) ([]types.LogEntry, erro
 }
 
 // TryGetBatch returns the next batch of entries (non-blocking)
-func (ab *AdaptiveBatcher) TryGetBatch() ([]types.LogEntry, bool) {
+// P1 FIX: Retorna ponteiros para evitar pass lock by value
+func (ab *AdaptiveBatcher) TryGetBatch() ([]*types.LogEntry, bool) {
 	select {
 	case batch := <-ab.flushChan:
 		return batch, true
@@ -227,8 +230,8 @@ func (ab *AdaptiveBatcher) flushBatchUnsafe() {
 
 	start := time.Now()
 
-	// Create copy of batch for sending
-	batchCopy := make([]types.LogEntry, len(ab.batch))
+	// Create copy of batch for sending (ponteiros)
+	batchCopy := make([]*types.LogEntry, len(ab.batch))
 	copy(batchCopy, ab.batch)
 
 	// Reset batch

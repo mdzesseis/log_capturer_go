@@ -29,10 +29,10 @@ import (
 //   - Solution: Validate BEFORE sending, reject with NO RETRY
 type TimestampLearner interface {
 	// LearnFromRejection learns from Loki rejection response
-	LearnFromRejection(errorMsg string, entry types.LogEntry) error
+	LearnFromRejection(errorMsg string, entry *types.LogEntry) error
 
 	// ValidateTimestamp validates timestamp before sending
-	ValidateTimestamp(entry types.LogEntry) error
+	ValidateTimestamp(entry *types.LogEntry) error
 
 	// GetMaxAcceptableAge returns current learned threshold
 	GetMaxAcceptableAge() time.Duration
@@ -116,7 +116,7 @@ func NewTimestampLearner(config TimestampLearnerConfig, logger *logrus.Logger) T
 //   1. Pattern matches known rejection types
 //   2. MinLearningWindow elapsed since last learning
 //   3. New threshold is more restrictive than default
-func (tl *timestampLearner) LearnFromRejection(errorMsg string, entry types.LogEntry) error {
+func (tl *timestampLearner) LearnFromRejection(errorMsg string, entry *types.LogEntry) error {
 	if !tl.config.LearnFromErrors {
 		return nil
 	}
@@ -163,7 +163,7 @@ func (tl *timestampLearner) LearnFromRejection(errorMsg string, entry types.LogE
 //   - ErrTimestampTooOld if timestamp exceeds maxAcceptableAge
 //   - ErrTimestampTooNew if timestamp is too far in future
 //   - ErrTimestampZero if timestamp is zero value
-func (tl *timestampLearner) ValidateTimestamp(entry types.LogEntry) error {
+func (tl *timestampLearner) ValidateTimestamp(entry *types.LogEntry) error {
 	tl.mu.RLock()
 	maxAge := tl.maxAcceptableAge
 	tl.mu.RUnlock()

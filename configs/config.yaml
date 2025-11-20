@@ -28,7 +28,7 @@ app:
   # Apenas campos completamente não mencionados receberão defaults.
   #
   # Pode ser sobrescrito pela variável de ambiente: SSW_DEFAULT_CONFIGS=true/false
-  default_configs: false
+  default_configs: true
 
 # -----------------------------------------------------------------------------
 # CONFIGURAÇÕES DO SERVIDOR HTTP
@@ -295,8 +295,8 @@ sinks:
     enabled: true  # Re-enabled after circuit breaker fix DE LEAK
     directory: "/app/logs/output"
     filename_pattern: "logs-{date}-{hour}.log"                                  # Fallback pattern
-    #filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
-    #filename_pattern_containers: "logs-{nomedocontainer}-{date}-{hour}.log"     # Pattern for container sources (ID removido para reduzir cardinalidade)
+    filename_pattern_files: "logs-{nomedoarquivomonitorado}-{date}-{hour}.log"  # Pattern for file sources
+    filename_pattern_containers: "logs-{nomedocontainer}-{idcontainer}-{date}-{hour}.log"  # Pattern for container sources with ID
     output_format: "text"
     text_format:
       include_timestamp: false       # Não incluir timestamp adicional

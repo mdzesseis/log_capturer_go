@@ -39,11 +39,11 @@ import (
 	"ssw-logs-capture/pkg/buffer"
 	"ssw-logs-capture/pkg/cleanup"
 	"ssw-logs-capture/pkg/discovery"
-	"ssw-logs-capture/pkg/monitoring"
-	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/hotreload"
 	"ssw-logs-capture/pkg/leakdetection"
+	"ssw-logs-capture/pkg/monitoring"
 	"ssw-logs-capture/pkg/positions"
+	"ssw-logs-capture/pkg/profiling"
 	"ssw-logs-capture/pkg/security"
 	"ssw-logs-capture/pkg/slo"
 	"ssw-logs-capture/pkg/tracing"
@@ -81,38 +81,38 @@ type App struct {
 	startTime time.Time // Application start time for uptime calculation
 
 	// Core components - fundamental services for log capture and processing
-	taskManager      types.TaskManager                  // Manages background tasks and provides heartbeat monitoring
-	dispatcher       types.Dispatcher                   // Orchestrates log entry processing and delivery to sinks
-	positionManager  *positions.PositionBufferManager  // Tracks file reading positions for resumable operations
-	processor        *processing.LogProcessor           // Applies transformations and filtering to log entries
-	fileMonitor      *monitors.FileMonitor              // Monitors filesystem changes and reads log files
-	containerMonitor *monitors.ContainerMonitor         // Monitors Docker container logs via Docker API
-	diskManager         *cleanup.DiskSpaceManager          // Manages disk space and performs cleanup operations
-	resourceMonitor     *leakdetection.ResourceMonitor     // Monitors system resources and detects potential leaks (legacy)
-	resourceMonitorNew  *monitoring.ResourceMonitor        // New resource monitoring system with alerts and metrics
-	diskBuffer          *buffer.DiskBuffer                 // Provides persistent buffering for log entries
-	reloader         *hotreload.ConfigReloader          // Handles configuration hot-reloading
-	anomalyDetector  *anomaly.AnomalyDetector           // Detects anomalies in log patterns and system behavior
+	taskManager        types.TaskManager                // Manages background tasks and provides heartbeat monitoring
+	dispatcher         types.Dispatcher                 // Orchestrates log entry processing and delivery to sinks
+	positionManager    *positions.PositionBufferManager // Tracks file reading positions for resumable operations
+	processor          *processing.LogProcessor         // Applies transformations and filtering to log entries
+	fileMonitor        *monitors.FileMonitor            // Monitors filesystem changes and reads log files
+	containerMonitor   *monitors.ContainerMonitor       // Monitors Docker container logs via Docker API
+	diskManager        *cleanup.DiskSpaceManager        // Manages disk space and performs cleanup operations
+	resourceMonitor    *leakdetection.ResourceMonitor   // Monitors system resources and detects potential leaks (legacy)
+	resourceMonitorNew *monitoring.ResourceMonitor      // New resource monitoring system with alerts and metrics
+	diskBuffer         *buffer.DiskBuffer               // Provides persistent buffering for log entries
+	reloader           *hotreload.ConfigReloader        // Handles configuration hot-reloading
+	anomalyDetector    *anomaly.AnomalyDetector         // Detects anomalies in log patterns and system behavior
 
 	// Enterprise features - advanced capabilities for production environments
-	securityManager   *security.AuthManager               // Handles authentication, authorization, and audit logging
-	tracingManager    *tracing.EnhancedTracingManager     // Provides distributed tracing capabilities with OpenTelemetry
-	sloManager        *slo.SLOManager                     // Monitors service level objectives and manages error budgets
-	goroutineTracker  *profiling.GoroutineTracker   // Tracks goroutine usage with aggressive profiling and stack trace analysis
-	serviceDiscovery  *discovery.ServiceDiscovery    // Handles automatic service discovery
+	securityManager  *security.AuthManager           // Handles authentication, authorization, and audit logging
+	tracingManager   *tracing.EnhancedTracingManager // Provides distributed tracing capabilities with OpenTelemetry
+	sloManager       *slo.SLOManager                 // Monitors service level objectives and manages error budgets
+	goroutineTracker *profiling.GoroutineTracker     // Tracks goroutine usage with aggressive profiling and stack trace analysis
+	serviceDiscovery *discovery.ServiceDiscovery     // Handles automatic service discovery
 
 	sinks []types.Sink // Collection of configured output destinations (Loki, local files, etc.)
 
 	// HTTP and metrics infrastructure
-	httpServer      *http.Server              // Main HTTP server for API endpoints
-	metricsServer   *metrics.MetricsServer    // Prometheus metrics server
-	enhancedMetrics *metrics.EnhancedMetrics  // Advanced metrics collection and reporting
+	httpServer      *http.Server             // Main HTTP server for API endpoints
+	metricsServer   *metrics.MetricsServer   // Prometheus metrics server
+	enhancedMetrics *metrics.EnhancedMetrics // Advanced metrics collection and reporting
 
 	// Application lifecycle management
-	ctx        context.Context      // Root context for application lifecycle
-	cancel     context.CancelFunc   // Cancel function for graceful shutdown
-	configFile string               // Path to the configuration file
-	wg         sync.WaitGroup       // WaitGroup for coordinating goroutine shutdown
+	ctx        context.Context    // Root context for application lifecycle
+	cancel     context.CancelFunc // Cancel function for graceful shutdown
+	configFile string             // Path to the configuration file
+	wg         sync.WaitGroup     // WaitGroup for coordinating goroutine shutdown
 }
 
 // New creates a new App instance with the specified configuration file.
@@ -193,12 +193,12 @@ func New(configFile string) (*App, error) {
 //
 // This method orchestrates the initialization process in the correct order to ensure
 // dependencies are satisfied. The initialization sequence is:
-//   1. Core services (task manager, dispatcher, processor)
-//   2. Output sinks (Loki, local file, etc.)
-//   3. Input monitors (file monitor, container monitor)
-//   4. Auxiliary services (position manager, disk management, etc.)
-//   5. Configuration reloader (if hot reload enabled)
-//   6. HTTP servers (API and metrics)
+//  1. Core services (task manager, dispatcher, processor)
+//  2. Output sinks (Loki, local file, etc.)
+//  3. Input monitors (file monitor, container monitor)
+//  4. Auxiliary services (position manager, disk management, etc.)
+//  5. Configuration reloader (if hot reload enabled)
+//  6. HTTP servers (API and metrics)
 //
 // If any component fails to initialize, the entire initialization process is aborted
 // and an error is returned with context about which component failed.
@@ -236,15 +236,15 @@ func (app *App) initializeComponents() error {
 // Start begins the application lifecycle by starting all initialized components in the correct order.
 //
 // The startup sequence ensures dependencies are satisfied:
-//   1. Metrics server (independent, can start first)
-//   2. Output sinks (must be ready before processing begins)
-//   3. Dispatcher (core orchestration, depends on sinks)
-//   4. Position manager (file state tracking)
-//   5. Input monitors (file and container monitoring)
-//   6. Auxiliary services (disk management, resource monitoring, etc.)
-//   7. Configuration reloader (hot reload capability)
-//   8. Enterprise features (security, tracing, SLO monitoring)
-//   9. HTTP server (API endpoints, started in background goroutine)
+//  1. Metrics server (independent, can start first)
+//  2. Output sinks (must be ready before processing begins)
+//  3. Dispatcher (core orchestration, depends on sinks)
+//  4. Position manager (file state tracking)
+//  5. Input monitors (file and container monitoring)
+//  6. Auxiliary services (disk management, resource monitoring, etc.)
+//  7. Configuration reloader (hot reload capability)
+//  8. Enterprise features (security, tracing, SLO monitoring)
+//  9. HTTP server (API endpoints, started in background goroutine)
 //
 // Each component's Start method is called with the application context,
 // allowing for coordinated shutdown when the context is cancelled.
@@ -351,15 +351,15 @@ func (app *App) Start() error {
 // Stop performs graceful shutdown of all application components.
 //
 // The shutdown sequence is designed to:
-//   1. Cancel the application context to signal all components
-//   2. Shutdown HTTP server with timeout to complete in-flight requests
-//   3. Stop input monitors to prevent new log entries
-//   4. Stop auxiliary services and cleanup resources
-//   5. Stop enterprise features with proper cleanup
-//   6. Close persistent storage (disk buffer, position manager)
-//   7. Stop the dispatcher and drain remaining log entries
-//   8. Stop output sinks and flush any buffered data
-//   9. Stop metrics server and cleanup task manager
+//  1. Cancel the application context to signal all components
+//  2. Shutdown HTTP server with timeout to complete in-flight requests
+//  3. Stop input monitors to prevent new log entries
+//  4. Stop auxiliary services and cleanup resources
+//  5. Stop enterprise features with proper cleanup
+//  6. Close persistent storage (disk buffer, position manager)
+//  7. Stop the dispatcher and drain remaining log entries
+//  8. Stop output sinks and flush any buffered data
+//  9. Stop metrics server and cleanup task manager
 //
 // Each component's Stop method is called with appropriate timeouts
 // to ensure the application doesn't hang during shutdown. Errors
@@ -486,10 +486,10 @@ func (app *App) Stop() error {
 //
 // This is the main entry point for running the application in daemon mode.
 // It performs the following sequence:
-//   1. Calls Start() to initialize and start all components
-//   2. Sets up signal handling for SIGINT and SIGTERM
-//   3. Blocks waiting for shutdown signals
-//   4. Calls Stop() when a signal is received for graceful shutdown
+//  1. Calls Start() to initialize and start all components
+//  2. Sets up signal handling for SIGINT and SIGTERM
+//  3. Blocks waiting for shutdown signals
+//  4. Calls Stop() when a signal is received for graceful shutdown
 //
 // The signal handling allows for graceful shutdown when the process
 // receives interrupt signals from the operating system or process managers

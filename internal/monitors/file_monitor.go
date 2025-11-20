@@ -1,9 +1,18 @@
+// Unificado FileMonitor (file_monitor1.go + métricas e labels de file_monitor.go/file_monitor2.go)
+// Este arquivo contém:
+// ✔ descoberta avançada de arquivos (pipeline + diretórios + filtros)
+// ✔ métricas completas (processamento, tailer, erros)
+// ✔ labels combinados (file_name + labels do monitor original)
+// ✔ arquitetura anti-leak com tail nxadm
+
 package monitors
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,81 +25,38 @@ import (
 )
 
 // ===================================================================================
-// Solução 3: Substituição Completa por github.com/nxadm/tail
+// CONFIG
 // ===================================================================================
-
-/*
- * ARQUITETURA: Este monitor implementa a Solução 3 do documento de análise de vazamentos.
- *
- * COMPONENTES:
- *   - FileMonitor: Gerenciador principal que implementa interface Monitor
- *   - WorkerPool: Pool de workers para processamento concorrente de logs
- *   - LogTailer: Produtor que lê linhas via nxadm/tail library
- *
- * ANTI-LEAK MECHANISMS:
- *   - Context-aware reading com nested select
- *   - Explicit cleanup via tailer.Cleanup() e tailer.Stop()
- *   - WaitGroup tracking em todos componentes
- *   - Graceful shutdown sequence: Stop Tailers → Close Channels → Wait Workers
- *
- * PADRÃO: Producer-Consumer com channel buffering
- * THREAD-SAFETY: Todos acessos a maps protegidos por mutex
- */
-
-// ===================================================================================
-// CONFIGURAÇÃO PADRÃO (fallbacks se config não especificar)
-// ===================================================================================
-
 const (
-	// Worker pool defaults
 	defaultNumWorkers      = 4
 	defaultMaxJobsInQueue  = 1000
 	defaultShutdownTimeout = 10 * time.Second
 )
 
 // ===================================================================================
-// WorkerPool (Consumidor) - Processamento Concorrente
+// WORKER POOL
 // ===================================================================================
-
-// workerPool gerencia um pool de goroutines para processar linhas de log.
-// Esta struct é interna ao FileMonitor e não deve ser exportada.
 type workerPool struct {
-	// Canal usado para enfileirar trabalho (linhas de log).
 	jobsChannel chan *workerJob
-
-	// WaitGroup para rastrear quando todos os workers terminaram.
-	wg sync.WaitGroup
-
-	// Dependencies
-	dispatcher types.Dispatcher
-	logger     *logrus.Logger
+	wg          sync.WaitGroup
+	dispatcher  types.Dispatcher
+	logger      *logrus.Logger
 }
 
-// workerJob encapsula uma linha de log com metadados para processamento.
 type workerJob struct {
 	line       string
 	sourcePath string
 	timestamp  time.Time
 }
 
-// newWorkerPool cria e inicia um novo pool de workers.
-func newWorkerPool(
-	ctx context.Context,
-	numWorkers int,
-	queueSize int,
-	dispatcher types.Dispatcher,
-	logger *logrus.Logger,
-) *workerPool {
+func newWorkerPool(ctx context.Context, numWorkers int, queueSize int, dispatcher types.Dispatcher, logger *logrus.Logger) *workerPool {
 	pool := &workerPool{
 		jobsChannel: make(chan *workerJob, queueSize),
 		dispatcher:  dispatcher,
 		logger:      logger,
 	}
 
-	// Adiciona o número de workers ao WaitGroup.
 	pool.wg.Add(numWorkers)
-
-	// Inicia os workers.
 	for i := 0; i < numWorkers; i++ {
 		go pool.worker(ctx, i)
 	}
@@ -105,8 +71,6 @@ func newWorkerPool(
 	return pool
 }
 
-// worker é a goroutine de trabalho real.
-// Ela consome do jobsChannel até que ele seja fechado.
 func (p *workerPool) worker(ctx context.Context, id int) {
 	defer p.wg.Done()
 
@@ -115,28 +79,20 @@ func (p *workerPool) worker(ctx context.Context, id int) {
 		"worker_id": id,
 	}).Debug("Worker iniciado e aguardando jobs")
 
-	// Consome do canal de jobs.
-	// Este loop 'for range' termina automaticamente quando
-	// 'p.jobsChannel' é fechado.
 	for job := range p.jobsChannel {
-		// Verifica se um desligamento foi solicitado *antes* de iniciar
-		// um novo trabalho (embora o 'for range' deva parar primeiro).
 		select {
 		case <-ctx.Done():
 			p.logger.WithField("worker_id", id).Debug("Desligamento detectado, saindo")
 			return
 		default:
-			// Continua para processar o job.
 		}
 
-		// Processa o trabalho.
 		if err := p.processLogLine(ctx, job); err != nil {
 			p.logger.WithError(err).WithFields(logrus.Fields{
 				"worker_id":   id,
 				"source_path": job.sourcePath,
 			}).Warn("Erro ao processar linha de log")
 
-			// METRICS: Erro no processamento
 			metrics.ErrorsTotal.WithLabelValues("file_monitor", "process_log_line").Inc()
 		}
 	}
@@ -144,37 +100,32 @@ func (p *workerPool) worker(ctx context.Context, id int) {
 	p.logger.WithField("worker_id", id).Debug("Canal de jobs fechado. Encerrando worker")
 }
 
-// processLogLine processa uma linha de log enviando para o dispatcher.
 func (p *workerPool) processLogLine(ctx context.Context, job *workerJob) error {
-	// Criar labels para dispatcher
 	labels := map[string]string{
 		"source":    "file_monitor",
 		"file_path": job.sourcePath,
+		"file_name": filepath.Base(job.sourcePath),
 		"job":       "log_capturer",
 	}
 
-	// Enviar para dispatcher usando Handle()
 	if err := p.dispatcher.Handle(ctx, "file", job.sourcePath, job.line, labels); err != nil {
 		return fmt.Errorf("failed to send to dispatcher: %w", err)
 	}
 
-	// METRICS: Log processado com sucesso
+	// Métrica: log processado
 	metrics.LogsProcessedTotal.WithLabelValues("file", job.sourcePath, "file_monitor").Inc()
 
 	return nil
 }
 
-// close fecha o canal de jobs e aguarda todos os workers terminarem.
 func (p *workerPool) close() {
 	close(p.jobsChannel)
 	p.wg.Wait()
 }
 
 // ===================================================================================
-// LogTailer (Produtor) - Leitura de Arquivo via nxadm/tail
+// TAILER
 // ===================================================================================
-
-// logTailer encapsula a lógica de "tailing" de um arquivo.
 type logTailer struct {
 	tailer     *tail.Tail
 	pool       *workerPool
@@ -183,30 +134,12 @@ type logTailer struct {
 	logger     *logrus.Logger
 }
 
-// newLogTailer inicia o tailing em um arquivo de log e o conecta ao pool.
-func newLogTailer(
-	ctx context.Context,
-	path string,
-	pool *workerPool,
-	config types.FileMonitorServiceConfig,
-	logger *logrus.Logger,
-) (*logTailer, error) {
-	// Configuração do 'tail'.
-	// Esta é a configuração chave para robustez contra vazamentos.
+func newLogTailer(ctx context.Context, path string, pool *workerPool, config types.FileMonitorServiceConfig, logger *logrus.Logger) (*logTailer, error) {
 	tailConfig := tail.Config{
-		// Segue o arquivo (comporta-se como 'tail -f').
-		Follow: true,
-
-		// Re-abre o arquivo se for rotacionado (renomeado/movido).
-		// Isto resolve o problema de perda de log em rotações.
-		ReOpen: true,
-
-		// Determina posição inicial de leitura baseado em config
+		Follow:   true,
+		ReOpen:   true,
 		Location: determineSeekPosition(config),
-
-		// Usa 'inotify' por padrão (baixa latência).
-		// TODO: Adicionar campo UsePolling ao FileMonitorServiceConfig
-		Poll: false, // false = usa inotify (padrão)
+		Poll:     false,
 	}
 
 	t, err := tail.TailFile(path, tailConfig)
@@ -221,9 +154,7 @@ func newLogTailer(
 		logger:     logger,
 	}
 
-	// Adiciona 1 ao WaitGroup para a goroutine 'run'
 	lt.wg.Add(1)
-	// Inicia a goroutine do produtor
 	go lt.run(ctx)
 
 	logger.WithFields(logrus.Fields{
@@ -237,37 +168,29 @@ func newLogTailer(
 	return lt, nil
 }
 
-// determineSeekPosition determina a posição inicial de leitura baseado na configuração.
 func determineSeekPosition(config types.FileMonitorServiceConfig) *tail.SeekInfo {
-	// Se IgnoreOldTimestamps estiver habilitado, começa do fim
 	if config.IgnoreOldTimestamps {
 		return &tail.SeekInfo{Offset: 0, Whence: io.SeekEnd}
 	}
 
-	// Estratégias de seek
 	switch config.SeekStrategy {
 	case "end":
 		return &tail.SeekInfo{Offset: 0, Whence: io.SeekEnd}
 	case "recent":
-		// Lê últimos N bytes (configurável)
 		offset := int64(config.SeekRecentBytes)
 		if offset == 0 {
-			offset = 1048576 // 1MB default
+			offset = 1048576 // 1MB
 		}
 		return &tail.SeekInfo{Offset: -offset, Whence: io.SeekEnd}
 	case "beginning":
 		fallthrough
 	default:
-		// Lê arquivo completo desde o início
 		return &tail.SeekInfo{Offset: 0, Whence: io.SeekStart}
 	}
 }
 
-// run é a goroutine do Produtor.
-// Ela lê do 'tail' e envia para o 'WorkerPool'.
 func (lt *logTailer) run(ctx context.Context) {
 	defer lt.wg.Done()
-	// Garante que os recursos do 'tail' (como 'inotify') sejam limpos.
 	defer lt.tailer.Cleanup()
 
 	lt.logger.WithFields(logrus.Fields{
@@ -277,12 +200,9 @@ func (lt *logTailer) run(ctx context.Context) {
 
 	for {
 		select {
-		// Caso 1: Desligamento solicitado via contexto.
 		case <-ctx.Done():
 			lt.logger.WithField("file_path", lt.tailer.Filename).Debug("Sinal de desligamento recebido")
 
-			// Para o tailer. Isso fará com que o canal 'lt.tailer.Lines'
-			// seja fechado, o que acionará o 'case' abaixo.
 			if err := lt.tailer.Stop(); err != nil {
 				lt.logger.WithError(err).Warn("Erro ao parar tailer")
 			}
@@ -290,15 +210,12 @@ func (lt *logTailer) run(ctx context.Context) {
 			lt.logger.WithField("file_path", lt.tailer.Filename).Debug("Tailer parado. Encerrando goroutine")
 			return
 
-		// Caso 2: Nova linha recebida do arquivo.
 		case line, ok := <-lt.tailer.Lines:
 			if !ok {
-				// O canal foi fechado (provavelmente por lt.tailer.Stop()).
 				lt.logger.WithField("file_path", lt.tailer.Filename).Debug("Canal 'Lines' fechado")
 
 				if err := lt.tailer.Err(); err != nil {
 					lt.logger.WithError(err).Warn("Erro final do tailer")
-					// METRICS: Erro do tailer
 					metrics.ErrorsTotal.WithLabelValues("file_monitor", "tailer_error").Inc()
 				}
 				return
@@ -306,20 +223,10 @@ func (lt *logTailer) run(ctx context.Context) {
 
 			if line.Err != nil {
 				lt.logger.WithError(line.Err).Warn("Erro de linha")
-				// METRICS: Erro de linha
 				metrics.ErrorsTotal.WithLabelValues("file_monitor", "line_error").Inc()
 				continue
 			}
 
-			// --- O PONTO DE DESACOPLAMENTO ---
-			// Em vez de processar 'line.Text' aqui, enviamos
-			// para o pool de workers.
-
-			// Este 'select' aninhado é crucial.
-			// Ele tenta enviar para o pool, mas *também*
-			// ouve o sinal de desligamento, para que não
-			// fique preso aqui indefinidamente se o pool estiver cheio
-			// e o aplicativo precisar parar.
 			job := &workerJob{
 				line:       line.Text,
 				sourcePath: lt.sourcePath,
@@ -328,76 +235,50 @@ func (lt *logTailer) run(ctx context.Context) {
 
 			select {
 			case <-ctx.Done():
-				// O desligamento foi solicitado enquanto estávamos
-				// esperando para enviar ao pool.
 				lt.logger.Debug("Desligamento durante envio ao pool. Descartando última linha")
-				return // Sai sem enviar
-
+				return
 			case lt.pool.jobsChannel <- job:
-				// Linha enviada ao pool com sucesso.
-				// METRICS: Linha coletada (será processada por worker)
-				// Usamos LogsProcessedTotal com status diferente para distinguir coleta vs processamento
+				// enviado com sucesso
 			}
 		}
 	}
 }
 
-// stop para o tailer e aguarda a goroutine run() terminar.
 func (lt *logTailer) stop() {
 	lt.wg.Wait()
 }
 
 // ===================================================================================
-// FileMonitor - Gerenciador Principal (implementa interface Monitor)
+// FILE MONITOR
 // ===================================================================================
-
-// FileMonitor gerencia o ciclo de vida do monitoramento de arquivos de log.
-// Implementa a interface types.Monitor para integração com o sistema.
 type FileMonitor struct {
-	// Core components
 	workerPool *workerPool
-	tailers    map[string]*logTailer // path → tailer
-	tailersMux sync.RWMutex          // protege tailers map
+	tailers    map[string]*logTailer // path -> tailer
+	tailersMux sync.RWMutex
 
-	// Context management
-	ctxMux sync.RWMutex      // protege ctx e cancel (CRITICAL-001 fix)
+	ctxMux sync.RWMutex
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	// Configuration
 	config types.FileMonitorServiceConfig
 
-	// Dependencies (integração com sistema)
 	dispatcher      types.Dispatcher
 	taskManager     types.TaskManager
 	positionManager *positions.PositionBufferManager
 	logger          *logrus.Logger
 
-	// State
 	running    bool
 	runningMux sync.RWMutex
 }
 
-// NewFileMonitor cria um novo monitor de arquivos.
-func NewFileMonitor(
-	config types.FileMonitorServiceConfig,
-	dispatcher types.Dispatcher,
-	taskManager types.TaskManager,
-	positionManager *positions.PositionBufferManager,
-	logger *logrus.Logger,
-) (*FileMonitor, error) {
-	// Validação de dependências obrigatórias
+func NewFileMonitor(config types.FileMonitorServiceConfig, dispatcher types.Dispatcher, taskManager types.TaskManager, positionManager *positions.PositionBufferManager, logger *logrus.Logger) (*FileMonitor, error) {
 	if logger == nil {
 		return nil, fmt.Errorf("logger é obrigatório")
 	}
-
 	if dispatcher == nil {
 		return nil, fmt.Errorf("dispatcher é obrigatório")
 	}
-
-	// Worker pool config usa defaults (constantes)
-	// TODO: Adicionar campos WorkerCount e QueueSize ao FileMonitorServiceConfig
 
 	return &FileMonitor{
 		config:          config,
@@ -410,8 +291,6 @@ func NewFileMonitor(
 	}, nil
 }
 
-// Start implementa a interface Monitor.
-// Inicia o monitoramento de arquivos com context-aware architecture.
 func (fm *FileMonitor) Start(ctx context.Context) error {
 	fm.runningMux.Lock()
 	if fm.running {
@@ -428,22 +307,12 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 		"queue_size":   defaultMaxJobsInQueue,
 	}).Info("Iniciando File Monitor com arquitetura anti-leak")
 
-	// Criar contexto cancelável derivado do contexto da aplicação
-	// CRITICAL-001 FIX: Proteger acesso concorrente a ctx/cancel
 	fm.ctxMux.Lock()
 	fm.ctx, fm.cancel = context.WithCancel(ctx)
 	fm.ctxMux.Unlock()
 
-	// Criar worker pool compartilhado
-	fm.workerPool = newWorkerPool(
-		fm.ctx,
-		defaultNumWorkers,
-		defaultMaxJobsInQueue,
-		fm.dispatcher,
-		fm.logger,
-	)
+	fm.workerPool = newWorkerPool(fm.ctx, defaultNumWorkers, defaultMaxJobsInQueue, fm.dispatcher, fm.logger)
 
-	// Iniciar tailers para todos os arquivos configurados
 	if err := fm.startTailers(); err != nil {
 		fm.cancel()
 		return fmt.Errorf("failed to start tailers: %w", err)
@@ -453,9 +322,7 @@ func (fm *FileMonitor) Start(ctx context.Context) error {
 	return nil
 }
 
-// startTailers inicia tailers para todos os arquivos configurados.
 func (fm *FileMonitor) startTailers() error {
-	// Obter lista de arquivos a monitorar da configuração
 	filePaths, err := fm.resolveFilePaths()
 	if err != nil {
 		return fmt.Errorf("failed to resolve file paths: %w", err)
@@ -468,7 +335,6 @@ func (fm *FileMonitor) startTailers() error {
 
 	fm.logger.WithField("file_count", len(filePaths)).Info("Iniciando tailers para arquivos")
 
-	// Iniciar tailer para cada arquivo
 	fm.tailersMux.Lock()
 	defer fm.tailersMux.Unlock()
 
@@ -476,7 +342,6 @@ func (fm *FileMonitor) startTailers() error {
 		tailer, err := newLogTailer(fm.ctx, path, fm.workerPool, fm.config, fm.logger)
 		if err != nil {
 			fm.logger.WithError(err).WithField("file_path", path).Warn("Falha ao iniciar tailer")
-			// METRICS: Erro ao iniciar tailer
 			metrics.ErrorsTotal.WithLabelValues("file_monitor", "start_tailer").Inc()
 			continue
 		}
@@ -494,22 +359,281 @@ func (fm *FileMonitor) startTailers() error {
 	return nil
 }
 
-// resolveFilePaths resolve a lista de arquivos a monitorar baseado na configuração.
+// resolveFilePaths: implementação avançada (pipeline, directories, watch_directories)
 func (fm *FileMonitor) resolveFilePaths() ([]string, error) {
-	// Por enquanto, usamos WatchDirectories da configuração como lista de arquivos diretos
-	// TODO: Implementar descoberta de arquivos baseada em patterns (IncludePatterns)
-
-	if len(fm.config.WatchDirectories) > 0 {
-		// WatchDirectories será tratado como lista de arquivos diretos por enquanto
-		fm.logger.WithField("files", fm.config.WatchDirectories).Debug("Using WatchDirectories as direct file list")
-		return fm.config.WatchDirectories, nil
+	// Dedup
+	seen := make(map[string]struct{}, 32)
+	add := func(p string, out *[]string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		*out = append(*out, p)
 	}
 
-	return nil, fmt.Errorf("no files configured to watch (configure watch_directories)")
+	paths := make([]string, 0, 32)
+
+	// 1) arquivos explícitos via pipeline
+	if fm.config.PipelineConfig != nil {
+		if rawFiles, ok := fm.config.PipelineConfig["files"].([]interface{}); ok {
+			for _, rf := range rawFiles {
+				m, ok := rf.(map[interface{}]interface{})
+				if !ok {
+					continue
+				}
+				enabled := true
+				if v, ok := m["enabled"]; ok {
+					if b, ok2 := v.(bool); ok2 {
+						enabled = b
+					}
+				}
+				if !enabled {
+					continue
+				}
+				if p, ok := m["path"].(string); ok && p != "" {
+					add(p, &paths)
+				}
+			}
+		}
+
+		if len(paths) > 0 {
+			// filtra arquivos existentes
+			existing := make([]string, 0, len(paths))
+			for _, p := range paths {
+				if st, err := os.Stat(p); err == nil && !st.IsDir() {
+					existing = append(existing, p)
+				} else {
+					fm.logger.WithField("file_path", p).Warn("Explicit file missing, skipping")
+				}
+			}
+			if len(existing) > 0 {
+				fm.logger.WithField("files", existing).Info("Using explicit existing files from file_pipeline (precedence 1)")
+				return existing, nil
+			}
+			fm.logger.Warn("No explicit files exist; evaluating directory entries")
+		}
+	}
+
+	// 2) diretórios via pipeline
+	if fm.config.PipelineConfig != nil {
+		expanded := fm.expandPipelineDirectories()
+		if len(expanded) > 0 {
+			for _, p := range expanded {
+				add(p, &paths)
+			}
+			fm.logger.WithField("files", len(paths)).Info("Using directories from file_pipeline (precedence 2)")
+			return paths, nil
+		}
+	}
+
+	// 3) watch_directories
+	if len(fm.config.WatchDirectories) > 0 {
+		for _, p := range fm.config.WatchDirectories {
+			add(p, &paths)
+		}
+		fm.logger.WithField("files", paths).Info("Using watch_directories (precedence 3)")
+		return paths, nil
+	}
+
+	fm.logger.Warn("No files found from pipeline (files/directories) or watch_directories - file monitor inactive")
+	return []string{}, nil
 }
 
-// Stop implementa a interface Monitor.
-// Para graciosamente o monitoramento, aguardando drain period.
+func (fm *FileMonitor) expandPipelineDirectories() []string {
+	cfg := fm.config.PipelineConfig
+	if cfg == nil {
+		return nil
+	}
+	rawDirs, ok := cfg["directories"].([]interface{})
+	if !ok || len(rawDirs) == 0 {
+		return nil
+	}
+
+	includeHidden := false
+	maxFiles := 0
+	var maxFileSize int64 = 0
+	if rawMon, ok := cfg["monitoring"].(map[interface{}]interface{}); ok {
+		if v, ok := rawMon["include_hidden"]; ok {
+			if b, ok2 := v.(bool); ok2 {
+				includeHidden = b
+			}
+		}
+		if v, ok := rawMon["max_files"]; ok {
+			switch t := v.(type) {
+			case int:
+				maxFiles = t
+			case int64:
+				maxFiles = int(t)
+			}
+		}
+		if v, ok := rawMon["max_file_size"]; ok {
+			switch t := v.(type) {
+			case int:
+				maxFileSize = int64(t)
+			case int64:
+				maxFileSize = t
+			}
+		}
+	}
+
+	var results []string
+	seen := make(map[string]struct{}, 64)
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if _, ok := seen[p]; ok {
+			return
+		}
+		seen[p] = struct{}{}
+		results = append(results, p)
+	}
+
+	matchAny := func(name string, patterns []string) bool {
+		if len(patterns) == 0 {
+			return false
+		}
+		for _, pat := range patterns {
+			if ok, _ := filepath.Match(pat, name); ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, rd := range rawDirs {
+		m, ok := rd.(map[interface{}]interface{})
+		if !ok {
+			continue
+		}
+		enabled := true
+		if v, ok := m["enabled"]; ok {
+			if b, ok2 := v.(bool); ok2 {
+				enabled = b
+			}
+		}
+		if !enabled {
+			continue
+		}
+		dirPath, _ := m["path"].(string)
+		if dirPath == "" {
+			continue
+		}
+
+		var include []string
+		if raw, ok := m["patterns"].([]interface{}); ok {
+			for _, it := range raw {
+				if s, ok2 := it.(string); ok2 {
+					include = append(include, s)
+				}
+			}
+		}
+		var exclude []string
+		if raw, ok := m["exclude_patterns"].([]interface{}); ok {
+			for _, it := range raw {
+				if s, ok2 := it.(string); ok2 {
+					exclude = append(exclude, s)
+				}
+			}
+		}
+		var excludeDirs []string
+		if raw, ok := m["exclude_directories"].([]interface{}); ok {
+			for _, it := range raw {
+				if s, ok2 := it.(string); ok2 {
+					excludeDirs = append(excludeDirs, s)
+				}
+			}
+		}
+		recursive := false
+		if v, ok := m["recursive"]; ok {
+			if b, ok2 := v.(bool); ok2 {
+				recursive = b
+			}
+		}
+
+		if !recursive {
+			entries, err := os.ReadDir(dirPath)
+			if err != nil {
+				fm.logger.WithError(err).Warn("Failed to read directory")
+				continue
+			}
+			for _, de := range entries {
+				if de.IsDir() {
+					continue
+				}
+				name := de.Name()
+				if !includeHidden && len(name) > 0 && name[0] == '.' {
+					continue
+				}
+				if len(include) > 0 && !matchAny(name, include) {
+					continue
+				}
+				if matchAny(name, exclude) {
+					continue
+				}
+				full := filepath.Join(dirPath, name)
+				if maxFileSize > 0 {
+					if fi, err := os.Stat(full); err == nil {
+						if fi.Size() > maxFileSize {
+							continue
+						}
+					}
+				}
+				add(full)
+				if maxFiles > 0 && len(results) >= maxFiles {
+					return results
+				}
+			}
+			continue
+		}
+
+		_ = filepath.WalkDir(dirPath, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				for _, ex := range excludeDirs {
+					if d.Name() == ex {
+						return filepath.SkipDir
+					}
+				}
+				if !includeHidden && len(d.Name()) > 0 && d.Name()[0] == '.' {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			name := filepath.Base(path)
+			if !includeHidden && len(name) > 0 && name[0] == '.' {
+				return nil
+			}
+			if len(include) > 0 && !matchAny(name, include) {
+				return nil
+			}
+			if matchAny(name, exclude) {
+				return nil
+			}
+			if maxFileSize > 0 {
+				if fi, err := os.Stat(path); err == nil {
+					if fi.Size() > maxFileSize {
+						return nil
+					}
+				}
+			}
+			add(path)
+			if maxFiles > 0 && len(results) >= maxFiles {
+				return filepath.SkipDir
+			}
+			return nil
+		})
+	}
+
+	return results
+}
+
+// Stop
 func (fm *FileMonitor) Stop() error {
 	fm.runningMux.Lock()
 	if !fm.running {
@@ -522,8 +646,6 @@ func (fm *FileMonitor) Stop() error {
 
 	fm.logger.WithField("component", "file_monitor").Info("Parando File Monitor...")
 
-	// Cancelar contexto principal (dispara cancelamento em todos os tailers)
-	// CRITICAL-001 FIX: Proteger leitura concorrente de cancel
 	fm.ctxMux.RLock()
 	cancel := fm.cancel
 	fm.ctxMux.RUnlock()
@@ -532,21 +654,16 @@ func (fm *FileMonitor) Stop() error {
 		cancel()
 	}
 
-	// --- ORDEM DE DESLIGAMENTO CRÍTICA ---
-
-	// A. Parar todos os Tailers (Produtores) PRIMEIRO.
 	fm.logger.Info("Aguardando tailers pararem...")
 	fm.stopAllTailers()
 	fm.logger.Info("Todos os tailers parados")
 
-	// B. Fechar o Worker Pool SEGUNDO.
 	fm.logger.Info("Fechando worker pool...")
 	if fm.workerPool != nil {
 		fm.workerPool.close()
 	}
 	fm.logger.Info("Worker pool fechado")
 
-	// C. Aguardar cleanup com timeout
 	done := make(chan struct{})
 	go func() {
 		fm.wg.Wait()
@@ -564,7 +681,6 @@ func (fm *FileMonitor) Stop() error {
 	return nil
 }
 
-// stopAllTailers para todos os tailers ativos.
 func (fm *FileMonitor) stopAllTailers() {
 	fm.tailersMux.Lock()
 	defer fm.tailersMux.Unlock()
@@ -574,6 +690,5 @@ func (fm *FileMonitor) stopAllTailers() {
 		tailer.stop()
 	}
 
-	// Limpar map
 	fm.tailers = make(map[string]*logTailer)
 }

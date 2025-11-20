@@ -62,8 +62,8 @@ func deepCopyBatch(batch []dispatchItem) []types.LogEntry {
 //   - []types.LogEntry: New slice with deep copied entries
 func deepCopyEntries(entries []types.LogEntry) []types.LogEntry {
 	result := make([]types.LogEntry, len(entries))
-	for i := range entries {
-		result[i] = *entries[i].DeepCopy()
+	for i, entry := range entries {
+		result[i] = *entry.DeepCopy()
 	}
 	return result
 }

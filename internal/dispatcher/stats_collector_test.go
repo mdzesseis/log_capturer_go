@@ -230,7 +230,7 @@ func TestStatsCollector_UpdateQueueSize(t *testing.T) {
 	// Add items to queue
 	for i := 0; i < 50; i++ {
 		queue <- dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "test",
 				Labels:  make(map[string]string),
 			},

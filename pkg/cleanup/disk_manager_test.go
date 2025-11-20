@@ -17,17 +17,16 @@ func TestDiskSpaceManager_NewDiskSpaceManager(t *testing.T) {
 		CheckInterval: 30 * time.Second,
 		Directories: []DirectoryConfig{
 			{
-				Path:         "/tmp/test",
-				MaxSizeMB:    100,
-				MaxFiles:     10,
+				Path:          "/tmp/test",
+				MaxSizeMB:     100,
+				MaxFiles:      10,
 				RetentionDays: 7,
-				FilePatterns: []string{"*.log"},
+				FilePatterns:  []string{"*.log"},
 			},
 		},
 	}
 
 	logger := logrus.New()
-	ctx := context.Background()
 
 	manager := NewDiskSpaceManager(config, logger)
 
@@ -74,7 +73,7 @@ func TestDiskSpaceManager_CleanupByAge(t *testing.T) {
 
 	logger := logrus.New()
 	logger.SetLevel(logrus.DebugLevel)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	manager := NewDiskSpaceManager(config, logger)
@@ -124,7 +123,6 @@ func TestDiskSpaceManager_CleanupByCount(t *testing.T) {
 	}
 
 	logger := logrus.New()
-	ctx := context.Background()
 
 	manager := NewDiskSpaceManager(config, logger)
 

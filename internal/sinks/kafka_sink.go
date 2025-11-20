@@ -29,10 +29,10 @@ type KafkaSink struct {
 	deadLetterQueue *dlq.DeadLetterQueue
 	enhancedMetrics *metrics.EnhancedMetrics
 
-	queue       chan *types.LogEntry
-	batch       []*types.LogEntry
-	batchMutex  sync.Mutex
-	lastSent    time.Time
+	queue      chan *types.LogEntry
+	batch      []*types.LogEntry
+	batchMutex sync.Mutex
+	lastSent   time.Time
 
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -275,9 +275,9 @@ func (ks *KafkaSink) Stop() error {
 	}
 
 	ks.logger.WithFields(logrus.Fields{
-		"sent":     atomic.LoadInt64(&ks.sentCount),
-		"errors":   atomic.LoadInt64(&ks.errorCount),
-		"dropped":  atomic.LoadInt64(&ks.droppedCount),
+		"sent":    atomic.LoadInt64(&ks.sentCount),
+		"errors":  atomic.LoadInt64(&ks.errorCount),
+		"dropped": atomic.LoadInt64(&ks.droppedCount),
 	}).Info("Kafka sink stopped")
 
 	return nil
@@ -491,9 +491,9 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 	}
 
 	ks.logger.WithFields(logrus.Fields{
-		"batch_size": len(entries),
-		"success":    successCount,
-		"errors":     errorCount,
+		"batch_size":  len(entries),
+		"success":     successCount,
+		"errors":      errorCount,
 		"duration_ms": duration.Milliseconds(),
 	}).Debug("Kafka batch sent")
 

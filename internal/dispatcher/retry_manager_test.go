@@ -76,7 +76,7 @@ func TestRetryManager_HandleFailedBatch_BelowMaxRetries(t *testing.T) {
 	// Create batch with items below max retries
 	batch := []dispatchItem{
 		{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test message 1",
 				Labels:     make(map[string]string),
 				SourceType: "test",
@@ -132,7 +132,7 @@ func TestRetryManager_HandleFailedBatch_ExceedsMaxRetries(t *testing.T) {
 	// Create batch with items at max retries
 	batch := []dispatchItem{
 		{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test message",
 				Labels:     make(map[string]string),
 				SourceType: "test",
@@ -188,8 +188,8 @@ func TestRetryManager_ScheduleRetry_WithExponentialBackoff(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(rune(tt.retries)), func(t *testing.T) {
-			item := dispatchItem{
-				Entry: types.LogEntry{
+			item := &dispatchItem{
+				Entry: &types.LogEntry{
 					Message: "test",
 					Labels:  make(map[string]string),
 				},
@@ -248,7 +248,7 @@ func TestRetryManager_SemaphoreLimit(t *testing.T) {
 	batch := make([]dispatchItem, numItems)
 	for i := 0; i < numItems; i++ {
 		batch[i] = dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test",
 				Labels:     make(map[string]string),
 				SourceType: "test",
@@ -294,8 +294,8 @@ func TestRetryManager_Stop_GracefulShutdown(t *testing.T) {
 	queue := make(chan dispatchItem, 10)
 
 	// Schedule a retry
-	item := dispatchItem{
-		Entry: types.LogEntry{
+	item := &dispatchItem{
+		Entry: &types.LogEntry{
 			Message: "test",
 			Labels:  make(map[string]string),
 		},
@@ -347,7 +347,7 @@ func TestRetryManager_HandleCircuitBreaker(t *testing.T) {
 	// Create batch
 	batch := []dispatchItem{
 		{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test1",
 				Labels:     make(map[string]string),
 				SourceType: "test",
@@ -357,7 +357,7 @@ func TestRetryManager_HandleCircuitBreaker(t *testing.T) {
 			Retries: 0,
 		},
 		{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message:    "test2",
 				Labels:     make(map[string]string),
 				SourceType: "test",
@@ -406,8 +406,8 @@ func TestRetryManager_GetRetryStats(t *testing.T) {
 	// Schedule some retries
 	queue := make(chan dispatchItem, 10)
 	for i := 0; i < 2; i++ {
-		item := dispatchItem{
-			Entry: types.LogEntry{
+		item := &dispatchItem{
+			Entry: &types.LogEntry{
 				Message: "test",
 				Labels:  make(map[string]string),
 			},
@@ -457,8 +457,8 @@ func TestRetryManager_ConcurrentRetries(t *testing.T) {
 		go func(id int) {
 			defer schedulerWg.Done()
 			for j := 0; j < itemsPerGoroutine; j++ {
-				item := dispatchItem{
-					Entry: types.LogEntry{
+				item := &dispatchItem{
+					Entry: &types.LogEntry{
 						Message: "concurrent test",
 						Labels:  make(map[string]string),
 					},
@@ -500,8 +500,8 @@ func BenchmarkRetryManager_ScheduleRetry(b *testing.B) {
 
 	queue := make(chan dispatchItem, 10000)
 
-	item := dispatchItem{
-		Entry: types.LogEntry{
+	item := &dispatchItem{
+		Entry: &types.LogEntry{
 			Message: "benchmark",
 			Labels:  make(map[string]string),
 		},
@@ -539,7 +539,7 @@ func BenchmarkRetryManager_HandleFailedBatch(b *testing.B) {
 	batch := make([]dispatchItem, 10)
 	for i := 0; i < 10; i++ {
 		batch[i] = dispatchItem{
-			Entry: types.LogEntry{
+			Entry: &types.LogEntry{
 				Message: "benchmark",
 				Labels:  make(map[string]string),
 			},

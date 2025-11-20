@@ -74,10 +74,11 @@ type BufferStats struct {
 }
 
 // BufferEntry represents a single entry in the disk buffer
+// P1 FIX: Entry é ponteiro para evitar pass lock by value
 type BufferEntry struct {
-	Timestamp  time.Time       `json:"timestamp"`
-	Entry      types.LogEntry  `json:"entry"`
-	Checksum   [32]byte        `json:"checksum"`
+	Timestamp  time.Time        `json:"timestamp"`
+	Entry      *types.LogEntry  `json:"entry"`
+	Checksum   [32]byte         `json:"checksum"`
 }
 
 // NewDiskBuffer creates a new disk buffer
@@ -189,7 +190,8 @@ func (db *DiskBuffer) scanExistingFiles() error {
 }
 
 // Write writes a log entry to the disk buffer
-func (db *DiskBuffer) Write(entry types.LogEntry) error {
+// P1 FIX: Recebe ponteiro para evitar pass lock by value
+func (db *DiskBuffer) Write(entry *types.LogEntry) error {
 	if !db.isRunning {
 		return fmt.Errorf("disk buffer is not running")
 	}
@@ -197,9 +199,9 @@ func (db *DiskBuffer) Write(entry types.LogEntry) error {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 
-	// Create buffer entry with checksum
+	// Create buffer entry with checksum (usando ponteiro)
 	bufferEntry := BufferEntry{
-		Timestamp:   time.Now().UTC(),
+		Timestamp: time.Now().UTC(),
 		Entry:     entry,
 	}
 
@@ -253,11 +255,12 @@ func (db *DiskBuffer) Write(entry types.LogEntry) error {
 }
 
 // ReadAll reads all entries from the disk buffer (for recovery)
-func (db *DiskBuffer) ReadAll(ctx context.Context) ([]types.LogEntry, error) {
+// P1 FIX: Retorna ponteiros para evitar pass lock by value
+func (db *DiskBuffer) ReadAll(ctx context.Context) ([]*types.LogEntry, error) {
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 
-	var allEntries []types.LogEntry
+	var allEntries []*types.LogEntry
 
 	// Read from recovery files (oldest first)
 	recoveryFiles := make([]string, len(db.recoveryFiles))
@@ -286,7 +289,8 @@ func (db *DiskBuffer) ReadAll(ctx context.Context) ([]types.LogEntry, error) {
 }
 
 // readFromFile reads entries from a specific file
-func (db *DiskBuffer) readFromFile(filename string) ([]types.LogEntry, error) {
+// P1 FIX: Retorna ponteiros para evitar pass lock by value
+func (db *DiskBuffer) readFromFile(filename string) ([]*types.LogEntry, error) {
 	file, err := os.Open(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file %s: %w", filename, err)
@@ -305,7 +309,7 @@ func (db *DiskBuffer) readFromFile(filename string) ([]types.LogEntry, error) {
 		// If gzip fails, fall back to uncompressed reading
 	}
 
-	var entries []types.LogEntry
+	var entries []*types.LogEntry
 	bufReader := bufio.NewReader(reader)
 
 	for {

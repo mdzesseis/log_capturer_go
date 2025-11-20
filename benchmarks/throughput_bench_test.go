@@ -275,8 +275,8 @@ func BenchmarkBatchProcessing(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				// Simulate batch processing: deep copy
 				copied := make([]types.LogEntry, len(batch))
-				for j, entry := range batch {
-					copied[j] = *entry.DeepCopy()
+				for j := range batch {
+					copied[j] = *batch[j].DeepCopy()
 				}
 				_ = copied
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,9 +95,9 @@ type ContainerMonitor struct {
 	wg         sync.WaitGroup
 
 	// Self-monitoring protection
-	mu                 sync.RWMutex
-	excludeNames       []string
-	circuitBreaker     *circuitBreaker
+	mu             sync.RWMutex
+	excludeNames   []string
+	circuitBreaker *circuitBreaker
 }
 
 // NewContainerMonitor cria um novo gerenciador de logs.
@@ -151,7 +152,7 @@ func NewContainerMonitor(
 		collectors:      make(map[string]context.CancelFunc),
 		drainDuration:   drainDuration,
 		running:         false,
-		excludeNames:    make([]string, 0),
+		excludeNames:    append(make([]string, 0, len(config.ExcludeNames)), config.ExcludeNames...),
 	}
 
 	// Initialize circuit breaker for self-monitoring detection
@@ -336,6 +337,54 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 		cm.collectorsMux.Unlock()
 		return
 	}
+	cm.collectorsMux.Unlock()
+
+	// P0 FIX: Verificar exclusão ANTES de criar contexto e iniciar coleta
+	// Obter informações do container para verificar o nome
+	containerInfo, err := cm.cli.ContainerInspect(context.Background(), containerID)
+	if err != nil {
+		cm.logger.WithError(err).WithField("container_id", containerID[:12]).Warn("Falha ao inspecionar container para verificação de exclusão")
+		return
+	}
+
+	// Extrair nome do container (remover "/" prefix do Docker)
+	containerName := strings.TrimPrefix(containerInfo.Name, "/")
+
+	// Verificar se container está na lista de exclusão
+	cm.mu.RLock()
+	for _, excluded := range cm.excludeNames {
+		if strings.EqualFold(containerName, excluded) || strings.EqualFold(containerID, excluded) || strings.Contains(containerName, excluded) {
+			cm.mu.RUnlock()
+			cm.logger.WithFields(logrus.Fields{
+				"container_id":   containerID[:12],
+				"container_name": containerName,
+				"excluded_by":    excluded,
+			}).Info("Container excluído da coleta (excludeNames)")
+			return
+		}
+	}
+	cm.mu.RUnlock()
+
+	// Verificar também config.ExcludeNames (pode ter valores diferentes)
+	for _, excluded := range cm.config.ExcludeNames {
+		if strings.EqualFold(containerName, excluded) || strings.EqualFold(containerID, excluded) || strings.Contains(containerName, excluded) {
+			cm.logger.WithFields(logrus.Fields{
+				"container_id":   containerID[:12],
+				"container_name": containerName,
+				"excluded_by":    excluded,
+			}).Info("Container excluído da coleta (config.ExcludeNames)")
+			return
+		}
+	}
+
+	// Re-adquirir lock para adicionar ao mapa de collectors
+	cm.collectorsMux.Lock()
+	// Double-check: outro goroutine pode ter adicionado enquanto verificávamos exclusão
+	if _, exists := cm.collectors[containerID]; exists {
+		cm.logger.WithField("container_id", containerID[:12]).Debug("Coletor já existe após verificação de exclusão, ignorando")
+		cm.collectorsMux.Unlock()
+		return
+	}
 
 	// Cria um contexto *específico* para esta goroutine de coleta.
 	// Isso nos permite cancelar *apenas este* coletor.
@@ -351,8 +400,12 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 	metrics.UpdateActiveStreams(activeCount)
 
 	// Inicia a goroutine de coleta real.
-	go func() {
-		cm.logger.WithField("container_id", containerID[:12]).Info("Coletor iniciado")
+	// Captura containerName no closure (já obtido na verificação de exclusão)
+	go func(containerName string) {
+		cm.logger.WithFields(logrus.Fields{
+			"container_id":   containerID[:12],
+			"container_name": containerName,
+		}).Info("Coletor iniciado")
 
 		// Sempre garanta que o cancelamento seja removido do mapa ao sair.
 		defer func() {
@@ -366,12 +419,7 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 			metrics.UpdateActiveStreams(finalCount)
 		}()
 
-		// Get container info to extract name for circuit breaker
-		containerName := containerID[:12] // fallback to short ID
-		containerInfo, err := cm.cli.ContainerInspect(collectCtx, containerID)
-		if err == nil && containerInfo.Name != "" {
-			containerName = containerInfo.Name
-		}
+		// containerName já foi obtido na verificação de exclusão acima
 
 		options := dockerTypes.ContainerLogsOptions{
 			ShowStdout: true,
@@ -426,7 +474,7 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 		} else if err == context.Canceled {
 			cm.logger.WithField("container_id", containerID[:12]).Info("Coleta cancelada graciosamente")
 		}
-	}()
+	}(containerName)
 }
 
 // StopCollecting inicia o desligamento gracioso com drenagem.
@@ -542,10 +590,11 @@ func (w *logCaptureWriter) Write(p []byte) (n int, err error) {
 	// NOTA: Este map será copiado internamente pelo dispatcher (DeepCopy),
 	// então é seguro reutilizar esta estrutura em múltiplas chamadas.
 	labels := map[string]string{
-		"container_id": w.containerID,
-		"stream":       w.streamType,
-		"source":       "docker",
-		"monitor":      "container_monitor",
+		"container_id":   w.containerID,
+		"container_name": w.containerName,
+		"stream":         w.streamType,
+		"source":         "docker",
+		"monitor":        "container_monitor",
 	}
 
 	// Usar context.Background() para não bloquear a leitura de logs.

@@ -18,7 +18,7 @@ func TestTimestampLearner_ValidateTimestamp_Valid(t *testing.T) {
 	learner := NewTimestampLearner(config, logrus.New())
 
 	// Valid timestamp (1 hour old)
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Timestamp: time.Now().Add(-1 * time.Hour),
 		Message:   "test log",
 	}
@@ -35,7 +35,7 @@ func TestTimestampLearner_ValidateTimestamp_TooOld(t *testing.T) {
 	learner := NewTimestampLearner(config, logrus.New())
 
 	// Timestamp 48 hours old (exceeds 24h threshold)
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Timestamp: time.Now().Add(-48 * time.Hour),
 		Message:   "old log",
 	}
@@ -53,7 +53,7 @@ func TestTimestampLearner_ValidateTimestamp_TooNew(t *testing.T) {
 	learner := NewTimestampLearner(config, logrus.New())
 
 	// Timestamp 1 hour in future (exceeds 5min tolerance)
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Timestamp: time.Now().Add(1 * time.Hour),
 		Message:   "future log",
 	}
@@ -71,7 +71,7 @@ func TestTimestampLearner_ValidateTimestamp_Zero(t *testing.T) {
 	learner := NewTimestampLearner(config, logrus.New())
 
 	// Zero timestamp
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Timestamp: time.Time{},
 		Message:   "no timestamp",
 	}
@@ -144,7 +144,7 @@ func TestTimestampLearner_LearnFromRejection(t *testing.T) {
 	assert.Equal(t, 24*time.Hour, initialThreshold)
 
 	// Simulate Loki rejection of 12-hour-old entry
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Timestamp: time.Now().Add(-12 * time.Hour),
 		Message:   "rejected log",
 	}
@@ -176,7 +176,7 @@ func TestTimestampLearner_Concurrent(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		go func() {
-			entry := types.LogEntry{
+			entry := &types.LogEntry{
 				Timestamp: time.Now().Add(-1 * time.Hour),
 				Message:   "concurrent log",
 			}

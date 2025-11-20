@@ -49,7 +49,7 @@ func TestDLQ_AddEntry_Success(t *testing.T) {
 	defer dlq.Stop()
 
 	// Create test entry using correct API
-	testEntry := types.LogEntry{
+	testEntry := &types.LogEntry{
 		Message:    "test log entry for DLQ",
 		SourceType: "file",
 		SourceID:   "test-file-1",
@@ -64,7 +64,7 @@ func TestDLQ_AddEntry_Success(t *testing.T) {
 		"retry_count": "1",
 	}
 
-	// Add entry using correct AddEntry signature
+	// Add entry using correct AddEntry signature (ponteiro)
 	err = dlq.AddEntry(testEntry, "test error message", "test_error_type", "local_file", 1, contextMap)
 	require.NoError(t, err, "Should successfully add entry to DLQ")
 
@@ -118,7 +118,7 @@ func TestDLQ_AddEntry_Concurrent(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < entriesPerGoroutine; j++ {
-				entry := types.LogEntry{
+				entry := &types.LogEntry{
 					Message:    fmt.Sprintf("concurrent entry %d-%d", id, j),
 					SourceType: "test",
 					SourceID:   fmt.Sprintf("test-%d", id),
@@ -176,7 +176,7 @@ func TestDLQ_FileRotation_Basic(t *testing.T) {
 
 	// Add enough entries to trigger file rotation
 	for i := 0; i < 50; i++ {
-		entry := types.LogEntry{
+		entry := &types.LogEntry{
 			Message:    fmt.Sprintf("Large message to force rotation %d - %s", i, strings.Repeat("x", 1000)),
 			SourceType: "test",
 			SourceID:   fmt.Sprintf("test-%d", i),
@@ -291,7 +291,7 @@ func TestDLQ_Reprocess_Success(t *testing.T) {
 	var reprocessMutex sync.Mutex
 
 	// Set callback that succeeds
-	dlq.SetReprocessCallback(func(entry types.LogEntry, originalSink string) error {
+	dlq.SetReprocessCallback(func(entry *types.LogEntry, originalSink string) error {
 		reprocessMutex.Lock()
 		reprocessedCount++
 		reprocessMutex.Unlock()
@@ -304,7 +304,7 @@ func TestDLQ_Reprocess_Success(t *testing.T) {
 
 	// Add test entries
 	for i := 0; i < 5; i++ {
-		entry := types.LogEntry{
+		entry := &types.LogEntry{
 			Message:    fmt.Sprintf("reprocess test %d", i),
 			SourceType: "test",
 			SourceID:   fmt.Sprintf("test-%d", i),
@@ -346,7 +346,7 @@ func TestDLQ_Disabled(t *testing.T) {
 	require.NotNil(t, dlq)
 
 	// Should handle disabled state gracefully
-	entry := types.LogEntry{
+	entry := &types.LogEntry{
 		Message:   "test message",
 		Timestamp: time.Now(),
 	}
@@ -394,7 +394,7 @@ func TestDLQ_QueueFull(t *testing.T) {
 	failCount := 0
 
 	for i := 0; i < 10; i++ {
-		entry := types.LogEntry{
+		entry := &types.LogEntry{
 			Message:   fmt.Sprintf("queue overflow test %d", i),
 			Timestamp: time.Now(),
 		}

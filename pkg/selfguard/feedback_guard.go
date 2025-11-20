@@ -169,11 +169,14 @@ func (fg *FeedbackGuard) compilePatterns() {
 
 // CheckEntry verifica se uma entrada é própria (self-log)
 func (fg *FeedbackGuard) CheckEntry(entry *types.LogEntry) *GuardResult {
-	// Temporarily force allow all entries
-	return &GuardResult{
-		IsSelfLog: false,
-		Action:    "allow",
-		Reason:    "temporary_disabled",
+	// TODO: Remover este early return quando a lógica de detecção estiver completa
+	// Por agora, o guard está temporariamente desabilitado
+	if true {
+		return &GuardResult{
+			IsSelfLog: false,
+			Action:    "allow",
+			Reason:    "temporary_disabled",
+		}
 	}
 
 	if !fg.config.Enabled {

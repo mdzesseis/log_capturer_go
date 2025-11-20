@@ -183,9 +183,9 @@ type DispatcherConfig struct {
 // Dispatch items flow through the processing pipeline and are used
 // for batching, retry logic, and delivery tracking.
 type dispatchItem struct {
-	Entry     *types.LogEntry // The log entry to be processed and delivered (pointer to avoid copying mutex)
-	Timestamp time.Time       // When this item was queued for processing
-	Retries   int             // Number of delivery attempts for this entry
+	Entry     types.LogEntry // The log entry to be processed and delivered
+	Timestamp time.Time      // When this item was queued for processing
+	Retries   int            // Number of delivery attempts for this entry
 }
 
 // NewDispatcher creates a new Dispatcher instance with the specified configuration and dependencies.
@@ -288,11 +288,26 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		maxConcurrentRetries = config.Workers * 25
 	}
 
+	// Initialize stats structure
+	stats := types.DispatcherStats{
+		SinkDistribution: make(map[string]int64),
+		QueueSize:        0, // Will be updated by RunStatsUpdater
+		QueueCapacity:    config.QueueSize,
+	}
+	var statsMutex sync.RWMutex
+
 	// Create queue
 	queue := make(chan dispatchItem, config.QueueSize)
 
-	// Create dispatcher with zero-value mutex and WaitGroup (avoid copying)
-	d := &Dispatcher{
+	// Initialize WaitGroup for component lifecycle management
+	var wg sync.WaitGroup
+
+	// PHASE 2 REFACTORING: Initialize modular components
+	batchProcessor := NewBatchProcessor(config, logger, enhancedMetrics)
+	retryManager := NewRetryManager(config, logger, deadLetterQueue, ctx, &wg, maxConcurrentRetries)
+	statsCollector := NewStatsCollector(&stats, &statsMutex, config, logger, queue)
+
+	return &Dispatcher{
 		config:               config,
 		logger:               logger,
 		processor:            processor,
@@ -305,32 +320,21 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 		enhancedMetrics: enhancedMetrics,
 		tracingManager:  tracingMgr,
 
+		// PHASE 2 REFACTORING: Assign modular components
+		batchProcessor: batchProcessor,
+		retryManager:   retryManager,
+		statsCollector: statsCollector,
+
 		sinks:                make([]types.Sink, 0),
 		queue:                queue,
+		stats:                stats,
+		statsMutex:           statsMutex,
 		ctx:                  ctx,
 		cancel:               cancel,
+		wg:                   wg,
 		retrySemaphore:       make(chan struct{}, maxConcurrentRetries),
 		maxConcurrentRetries: maxConcurrentRetries,
-		// statsMutex and wg use zero values - no copying
 	}
-
-	// Initialize stats structure (after struct creation to avoid copying mutex)
-	d.stats = types.DispatcherStats{
-		SinkDistribution: make(map[string]int64),
-		QueueSize:        0, // Will be updated by RunStatsUpdater
-		QueueCapacity:    config.QueueSize,
-	}
-
-	// PHASE 2 REFACTORING: Initialize modular components
-	batchProcessor := NewBatchProcessor(config, logger, enhancedMetrics)
-	retryManager := NewRetryManager(config, logger, deadLetterQueue, ctx, &d.wg, maxConcurrentRetries)
-	statsCollector := NewStatsCollector(&d.stats, &d.statsMutex, config, logger, queue)
-
-	d.batchProcessor = batchProcessor
-	d.retryManager = retryManager
-	d.statsCollector = statsCollector
-
-	return d
 }
 
 // AddSink adds an output sink to the dispatcher's delivery destinations.
@@ -716,8 +720,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 				return err
 			}
 			if processedEntry != nil {
-				// Use DeepCopy to avoid copying mutex from processedEntry
-				entry = *processedEntry.DeepCopy()
+				entry = *processedEntry
 			}
 		}
 	}
@@ -745,7 +748,7 @@ func (d *Dispatcher) Handle(ctx context.Context, sourceType, sourceID, message s
 	// C5: Race Condition Fix - Use deep copy to avoid sharing mutex
 	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
-		Entry:     entry.DeepCopy(),
+		Entry:     *entry.DeepCopy(),
 		Timestamp: time.Now().UTC(),
 		Retries:   0,
 	}
@@ -983,8 +986,8 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 		// Fazer cópia profunda dos entries para evitar race conditions entre sinks
 		entriesCopy := make([]types.LogEntry, len(entries))
-		for i := range entries {
-			entriesCopy[i] = *entries[i].DeepCopy()
+		for i, entry := range entries {
+			entriesCopy[i] = *entry.DeepCopy()
 		}
 
 		ctx, cancel := context.WithTimeout(d.ctx, 120*time.Second)
@@ -1018,7 +1021,7 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 		// Send all items directly to DLQ
 		for _, item := range batch {
-			d.sendToDLQ(item.Entry, lastErr.Error(), "all_sinks_failed", "all_sinks", item.Retries)
+			d.sendToDLQ(&item.Entry, lastErr.Error(), "all_sinks_failed", "all_sinks", item.Retries)
 		}
 	} else if successCount < healthySinks && healthySinks > 0 {
 		// Some sinks failed, some succeeded - handle normally with retry
@@ -1093,7 +1096,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 						default:
 							// Fila cheia, enviar para DLQ se disponível
 							d.logger.Warn("Failed to reschedule failed item, queue full")
-							d.sendToDLQ(itemPtr.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", itemPtr.Retries)
+							d.sendToDLQ(&itemPtr.Entry, "queue_full_on_retry", "retry_failed", "all_sinks", itemPtr.Retries)
 						}
 					case <-d.ctx.Done():
 						// Context cancelado durante espera - timer será limpo no defer
@@ -1110,7 +1113,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 					"source_type":            item.Entry.SourceType,
 					"source_id":              item.Entry.SourceID,
 				}).Warn("Retry queue full - sending directly to DLQ to prevent goroutine explosion")
-				d.sendToDLQ(item.Entry, "retry_queue_full", "max_concurrent_retries_exceeded", "all_sinks", item.Retries)
+				d.sendToDLQ(&item.Entry, "retry_queue_full", "max_concurrent_retries_exceeded", "all_sinks", item.Retries)
 				metrics.RecordError("dispatcher", "retry_queue_full")
 			}
 		} else {
@@ -1124,7 +1127,7 @@ func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
 			}).Error("Max retries reached for log entry, sending to DLQ")
 
 			// Enviar para Dead Letter Queue
-			d.sendToDLQ(item.Entry, err.Error(), "max_retries_exceeded", "all_sinks", item.Retries)
+			d.sendToDLQ(&item.Entry, err.Error(), "max_retries_exceeded", "all_sinks", item.Retries)
 		}
 	}
 }
@@ -1269,15 +1272,14 @@ func (d *Dispatcher) handleWithoutBackpressure(ctx context.Context, sourceType, 
 			return err
 		}
 		if processedEntry != nil {
-			// Use DeepCopy to avoid copying mutex from processedEntry
-			entry = *processedEntry.DeepCopy()
+			entry = *processedEntry
 		}
 	}
 
 	// C5: Race Condition Fix - Use deep copy to avoid sharing mutex
 	// Deep copy ensures the queued item has independent maps and fresh mutex
 	item := dispatchItem{
-		Entry:     entry.DeepCopy(),
+		Entry:     *entry.DeepCopy(),
 		Timestamp: time.Now().UTC(),
 		Retries:   0,
 	}
@@ -1348,8 +1350,7 @@ func (d *Dispatcher) reprocessLogEntry(entry *types.LogEntry, originalSink strin
 	}
 
 	// Tentar enviar para o sink original
-	// Use DeepCopy to avoid copying mutex
-	if err := targetSink.Send(ctx, []types.LogEntry{*entry.DeepCopy()}); err != nil {
+	if err := targetSink.Send(ctx, []types.LogEntry{*entry}); err != nil {
 		d.logger.WithError(err).WithFields(logrus.Fields{
 			"source_type":   entry.SourceType,
 			"source_id":     entry.SourceID,
@@ -1406,8 +1407,7 @@ func (d *Dispatcher) reprocessToAnySink(ctx context.Context, entry *types.LogEnt
 	// Tentar enviar para cada sink healthy
 	var lastError error
 	for _, sink := range healthySinks {
-		// Use DeepCopy to avoid copying mutex
-		if err := sink.Send(ctx, []types.LogEntry{*entry.DeepCopy()}); err != nil {
+		if err := sink.Send(ctx, []types.LogEntry{*entry}); err != nil {
 			lastError = err
 			d.logger.WithError(err).WithFields(logrus.Fields{
 				"source_type": entry.SourceType,

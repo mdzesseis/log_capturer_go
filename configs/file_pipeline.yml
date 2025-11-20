@@ -38,7 +38,17 @@ version: "1.0"
 # IMPORTANTE: Deixe esta seção VAZIA ([]) se não quiser monitorar nenhum arquivo específico
 # Exemplo de seção vazia: files: []
 #
-files: [] # Commented out to rely on directory watching
+files:
+  - path: "/var/log/auth.log"
+    labels:
+      source: "file"
+      file_name: "auth"
+    enabled: true
+  - path: "/var/log/messages"
+    labels:
+      source: "file"
+      file_name: "messages"
+    enabled: true
 
 # -----------------------------------------------------------------------------
 # DIRETÓRIOS PARA DESCOBERTA AUTOMÁTICA
@@ -102,7 +112,7 @@ directories:
     default_labels:
       source: "file"
       log_type: "system"
-    enabled: true
+    enabled: false
 
   # Monitor Docker container logs
   - path: "/var/lib/docker/containers"
@@ -114,7 +124,7 @@ directories:
     default_labels:
       source: "docker_container_file"
       log_type: "container"
-    enabled: true
+    enabled: false # Disabled to prevent ingesting own container logs
 
   # ⚠️ IMPORTANTE: Logs da aplicação log_capturer (EVITAR FEEDBACK LOOP)
   # Esta entrada está desabilitada para prevenir monitoramento dos próprios logs

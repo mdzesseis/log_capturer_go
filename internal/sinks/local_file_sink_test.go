@@ -293,7 +293,8 @@ func TestLocalFileSinkWriteWithDiskChecks(t *testing.T) {
 
 				// Send with timeout
 				writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-				_ = sink.Send(writeCtx, []types.LogEntry{entry})
+				// Use DeepCopy to avoid copying mutex
+				_ = sink.Send(writeCtx, []types.LogEntry{*entry.DeepCopy()})
 				cancel()
 			}
 		}(i)
