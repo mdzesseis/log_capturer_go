@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/sirupsen/logrus"
 )
 
@@ -1093,6 +1094,17 @@ type EnhancedMetrics struct {
 	// Internal state
 	isRunning bool
 	startTime time.Time
+
+	// CPU tracking for percentage calculation
+	lastCPUTimes cpu.TimesStat
+	lastCPUCheck time.Time
+
+	// Logs per second tracking
+	lastLogsProcessed int64
+	lastLogsCheck     time.Time
+
+	// Dispatcher stats getter (set via SetDispatcherStatsGetter)
+	getDispatcherStats func() int64
 }
 
 // NewEnhancedMetrics creates a new enhanced metrics instance
@@ -1101,12 +1113,20 @@ func NewEnhancedMetrics(logger *logrus.Logger) *EnhancedMetrics {
 		logger:        logger,
 		customMetrics: make(map[string]prometheus.Metric),
 		startTime:     time.Now(),
+		lastCPUCheck:  time.Now(),
+		lastLogsCheck: time.Now(),
 	}
 
 	// Note: Advanced metrics (diskUsage, responseTime, etc.) are now global variables
 	// registered in NewMetricsServer, so we don't need to initialize them here
 
 	return em
+}
+
+// SetDispatcherStatsGetter sets a function to retrieve the current logs processed count
+// This allows EnhancedMetrics to calculate logs per second rate
+func (em *EnhancedMetrics) SetDispatcherStatsGetter(getter func() int64) {
+	em.getDispatcherStats = getter
 }
 
 // UpdateSystemMetrics updates system-level metrics
@@ -1136,6 +1156,37 @@ func (em *EnhancedMetrics) UpdateSystemMetrics() {
 	// Update file descriptors (attempt to read from /proc/self/fd on Linux)
 	if fds := getOpenFileDescriptors(); fds >= 0 {
 		FileDescriptors.Set(float64(fds))
+	}
+
+	// Update CPU usage percentage
+	times, err := cpu.Times(false)
+	if err == nil && len(times) > 0 {
+		// Calculate CPU percentage between this call and the last
+		if !em.lastCPUCheck.IsZero() {
+			total := times[0].Total() - em.lastCPUTimes.Total()
+			idle := times[0].Idle - em.lastCPUTimes.Idle
+			if total > 0 {
+				cpuPercent := 100.0 * (total - idle) / total
+				CPUUsage.Set(cpuPercent)
+			}
+		}
+		em.lastCPUTimes = times[0]
+		em.lastCPUCheck = time.Now()
+	}
+
+	// Update logs per second rate
+	if em.getDispatcherStats != nil {
+		currentLogs := em.getDispatcherStats()
+		elapsed := time.Since(em.lastLogsCheck).Seconds()
+		if elapsed > 0 {
+			rate := float64(currentLogs-em.lastLogsProcessed) / elapsed
+			if rate < 0 {
+				rate = 0 // Handle counter reset
+			}
+			LogsPerSecond.WithLabelValues("dispatcher").Set(rate)
+		}
+		em.lastLogsProcessed = currentLogs
+		em.lastLogsCheck = time.Now()
 	}
 }
 

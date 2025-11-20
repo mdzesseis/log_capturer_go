@@ -299,6 +299,7 @@ func (ks *KafkaSink) Send(ctx context.Context, entries []types.LogEntry) error {
 		default:
 			// Queue full - backpressure
 			atomic.AddInt64(&ks.backpressureCount, 1)
+			metrics.KafkaBackpressureTotal.WithLabelValues("kafka_sink", "warning").Inc()
 
 			// Check backpressure thresholds
 			queueUsage := float64(len(ks.queue)) / float64(cap(ks.queue))
@@ -306,8 +307,10 @@ func (ks *KafkaSink) Send(ctx context.Context, entries []types.LogEntry) error {
 			if queueUsage >= ks.config.BackpressureConfig.QueueEmergencyThreshold {
 				// Emergency - send to DLQ
 				atomic.AddInt64(&ks.droppedCount, 1)
+				metrics.KafkaBackpressureTotal.WithLabelValues("kafka_sink", "emergency").Inc()
 				if ks.deadLetterQueue != nil && ks.config.DLQConfig.SendOnError {
 					ks.deadLetterQueue.AddEntry(entry, "kafka_queue_full", "backpressure", "kafka_sink", 0, nil)
+					metrics.KafkaDLQMessagesTotal.WithLabelValues(ks.config.Topic, "queue_full").Inc()
 				}
 				ks.logger.Warn("Kafka sink queue full - dropping entry to DLQ")
 			} else {
@@ -320,6 +323,7 @@ func (ks *KafkaSink) Send(ctx context.Context, entries []types.LogEntry) error {
 					atomic.AddInt64(&ks.droppedCount, 1)
 					if ks.deadLetterQueue != nil && ks.config.DLQConfig.SendOnError {
 						ks.deadLetterQueue.AddEntry(entry, "kafka_queue_timeout", "timeout", "kafka_sink", 0, nil)
+						metrics.KafkaDLQMessagesTotal.WithLabelValues(ks.config.Topic, "queue_timeout").Inc()
 					}
 				case <-ctx.Done():
 					return ctx.Err()
@@ -327,6 +331,10 @@ func (ks *KafkaSink) Send(ctx context.Context, entries []types.LogEntry) error {
 			}
 		}
 	}
+
+	// Update queue metrics
+	metrics.KafkaQueueSize.WithLabelValues("kafka_sink").Set(float64(len(ks.queue)))
+	metrics.KafkaQueueUtilization.WithLabelValues("kafka_sink").Set(float64(len(ks.queue)) / float64(cap(ks.queue)))
 
 	return nil
 }
@@ -436,6 +444,7 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 	startTime := time.Now()
 	successCount := 0
 	errorCount := 0
+	totalMessageSize := 0
 
 	// Send each entry to Kafka producer
 	for i := range entries {
@@ -452,11 +461,18 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 		if err != nil {
 			ks.logger.WithError(err).Error("Failed to marshal entry to JSON")
 			errorCount++
+			metrics.KafkaProducerErrorsTotal.WithLabelValues(topic, "marshal_error").Inc()
 			if ks.deadLetterQueue != nil {
 				ks.deadLetterQueue.AddEntry(entry, fmt.Sprintf("marshal_error: %v", err), "marshal_error", "kafka_sink", 0, nil)
+				metrics.KafkaDLQMessagesTotal.WithLabelValues(topic, "marshal_error").Inc()
 			}
 			continue
 		}
+
+		// Track message size
+		messageSize := len(value)
+		totalMessageSize += messageSize
+		metrics.KafkaMessageSizeBytes.WithLabelValues(topic).Observe(float64(messageSize))
 
 		// Create Kafka message
 		msg := &sarama.ProducerMessage{
@@ -468,6 +484,7 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 		// Send to producer (async)
 		ks.producer.Input() <- msg
 		successCount++
+		metrics.KafkaMessagesProducedTotal.WithLabelValues(topic, "sent").Inc()
 	}
 
 	duration := time.Since(startTime)
@@ -475,6 +492,26 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 	// Update metrics
 	atomic.AddInt64(&ks.sentCount, int64(successCount))
 	atomic.AddInt64(&ks.errorCount, int64(errorCount))
+
+	// Update Kafka-specific batch metrics
+	metrics.KafkaBatchSize.WithLabelValues(ks.config.Topic).Observe(float64(len(entries)))
+	metrics.KafkaBatchSendDuration.WithLabelValues(ks.config.Topic).Observe(duration.Seconds())
+
+	// Update queue metrics after send
+	metrics.KafkaQueueSize.WithLabelValues("kafka_sink").Set(float64(len(ks.queue)))
+	metrics.KafkaQueueUtilization.WithLabelValues("kafka_sink").Set(float64(len(ks.queue)) / float64(cap(ks.queue)))
+
+	// Update circuit breaker state metric
+	cbState := 0.0
+	switch ks.breaker.State() {
+	case "closed":
+		cbState = 0.0
+	case "half-open":
+		cbState = 1.0
+	case "open":
+		cbState = 2.0
+	}
+	metrics.KafkaCircuitBreakerState.WithLabelValues("kafka_sink").Set(cbState)
 
 	// TODO: Implement EnhancedMetrics methods (RecordLogsSent, RecordBatchDuration) in Phase 7
 	// if ks.enhancedMetrics != nil {
@@ -488,6 +525,7 @@ func (ks *KafkaSink) sendBatch(entries []*types.LogEntry) error {
 	metrics.LogsSentTotal.WithLabelValues("kafka", "success").Add(float64(successCount))
 	if errorCount > 0 {
 		metrics.LogsSentTotal.WithLabelValues("kafka", "error").Add(float64(errorCount))
+		metrics.KafkaProducerErrorsTotal.WithLabelValues(ks.config.Topic, "batch_error").Add(float64(errorCount))
 	}
 
 	ks.logger.WithFields(logrus.Fields{
@@ -520,6 +558,10 @@ func (ks *KafkaSink) handleProducerResponses() {
 					"partition": success.Partition,
 					"offset":    success.Offset,
 				}).Trace("Message delivered to Kafka")
+
+				// Track successful message delivery and partition distribution
+				metrics.KafkaMessagesProducedTotal.WithLabelValues(success.Topic, "delivered").Inc()
+				metrics.KafkaPartitionMessages.WithLabelValues(success.Topic, fmt.Sprintf("%d", success.Partition)).Inc()
 			}
 
 		case err := <-ks.producer.Errors():
@@ -529,6 +571,10 @@ func (ks *KafkaSink) handleProducerResponses() {
 				}).Error("Failed to produce message to Kafka")
 
 				atomic.AddInt64(&ks.errorCount, 1)
+
+				// Track producer errors with topic and error type
+				metrics.KafkaMessagesProducedTotal.WithLabelValues(err.Msg.Topic, "failed").Inc()
+				metrics.KafkaProducerErrorsTotal.WithLabelValues(err.Msg.Topic, "produce_error").Inc()
 
 				// TODO: Implement EnhancedMetrics.RecordLogsSent in Phase 7
 				// if ks.enhancedMetrics != nil {

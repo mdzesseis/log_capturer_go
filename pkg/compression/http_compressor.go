@@ -501,7 +501,52 @@ func (hc *HTTPCompressor) GetCompressionInfo() map[string]interface{} {
 
 // initMetrics initializes Prometheus metrics
 func (hc *HTTPCompressor) initMetrics() {
-	// Temporarily disable metrics to fix registration issue
-	// TODO: Re-enable when metrics registration is fixed
-	return
+	metricsOnce.Do(func() {
+		globalCompressionRatio = prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "http_compressor_compression_ratio",
+				Help:    "Compression ratio (compressed/original size)",
+				Buckets: []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0},
+			},
+			[]string{"algorithm"},
+		)
+
+		globalCompressionLatency = prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "http_compressor_compression_latency_seconds",
+				Help:    "Time spent compressing data",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"algorithm"},
+		)
+
+		globalCompressionErrors = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_compressor_compression_errors_total",
+				Help: "Total number of compression errors",
+			},
+			[]string{"algorithm"},
+		)
+
+		globalAlgorithmsUsed = prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_compressor_algorithms_used_total",
+				Help: "Total number of compressions per algorithm",
+			},
+			[]string{"algorithm"},
+		)
+
+		prometheus.MustRegister(
+			globalCompressionRatio,
+			globalCompressionLatency,
+			globalCompressionErrors,
+			globalAlgorithmsUsed,
+		)
+	})
+
+	// Assign global metrics to instance
+	hc.compressionRatio = globalCompressionRatio
+	hc.compressionLatency = globalCompressionLatency
+	hc.compressionErrors = globalCompressionErrors
+	hc.algorithmsUsed = globalAlgorithmsUsed
 }

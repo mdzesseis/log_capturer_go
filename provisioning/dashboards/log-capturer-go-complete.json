@@ -118,7 +118,7 @@
       },
       "targets": [
         {
-          "expr": "rate(logs_processed_total[5m])",
+          "expr": "rate(log_capturer_logs_processed_total[5m])",
           "legendFormat": "{{source_type}} - {{source_id}} ({{pipeline}})",
           "refId": "A"
         }
@@ -208,7 +208,7 @@
       },
       "targets": [
         {
-          "expr": "rate(logs_sent_total[5m])",
+          "expr": "rate(log_capturer_logs_sent_total[5m])",
           "legendFormat": "{{sink_type}} - {{status}}",
           "refId": "A"
         }
@@ -479,7 +479,7 @@
       },
       "targets": [
         {
-          "expr": "rate(errors_total[5m])",
+          "expr": "rate(log_capturer_errors_total[5m])",
           "legendFormat": "{{component}} - {{error_type}}",
           "refId": "A"
         }
@@ -556,7 +556,7 @@
       "pluginVersion": "9.0.0",
       "targets": [
         {
-          "expr": "component_health{component_type=\"sink\"}",
+          "expr": "log_capturer_component_health{component_type=\"sink\"}",
           "legendFormat": "{{component_name}}",
           "refId": "A"
         }
@@ -1009,17 +1009,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(processing_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(log_capturer_processing_duration_seconds_bucket[5m]))",
           "legendFormat": "P50 (mediana) - {{component}}/{{operation}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(processing_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(log_capturer_processing_duration_seconds_bucket[5m]))",
           "legendFormat": "P95 - {{component}}/{{operation}}",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(processing_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(log_capturer_processing_duration_seconds_bucket[5m]))",
           "legendFormat": "P99 (pior caso) - {{component}}/{{operation}}",
           "refId": "C"
         }
@@ -1113,17 +1113,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(sink_send_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(log_capturer_sink_send_duration_seconds_bucket[5m]))",
           "legendFormat": "P50 - {{sink_type}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(sink_send_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(log_capturer_sink_send_duration_seconds_bucket[5m]))",
           "legendFormat": "P95 - {{sink_type}}",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(sink_send_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(log_capturer_sink_send_duration_seconds_bucket[5m]))",
           "legendFormat": "P99 - {{sink_type}}",
           "refId": "C"
         }
@@ -1209,17 +1209,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, rate(response_time_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(log_capturer_response_time_seconds_bucket[5m]))",
           "legendFormat": "P99 - {{endpoint}} {{method}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(response_time_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(log_capturer_response_time_seconds_bucket[5m]))",
           "legendFormat": "P95 - {{endpoint}} {{method}}",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.50, rate(response_time_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(log_capturer_response_time_seconds_bucket[5m]))",
           "legendFormat": "P50 - {{endpoint}} {{method}}",
           "refId": "C"
         }
@@ -1678,7 +1678,7 @@
       },
       "targets": [
         {
-          "expr": "rate(task_heartbeats_total[5m])",
+          "expr": "rate(log_capturer_task_heartbeats_total[5m])",
           "legendFormat": "{{task_type}} - {{task_id}}",
           "refId": "A"
         }
@@ -1800,7 +1800,7 @@
           "refId": "C"
         },
         {
-          "expr": "ssw_memory_usage_bytes",
+          "expr": "log_capturer_memory_usage_bytes",
           "legendFormat": "{{type}} - SSW",
           "refId": "D"
         }
@@ -1879,7 +1879,7 @@
           "refId": "B"
         },
         {
-          "expr": "ssw_cpu_usage_percent",
+          "expr": "log_capturer_cpu_usage_percent",
           "legendFormat": "CPU SSW",
           "refId": "C"
         }
@@ -1983,7 +1983,7 @@
           "refId": "B"
         },
         {
-          "expr": "ssw_goroutines_count",
+          "expr": "log_capturer_goroutines",
           "legendFormat": "Goroutines SSW",
           "refId": "C"
         }
@@ -2274,7 +2274,7 @@
       },
       "targets": [
         {
-          "expr": "rate(gc_runs_total[5m])",
+          "expr": "rate(log_capturer_gc_runs_total[5m])",
           "legendFormat": "GC Runs Custom",
           "refId": "B"
         }
@@ -2368,17 +2368,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.99, rate(log_capturer_gc_pause_duration_seconds_bucket[5m]))",
           "legendFormat": "P99 GC Pause",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(log_capturer_gc_pause_duration_seconds_bucket[5m]))",
           "legendFormat": "P95 GC Pause",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.50, rate(gc_pause_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(log_capturer_gc_pause_duration_seconds_bucket[5m]))",
           "legendFormat": "P50 GC Pause",
           "refId": "C"
         }
@@ -2485,7 +2485,7 @@
       },
       "targets": [
         {
-          "expr": "rate(logs_sent_total{status=\"error\"}[5m])",
+          "expr": "rate(log_capturer_logs_sent_total{status=\"error\"}[5m])",
           "legendFormat": "Erros de Envio - {{sink_type}}",
           "refId": "A"
         }
@@ -2584,22 +2584,22 @@
       },
       "targets": [
         {
-          "expr": "connection_pool_stats{stat_type=\"active\"}",
+          "expr": "log_capturer_connection_pool_stats{stat_type=\"active\"}",
           "legendFormat": "{{pool_name}} - Active",
           "refId": "A"
         },
         {
-          "expr": "connection_pool_stats{stat_type=\"idle\"}",
+          "expr": "log_capturer_connection_pool_stats{stat_type=\"idle\"}",
           "legendFormat": "{{pool_name}} - Idle",
           "refId": "B"
         },
         {
-          "expr": "connection_pool_stats{stat_type=\"max\"}",
+          "expr": "log_capturer_connection_pool_stats{stat_type=\"max\"}",
           "legendFormat": "{{pool_name}} - Max",
           "refId": "C"
         },
         {
-          "expr": "connection_pool_stats{stat_type=\"wait_time\"}",
+          "expr": "log_capturer_connection_pool_stats{stat_type=\"wait_time\"}",
           "legendFormat": "{{pool_name}} - Wait Time (ms)",
           "refId": "D"
         }
@@ -2769,22 +2769,22 @@
       },
       "targets": [
         {
-          "expr": "batching_stats{stat_type=\"batch_size\"}",
+          "expr": "log_capturer_batching_stats{stat_type=\"batch_size\"}",
           "legendFormat": "{{component}} - Batch Size",
           "refId": "A"
         },
         {
-          "expr": "batching_stats{stat_type=\"batch_fill_rate\"}",
+          "expr": "log_capturer_batching_stats{stat_type=\"batch_fill_rate\"}",
           "legendFormat": "{{component}} - Fill Rate",
           "refId": "B"
         },
         {
-          "expr": "batching_stats{stat_type=\"flush_time\"}",
+          "expr": "log_capturer_batching_stats{stat_type=\"flush_time\"}",
           "legendFormat": "{{component}} - Flush Time (ms)",
           "refId": "C"
         },
         {
-          "expr": "batching_stats{stat_type=\"batches_per_second\"}",
+          "expr": "log_capturer_batching_stats{stat_type=\"batches_per_second\"}",
           "legendFormat": "{{component}} - Batches/sec",
           "refId": "D"
         }
@@ -2887,17 +2887,17 @@
       },
       "targets": [
         {
-          "expr": "leak_detection{resource_type=\"fd_leak\"}",
+          "expr": "log_capturer_leak_detection{resource_type=\"fd_leak\"}",
           "legendFormat": "{{component}} - File Descriptors Leak",
           "refId": "A"
         },
         {
-          "expr": "leak_detection{resource_type=\"goroutine_leak\"}",
+          "expr": "log_capturer_leak_detection{resource_type=\"goroutine_leak\"}",
           "legendFormat": "{{component}} - Goroutine Leak",
           "refId": "B"
         },
         {
-          "expr": "leak_detection{resource_type=\"memory_leak\"}",
+          "expr": "log_capturer_leak_detection{resource_type=\"memory_leak\"}",
           "legendFormat": "{{component}} - Memory Leak (MB)",
           "refId": "C"
         }

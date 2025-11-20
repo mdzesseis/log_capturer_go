@@ -1,558 +1,534 @@
-# Referência Completa de Métricas - SSW Logs Capture
+# Referência de Métricas - Log Capturer Go
 
-**Versão:** v0.0.2
-**Última Atualização:** 2024-11-20
-**Total de Métricas:** 98
-
----
-
-## Índice
-
-1. [Métricas de Processamento de Logs](#1-métricas-de-processamento-de-logs)
-2. [Métricas do Dispatcher](#2-métricas-do-dispatcher)
-3. [Métricas de Sinks](#3-métricas-de-sinks)
-4. [Métricas do Kafka Sink](#4-métricas-do-kafka-sink)
-5. [Métricas de Sistema/Recursos](#5-métricas-de-sistemarecursos)
-6. [Métricas de Monitores](#6-métricas-de-monitores)
-7. [Métricas de Erros](#7-métricas-de-erros)
-8. [Métricas de Performance](#8-métricas-de-performance)
-9. [Métricas de Deduplicação](#9-métricas-de-deduplicação)
-10. [Métricas de DLQ](#10-métricas-de-dlq-dead-letter-queue)
-11. [Métricas de Timestamp Learning](#11-métricas-de-timestamp-learning)
-12. [Métricas do Sistema de Posições](#12-métricas-do-sistema-de-posições)
-13. [Métricas Docker](#13-métricas-docker)
-14. [Problemas Identificados](#problemas-identificados)
+**Versão**: 1.0.0
+**Data**: 2025-11-20
+**Status**: Auditoria Completa
 
 ---
 
-## 1. Métricas de Processamento de Logs
+## Resumo Executivo
 
-### `log_capturer_logs_processed_total`
-- **Tipo:** Counter
-- **Labels:** `source_type`, `source_id`, `pipeline`
-- **Descrição:** Total de logs processados pelo sistema
-- **Uso:** Monitorar throughput de processamento por fonte
-- **Exemplo:** `log_capturer_logs_processed_total{source_type="docker",source_id="nginx",pipeline="main"}`
+| Estatística | Valor |
+|-------------|-------|
+| **Total de Métricas Definidas** | 98 |
+| **Métricas Ativas** | 45 |
+| **Métricas Parcialmente Utilizadas** | 15 |
+| **Métricas Não Utilizadas** | 38 |
+| **Taxa de Utilização** | 61% |
 
-### `log_capturer_logs_per_second`
-- **Tipo:** Gauge
-- **Labels:** `component`
-- **Descrição:** Taxa atual de logs por segundo
-- **Uso:** Monitorar throughput em tempo real
-- **Status:** ⚠️ Definida mas não atualizada
+### Status Geral
 
-### `log_capturer_logs_collected_total`
-- **Tipo:** Counter
-- **Labels:** `stream`, `container`
-- **Descrição:** Total de linhas de log coletadas de containers
-- **Uso:** Rastrear volume de coleta por container/stream
-- **Status:** ⚠️ Definida mas não atualizada diretamente
-
-### `log_capturer_logs_deduplicated_total`
-- **Tipo:** Counter
-- **Labels:** `source_type`, `source_id`
-- **Descrição:** Total de logs deduplicados (descartados por duplicação)
-- **Uso:** Monitorar eficiência da deduplicação
+- **Crítico**: 3 problemas de registro que podem causar panic
+- **Alto**: 38 métricas definidas mas nunca atualizadas
+- **Médio**: 15 métricas com uso parcial ou inconsistente
 
 ---
 
-## 2. Métricas do Dispatcher
-
-### `log_capturer_dispatcher_queue_depth`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Número atual de entries na fila do dispatcher
-- **Uso:** Monitorar acúmulo na fila - valores altos indicam backpressure
-- **Alerta sugerido:** > 80% da capacidade
-
-### `log_capturer_dispatcher_queue_utilization`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Utilização da fila do dispatcher (0.0 a 1.0)
-- **Uso:** Porcentagem de uso da fila
-- **Alerta sugerido:** > 0.9
-
-### `log_capturer_queue_size`
-- **Tipo:** Gauge
-- **Labels:** `component`, `queue_type`
-- **Descrição:** Tamanho atual de filas específicas
-- **Uso:** Monitorar diferentes filas do sistema
-
----
-
-## 3. Métricas de Sinks
-
-### `log_capturer_logs_sent_total`
-- **Tipo:** Counter
-- **Labels:** `sink_type`, `status`
-- **Descrição:** Total de logs enviados para sinks
-- **Uso:** Rastrear entregas bem-sucedidas vs falhas
-- **Status values:** `success`, `error`, `dropped`
-
-### `log_capturer_sink_queue_utilization`
-- **Tipo:** Gauge
-- **Labels:** `sink_type`
-- **Descrição:** Utilização da fila interna do sink (0.0 a 1.0)
-- **Uso:** Detectar backpressure em sinks específicos
-
-### `log_capturer_sink_send_duration_seconds`
-- **Tipo:** Histogram
-- **Labels:** `sink_type`
-- **Descrição:** Tempo gasto enviando logs para sinks
-- **Buckets:** Padrão Prometheus
-- **Uso:** Monitorar latência de entrega
-
-### `log_capturer_component_health`
-- **Tipo:** Gauge
-- **Labels:** `component_type`, `component_name`
-- **Descrição:** Status de saúde do componente (1=healthy, 0=unhealthy)
-- **Uso:** Health checks e alertas
-
----
-
-## 4. Métricas do Kafka Sink
-
-### `kafka_messages_produced_total`
-- **Tipo:** Counter
-- **Labels:** `topic`, `status`
-- **Descrição:** Total de mensagens produzidas para Kafka
-- **Status values:** `success`, `error`
-
-### `kafka_producer_errors_total`
-- **Tipo:** Counter
-- **Labels:** `topic`, `error_type`
-- **Descrição:** Total de erros do produtor Kafka
-- **Error types:** `serialization`, `network`, `timeout`, etc.
-
-### `kafka_batch_size_messages`
-- **Tipo:** Histogram
-- **Labels:** `topic`
-- **Descrição:** Número de mensagens em cada batch Kafka
-- **Uso:** Otimizar configuração de batching
-
-### `kafka_batch_send_duration_seconds`
-- **Tipo:** Histogram
-- **Labels:** `topic`
-- **Descrição:** Tempo para enviar um batch para Kafka
-- **Uso:** Monitorar latência do Kafka
-
-### `kafka_queue_size`
-- **Tipo:** Gauge
-- **Labels:** `sink_name`
-- **Descrição:** Tamanho atual da fila interna do Kafka
-
-### `kafka_queue_utilization`
-- **Tipo:** Gauge
-- **Labels:** `sink_name`
-- **Descrição:** Utilização da fila Kafka (0.0 a 1.0)
-
-### `kafka_partition_messages_total`
-- **Tipo:** Counter
-- **Labels:** `topic`, `partition`
-- **Descrição:** Total de mensagens por partição
-- **Uso:** Verificar balanceamento entre partições
-
-### `kafka_compression_ratio`
-- **Tipo:** Gauge
-- **Labels:** `topic`, `compression_type`
-- **Descrição:** Taxa de compressão das mensagens
-- **Uso:** Monitorar eficiência de compressão
-
-### `kafka_backpressure_events_total`
-- **Tipo:** Counter
-- **Labels:** `sink_name`, `threshold_level`
-- **Descrição:** Total de eventos de backpressure
-- **Uso:** Detectar sobrecarga do produtor
-
-### `kafka_circuit_breaker_state`
-- **Tipo:** Gauge
-- **Labels:** `sink_name`
-- **Descrição:** Estado do circuit breaker
-- **Valores:** 0=closed, 1=half-open, 2=open
-
-### `kafka_message_size_bytes`
-- **Tipo:** Histogram
-- **Labels:** `topic`
-- **Descrição:** Tamanho das mensagens Kafka em bytes
-
-### `kafka_dlq_messages_total`
-- **Tipo:** Counter
-- **Labels:** `topic`, `reason`
-- **Descrição:** Total de mensagens enviadas para DLQ do Kafka
-
-### `kafka_connection_status`
-- **Tipo:** Gauge
-- **Labels:** `broker`, `sink_name`
-- **Descrição:** Status de conexão com broker
-- **Valores:** 1=connected, 0=disconnected
-
----
-
-## 5. Métricas de Sistema/Recursos
-
-### `log_capturer_memory_usage_bytes`
-- **Tipo:** Gauge
-- **Labels:** `type`
-- **Descrição:** Uso de memória em bytes
-- **Types:** `heap_alloc`, `heap_sys`, `heap_idle`, `heap_inuse`, `stack_inuse`
-
-### `log_capturer_cpu_usage_percent`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Porcentagem de uso de CPU
-- **Status:** ⚠️ Definida mas não atualizada
-
-### `log_capturer_gc_runs_total`
-- **Tipo:** Counter
-- **Labels:** nenhum
-- **Descrição:** Total de execuções do Garbage Collector
-
-### `log_capturer_goroutines`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Número atual de goroutines
-- **Alerta sugerido:** Crescimento contínuo indica leak
-
-### `log_capturer_file_descriptors_open`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** File descriptors abertos
-- **Alerta sugerido:** Próximo do limite do sistema
-
-### `log_capturer_gc_pause_duration_seconds`
-- **Tipo:** Histogram
-- **Labels:** nenhum
-- **Descrição:** Duração das pausas do GC
-- **Uso:** Detectar pausas longas que afetam latência
-
----
-
-## 6. Métricas de Monitores
-
-### `log_capturer_files_monitored`
-- **Tipo:** Gauge
-- **Labels:** `filepath`, `source_type`
-- **Descrição:** Arquivos sendo monitorados
-
-### `log_capturer_containers_monitored`
-- **Tipo:** Gauge
-- **Labels:** `container_id`, `container_name`, `image`
-- **Descrição:** Containers sendo monitorados
-
-### `log_capturer_total_files_monitored`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Total agregado de arquivos monitorados
-
-### `log_capturer_total_containers_monitored`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Total agregado de containers monitorados
-
-### `log_capturer_container_streams_active`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Streams de log de containers ativos
-
-### `log_capturer_container_stream_rotations_total`
-- **Tipo:** Counter
-- **Labels:** `container_id`, `container_name`
-- **Descrição:** Rotações de stream por container
-
-### `log_capturer_container_stream_age_seconds`
-- **Tipo:** Histogram
-- **Labels:** `container_id`
-- **Descrição:** Idade do stream quando rotacionado
-
-### `log_capturer_container_stream_errors_total`
-- **Tipo:** Counter
-- **Labels:** `error_type`, `container_id`
-- **Descrição:** Erros de stream por tipo
-
-### `log_capturer_container_stream_pool_utilization`
-- **Tipo:** Gauge
-- **Labels:** nenhum
-- **Descrição:** Utilização do pool de streams
-
----
-
-## 7. Métricas de Erros
-
-### `log_capturer_errors_total`
-- **Tipo:** Counter
-- **Labels:** `component`, `error_type`
-- **Descrição:** Total de erros por componente e tipo
-- **Uso:** Principal métrica de erros do sistema
-- **Components:** `dispatcher`, `file_monitor`, `container_monitor`, `loki_sink`, `kafka_sink`, etc.
-
----
-
-## 8. Métricas de Performance
-
-### `log_capturer_processing_duration_seconds`
-- **Tipo:** Histogram
-- **Labels:** `component`, `operation`
-- **Descrição:** Tempo gasto processando logs
-- **Uso:** Identificar gargalos de performance
-
-### `log_capturer_processing_step_duration_seconds`
-- **Tipo:** Histogram
-- **Labels:** `pipeline`, `step`
-- **Descrição:** Tempo em cada etapa do pipeline
-- **Status:** ⚠️ Definida mas não atualizada
-
-### `log_capturer_response_time_seconds`
-- **Tipo:** Histogram
-- **Labels:** `endpoint`, `method`
-- **Descrição:** Tempo de resposta de endpoints HTTP
-
----
-
-## 9. Métricas de Deduplicação
-
-### `log_capturer_deduplication_cache_size`
-- **Tipo:** Gauge
-- **Descrição:** Tamanho atual do cache de deduplicação
-- **Status:** ⚠️ Definida mas não atualizada
-
-### `log_capturer_deduplication_hit_rate`
-- **Tipo:** Gauge
-- **Descrição:** Taxa de hits no cache (0.0 a 1.0)
-- **Status:** ⚠️ Definida mas não atualizada
-
-### `log_capturer_deduplication_duplicate_rate`
-- **Tipo:** Gauge
-- **Descrição:** Taxa de logs duplicados detectados
-- **Status:** ⚠️ Definida mas não atualizada
-
-### `log_capturer_deduplication_cache_evictions_total`
-- **Tipo:** Counter
-- **Descrição:** Total de evictions do cache
-- **Status:** ⚠️ Definida mas não atualizada
-
----
-
-## 10. Métricas de DLQ (Dead Letter Queue)
-
-### `log_capturer_dlq_stored_total`
-- **Tipo:** Counter
-- **Labels:** `sink`, `reason`
-- **Descrição:** Total de entries armazenadas na DLQ
-- **Reasons:** `max_retries`, `timeout`, `invalid`, etc.
-
-### `log_capturer_dlq_entries_total`
-- **Tipo:** Gauge
-- **Labels:** `sink`
-- **Descrição:** Número atual de entries na DLQ
-
-### `log_capturer_dlq_size_bytes`
-- **Tipo:** Gauge
-- **Labels:** `sink`
-- **Descrição:** Tamanho da DLQ em bytes
-
-### `log_capturer_dlq_reprocess_attempts_total`
-- **Tipo:** Counter
-- **Labels:** `sink`, `result`
-- **Descrição:** Tentativas de reprocessamento da DLQ
-- **Results:** `success`, `failure`
-
----
-
-## 11. Métricas de Timestamp Learning
-
-### `log_capturer_timestamp_rejection_total`
-- **Tipo:** Counter
-- **Labels:** `sink`, `reason`
-- **Descrição:** Rejeições por timestamp inválido
-- **Reasons:** `too_old`, `future`, `invalid_format`
-
-### `log_capturer_timestamp_clamped_total`
-- **Tipo:** Counter
-- **Labels:** `sink`
-- **Descrição:** Timestamps ajustados (clamped) para limites aceitáveis
-
-### `log_capturer_timestamp_max_acceptable_age_seconds`
-- **Tipo:** Gauge
-- **Labels:** `sink`
-- **Descrição:** Idade máxima aprendida para timestamps
-- **Uso:** Monitorar adaptação do sistema
-
-### `log_capturer_loki_error_type_total`
-- **Tipo:** Counter
-- **Labels:** `sink`, `error_type`
-- **Descrição:** Erros do Loki por tipo
-
-### `log_capturer_timestamp_learning_events_total`
-- **Tipo:** Counter
-- **Labels:** `sink`
-- **Descrição:** Eventos de aprendizado de timestamp
-
----
-
-## 12. Métricas do Sistema de Posições
-
-### Detecção de Eventos
-
-#### `log_capturer_position_rotation_detected_total`
-- **Tipo:** Counter
-- **Labels:** `file_path`
-- **Descrição:** Rotações de arquivo detectadas
-
-#### `log_capturer_position_truncation_detected_total`
-- **Tipo:** Counter
-- **Labels:** `file_path`
-- **Descrição:** Truncamentos de arquivo detectados
-
-### Persistência
-
-#### `log_capturer_position_save_success_total`
-- **Tipo:** Counter
-- **Descrição:** Salvamentos de posição bem-sucedidos
-
-#### `log_capturer_position_save_failed_total`
-- **Tipo:** Counter
-- **Labels:** `error_type`
-- **Descrição:** Falhas ao salvar posição
-
-#### `log_capturer_position_lag_seconds`
-- **Tipo:** Gauge
-- **Labels:** `manager_type`
-- **Descrição:** Segundos desde último save
-
-### Health & Status
-
-#### `log_capturer_position_file_size_bytes`
-- **Tipo:** Gauge
-- **Labels:** `file_type`
-- **Descrição:** Tamanho do arquivo de posições
-
-#### `log_capturer_checkpoint_health`
-- **Tipo:** Gauge
-- **Labels:** `component`
-- **Descrição:** Saúde do sistema de checkpoint (1=healthy)
-
-#### `log_capturer_position_corruption_detected_total`
-- **Tipo:** Counter
-- **Labels:** `file_type`, `recovery_action`
-- **Descrição:** Corrupções detectadas e ações de recuperação
-
-#### `log_capturer_position_backpressure`
-- **Tipo:** Gauge
-- **Labels:** `manager_type`
-- **Descrição:** Backpressure no sistema de posições
-
----
-
-## 13. Métricas Docker
-
-### HTTP Client
-
-#### `log_capturer_docker_http_idle_connections`
-- **Tipo:** Gauge
-- **Descrição:** Conexões HTTP ociosas com Docker daemon
-
-#### `log_capturer_docker_http_active_connections`
-- **Tipo:** Gauge
-- **Descrição:** Conexões HTTP ativas com Docker daemon
-
-#### `log_capturer_docker_http_requests_total`
-- **Tipo:** Counter
-- **Descrição:** Total de requisições HTTP ao Docker
-
-#### `log_capturer_docker_http_errors_total`
-- **Tipo:** Counter
-- **Descrição:** Total de erros HTTP
-
-### Connection Pool
-
-#### `ssw_logs_capture_docker_pool_total_connections`
-- **Tipo:** Gauge
-- **Descrição:** Total de conexões no pool Docker
-
-#### `ssw_logs_capture_docker_pool_active_connections`
-- **Tipo:** Gauge
-- **Descrição:** Conexões ativas no pool
-
-#### `ssw_logs_capture_docker_pool_available_connections`
-- **Tipo:** Gauge
-- **Descrição:** Conexões disponíveis no pool
-
-#### `ssw_logs_capture_docker_pool_connection_duration_seconds`
-- **Tipo:** Histogram
-- **Descrição:** Tempo para adquirir conexão
+## Métricas por Categoria
+
+### 1. Processamento de Logs (5 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_logs_processed_total` | Counter | `source_type`, `level` | Total de logs processados | ✓ Ativa |
+| `log_capturer_logs_dropped_total` | Counter | `reason` | Total de logs descartados | ✓ Ativa |
+| `log_capturer_logs_filtered_total` | Counter | `filter_name` | Logs filtrados por regra | ✓ Ativa |
+| `log_capturer_batch_size` | Histogram | `sink` | Tamanho dos batches enviados | ✓ Ativa |
+| `log_capturer_logs_bytes_total` | Counter | `source_type` | Total de bytes processados | ✓ Ativa |
+
+### 2. Dispatcher e Filas (4 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_dispatcher_queue_size` | Gauge | - | Tamanho atual da fila do dispatcher | ✓ Ativa |
+| `log_capturer_dispatcher_queue_capacity` | Gauge | - | Capacidade máxima da fila | ✓ Ativa |
+| `log_capturer_dispatcher_workers_active` | Gauge | - | Workers ativos no momento | ✓ Ativa |
+| `log_capturer_dispatcher_backpressure_events` | Counter | - | Eventos de backpressure | ⚠️ Parcial |
+
+### 3. Duração de Processamento (3 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_processing_duration_seconds` | Histogram | `stage` | Duração por estágio de processamento | ✓ Ativa |
+| `log_capturer_sink_send_duration_seconds` | Histogram | `sink`, `status` | Tempo de envio para sinks | ✓ Ativa |
+| `log_capturer_batch_processing_duration_seconds` | Histogram | `sink` | Duração do processamento de batch | ✓ Ativa |
+
+### 4. Erros e Saúde (2 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_errors_total` | Counter | `component`, `error_type` | Total de erros por componente | ✓ Ativa |
+| `log_capturer_health_status` | Gauge | `component` | Status de saúde (0=unhealthy, 1=healthy) | ✓ Ativa |
+
+### 5. Monitoramento de Arquivos (9 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_file_monitor_lines_read_total` | Counter | `file_path` | Linhas lidas por arquivo | ✓ Ativa |
+| `log_capturer_file_monitor_bytes_read_total` | Counter | `file_path` | Bytes lidos por arquivo | ✓ Ativa |
+| `log_capturer_file_monitor_files_watched` | Gauge | - | Arquivos sendo monitorados | ✓ Ativa |
+| `log_capturer_file_monitor_rotation_events` | Counter | `file_path` | Eventos de rotação detectados | ✓ Ativa |
+| `log_capturer_file_monitor_errors_total` | Counter | `file_path`, `error_type` | Erros no monitor de arquivos | ✓ Ativa |
+| `log_capturer_file_retry_attempts_total` | Counter | `file_path` | Tentativas de retry | ❌ Não utilizada |
+| `log_capturer_file_retry_success_total` | Counter | `file_path` | Retries bem-sucedidos | ❌ Não utilizada |
+| `log_capturer_file_retry_failures_total` | Counter | `file_path` | Falhas em retry | ❌ Não utilizada |
+| `log_capturer_file_retry_queue_size` | Gauge | - | Tamanho da fila de retry | ❌ Não utilizada |
+
+### 6. Monitoramento de Containers (8 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_container_logs_total` | Counter | `container_id`, `container_name` | Logs por container | ✓ Ativa |
+| `log_capturer_containers_watched` | Gauge | - | Containers sendo monitorados | ✓ Ativa |
+| `log_capturer_container_events_total` | Counter | `event_type` | Eventos de container (start/stop/die) | ✓ Ativa |
+| `log_capturer_container_errors_total` | Counter | `container_id`, `error_type` | Erros por container | ✓ Ativa |
+| `log_capturer_container_reconnects_total` | Counter | `container_id` | Reconexões a containers | ⚠️ Parcial |
+| `log_capturer_active_container_streams` | Gauge | - | Streams de container ativos | ❌ Não utilizada |
+| `log_capturer_stream_pool_utilization` | Gauge | - | Utilização do pool de streams | ❌ Não utilizada |
+| `log_capturer_container_stream_lag_seconds` | Gauge | `container_id` | Lag de leitura do stream | ⚠️ Parcial |
+
+### 7. Tarefas - Task Manager (3 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_tasks_total` | Counter | `status` | Total de tarefas por status | ⚠️ Parcial |
+| `log_capturer_task_heartbeats_total` | Counter | `task_id` | Heartbeats de tarefas | ❌ Não utilizada |
+| `log_capturer_active_tasks` | Gauge | - | Tarefas ativas no momento | ❌ Não utilizada |
+
+### 8. Deduplicação (4 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_deduplicate_cache_size` | Gauge | - | Tamanho do cache de deduplicação | ✓ Ativa |
+| `log_capturer_deduplicate_hits_total` | Counter | - | Cache hits (logs duplicados) | ✓ Ativa |
+| `log_capturer_deduplicate_misses_total` | Counter | - | Cache misses (logs únicos) | ✓ Ativa |
+| `log_capturer_deduplicate_evictions_total` | Counter | - | Evicções do cache | ✓ Ativa |
+
+### 9. Sistema (6 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_goroutines` | Gauge | - | Número de goroutines | ✓ Ativa |
+| `log_capturer_memory_usage_bytes` | Gauge | `type` | Uso de memória (alloc/sys/heap) | ✓ Ativa |
+| `log_capturer_gc_pause_seconds` | Histogram | - | Pausas do garbage collector | ✓ Ativa |
+| `log_capturer_uptime_seconds` | Gauge | - | Tempo de execução | ✓ Ativa |
+| `log_capturer_cpu_usage_percent` | Gauge | - | Uso de CPU | ⚠️ Parcial |
+| `log_capturer_open_file_descriptors` | Gauge | - | File descriptors abertos | ✓ Ativa |
+
+### 10. Kafka Sink (13 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_kafka_messages_produced_total` | Counter | `topic` | Mensagens produzidas | ❌ Não utilizada |
+| `log_capturer_kafka_messages_failed_total` | Counter | `topic`, `error_type` | Falhas de produção | ❌ Não utilizada |
+| `log_capturer_kafka_batch_size` | Histogram | `topic` | Tamanho do batch Kafka | ❌ Não utilizada |
+| `log_capturer_kafka_produce_duration_seconds` | Histogram | `topic` | Duração da produção | ❌ Não utilizada |
+| `log_capturer_kafka_broker_connections` | Gauge | `broker` | Conexões por broker | ❌ Não utilizada |
+| `log_capturer_kafka_topic_partitions` | Gauge | `topic` | Partições por tópico | ❌ Não utilizada |
+| `log_capturer_kafka_consumer_lag` | Gauge | `topic`, `partition` | Lag do consumidor | ❌ Não utilizada |
+| `log_capturer_kafka_retries_total` | Counter | `topic` | Retries de produção | ❌ Não utilizada |
+| `log_capturer_kafka_bytes_produced_total` | Counter | `topic` | Bytes produzidos | ❌ Não utilizada |
+| `log_capturer_kafka_compression_ratio` | Gauge | `topic` | Taxa de compressão | ❌ Não utilizada |
+| `log_capturer_kafka_queue_depth` | Gauge | - | Profundidade da fila interna | ❌ Não utilizada |
+| `log_capturer_kafka_request_latency_seconds` | Histogram | `broker` | Latência de requisição | ❌ Não utilizada |
+| `log_capturer_kafka_throttle_time_seconds` | Counter | `broker` | Tempo de throttling | ❌ Não utilizada |
+
+### 11. Dead Letter Queue - DLQ (4 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_dlq_entries_total` | Counter | `sink`, `reason` | Entradas na DLQ | ✓ Ativa |
+| `log_capturer_dlq_size` | Gauge | - | Tamanho atual da DLQ | ✓ Ativa |
+| `log_capturer_dlq_replayed_total` | Counter | `sink`, `status` | Replays da DLQ | ⚠️ Parcial |
+| `log_capturer_dlq_age_seconds` | Histogram | - | Idade das entradas na DLQ | ⚠️ Parcial |
+
+### 12. Timestamp Learning (5 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_timestamp_patterns_learned` | Gauge | `source` | Padrões de timestamp aprendidos | ✓ Ativa |
+| `log_capturer_timestamp_parse_success_total` | Counter | `pattern` | Parsing bem-sucedido | ✓ Ativa |
+| `log_capturer_timestamp_parse_failures_total` | Counter | `source` | Falhas de parsing | ✓ Ativa |
+| `log_capturer_timestamp_fallback_total` | Counter | - | Uso de timestamp fallback | ⚠️ Parcial |
+| `log_capturer_timestamp_confidence` | Gauge | `source`, `pattern` | Confiança no padrão | ⚠️ Parcial |
+
+### 13. Sistema de Posições (15 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_position_saves_total` | Counter | `source_type` | Posições salvas | ✓ Ativa |
+| `log_capturer_position_loads_total` | Counter | `source_type`, `status` | Posições carregadas | ✓ Ativa |
+| `log_capturer_position_errors_total` | Counter | `operation`, `error_type` | Erros de posição | ✓ Ativa |
+| `log_capturer_position_file_size_bytes` | Gauge | - | Tamanho do arquivo de posições | ✓ Ativa |
+| `log_capturer_position_entries` | Gauge | - | Entradas de posição | ✓ Ativa |
+| `log_capturer_position_last_save_timestamp` | Gauge | - | Timestamp do último save | ✓ Ativa |
+| `log_capturer_position_compactions_total` | Counter | - | Compactações executadas | ✓ Ativa |
+| `log_capturer_position_active_by_status` | Gauge | `status` | Posições por status | ❌ Não utilizada |
+| `log_capturer_position_update_rate` | Gauge | - | Taxa de atualização | ❌ Não utilizada |
+| `log_capturer_position_lag_bytes` | Gauge | `source` | Lag em bytes por fonte | ❌ Não utilizada |
+| `log_capturer_position_recovery_duration_seconds` | Histogram | - | Duração da recuperação | ❌ Não utilizada |
+| `log_capturer_position_checkpoint_duration_seconds` | Histogram | - | Duração do checkpoint | ❌ Não utilizada |
+| `log_capturer_position_conflicts_total` | Counter | - | Conflitos de posição | ❌ Não utilizada |
+| `log_capturer_position_stale_entries` | Gauge | - | Entradas obsoletas | ❌ Não utilizada |
+| `log_capturer_position_sync_lag_seconds` | Gauge | - | Lag de sincronização | ❌ Não utilizada |
+
+### 14. Tracing - OpenTelemetry (8 métricas)
+
+| Métrica | Tipo | Labels | Descrição | Status |
+|---------|------|--------|-----------|--------|
+| `log_capturer_traces_exported_total` | Counter | `status` | Traces exportados | ✓ Ativa |
+| `log_capturer_spans_created_total` | Counter | `operation` | Spans criados | ✓ Ativa |
+| `log_capturer_trace_export_duration_seconds` | Histogram | - | Duração da exportação | ✓ Ativa |
+| `log_capturer_trace_batch_size` | Histogram | - | Tamanho do batch de traces | ✓ Ativa |
+| `log_capturer_trace_errors_total` | Counter | `error_type` | Erros de tracing | ✓ Ativa |
+| `log_capturer_trace_sampling_decisions` | Counter | `decision` | Decisões de sampling | ⚠️ Parcial |
+| `log_capturer_trace_context_propagations` | Counter | `status` | Propagações de contexto | ⚠️ Parcial |
+| `log_capturer_active_spans` | Gauge | - | Spans ativos | ⚠️ Parcial |
 
 ---
 
 ## Problemas Identificados
 
-### Métricas Definidas mas Não Atualizadas
+### Críticos
 
-| Métrica | Arquivo:Linha | Ação Necessária |
-|---------|---------------|-----------------|
-| `log_capturer_cpu_usage_percent` | metrics.go:208 | Implementar coleta de CPU |
-| `log_capturer_logs_per_second` | metrics.go:28 | Atualizar periodicamente |
-| `log_capturer_logs_collected_total` | metrics.go:508 | Conectar ao container_monitor |
-| `log_capturer_deduplication_cache_size` | metrics.go:170 | Conectar ao DeduplicationManager |
-| `log_capturer_deduplication_hit_rate` | metrics.go:177 | Conectar ao DeduplicationManager |
-| `log_capturer_deduplication_duplicate_rate` | metrics.go:184 | Conectar ao DeduplicationManager |
-| `log_capturer_deduplication_cache_evictions_total` | metrics.go:191 | Conectar ao DeduplicationManager |
-| `log_capturer_processing_step_duration_seconds` | metrics.go:49 | Instrumentar pipeline steps |
-| `log_capturer_container_events_total` | metrics.go:517 | Conectar ao container_monitor |
-| `log_capturer_position_checkpoint_created_total` | metrics.go:805 | Conectar ao checkpoint manager |
-| `log_capturer_position_checkpoint_size_bytes` | metrics.go:813 | Conectar ao checkpoint manager |
-| `log_capturer_position_checkpoint_age_seconds` | metrics.go:821 | Conectar ao checkpoint manager |
+#### 1. ConnectionPool usa MustRegister
+- **Local**: `internal/sinks/connection_pool.go`
+- **Problema**: Causará panic se múltiplas instâncias forem criadas
+- **Impacto**: Crash da aplicação em cenários de múltiplos sinks
+- **Severidade**: CRÍTICO
 
-### Inconsistências de Nomenclatura
+#### 2. HTTPCompressor métricas desabilitadas
+- **Local**: `internal/processing/http_compressor.go`
+- **Problema**: Conflito de registro com outras métricas
+- **Impacto**: Sem visibilidade de compressão HTTP
+- **Severidade**: CRÍTICO
 
-- Docker Connection Pool usa prefixo `ssw_logs_capture_` ao invés de `log_capturer_`
-- Recomendação: Padronizar para `log_capturer_` em todo o projeto
+#### 3. safeRegister suprime panics silenciosamente
+- **Local**: `internal/metrics/metrics.go`
+- **Problema**: Erros de registro são ignorados sem log
+- **Impacto**: Métricas podem não ser registradas sem aviso
+- **Severidade**: CRÍTICO
 
-### Métricas de Alto Valor Não Utilizadas
+### Alto Impacto
 
-As métricas de deduplicação e checkpoint são valiosas para troubleshooting mas não estão sendo alimentadas. Priorizar implementação.
+#### 4. Todas as 13 métricas Kafka nunca são atualizadas
+- **Componente**: Kafka Sink
+- **Métricas afetadas**:
+  - `KafkaMessagesProducedTotal`
+  - `KafkaBatchSize`
+  - `KafkaProduceDuration`
+  - `KafkaBrokerConnections`
+  - E outras 9 métricas
+- **Problema**: Métricas definidas mas sem instrumentação no código
+- **Impacto**: Zero visibilidade do funcionamento do Kafka sink
+- **Severidade**: ALTO
+
+#### 5. 8 métricas de Position nunca atualizadas
+- **Métricas afetadas**:
+  - `PositionActiveByStatus`
+  - `PositionUpdateRate`
+  - `PositionLagBytes`
+  - `PositionRecoveryDuration`
+  - `PositionCheckpointDuration`
+  - `PositionConflicts`
+  - `PositionStaleEntries`
+  - `PositionSyncLag`
+- **Problema**: Instrumentação incompleta do sistema de posições
+- **Impacto**: Visibilidade parcial do sistema de posições
+- **Severidade**: ALTO
+
+#### 6. Todas as métricas de File Retry nunca atualizadas
+- **Métricas afetadas**:
+  - `FileRetryAttempts`
+  - `FileRetrySuccess`
+  - `FileRetryFailures`
+  - `FileRetryQueueSize`
+- **Problema**: Feature de retry implementada sem métricas
+- **Impacto**: Sem visibilidade de retries de arquivos
+- **Severidade**: ALTO
+
+### Médio Impacto
+
+#### 7. Métricas de Container Streams não utilizadas
+- **Métricas afetadas**:
+  - `ActiveContainerStreams`
+  - `StreamPoolUtilization`
+- **Impacto**: Sem visibilidade de streams ativos de containers
+- **Severidade**: MÉDIO
+
+#### 8. Métricas de Task não chamadas
+- **Métricas afetadas**:
+  - `TaskHeartbeats`
+  - `ActiveTasks`
+- **Impacto**: Sem monitoramento de tarefas em execução
+- **Severidade**: MÉDIO
 
 ---
 
-## Queries Úteis para Grafana
+## Recomendações
 
-### Taxa de Processamento
+### Prioridade 0 - Imediato
+
+#### 1. Corrigir ConnectionPool MustRegister
+
+```go
+// Mudar de:
+prometheus.MustRegister(metric)
+
+// Para:
+if err := prometheus.Register(metric); err != nil {
+    if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+        return err
+    }
+}
+```
+
+#### 2. Adicionar logging ao safeRegister
+
+```go
+func safeRegister(collector prometheus.Collector) {
+    if err := prometheus.Register(collector); err != nil {
+        if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+            log.Warn("Failed to register metric", "error", err)
+        }
+    }
+}
+```
+
+#### 3. Resolver conflito HTTPCompressor
+- Revisar nomes de métricas para evitar colisões
+- Usar namespace/subsystem únicos para cada componente
+
+### Prioridade 1 - Curto Prazo
+
+#### 4. Implementar instrumentação Kafka
+- Adicionar chamadas de métricas no Kafka sink
+- Métricas prioritárias:
+  - `KafkaMessagesProducedTotal`
+  - `KafkaMessagesFailed`
+  - `KafkaProduceDuration`
+  - `KafkaBatchSize`
+
+#### 5. Completar métricas de Position
+- Instrumentar operações de save/load
+- Adicionar cálculo de lag em bytes
+- Implementar métricas de checkpoint
+
+#### 6. Instrumentar File Retry
+- Adicionar métricas nas operações de retry
+- Expor tamanho da fila de retry
+
+### Prioridade 2 - Médio Prazo
+
+#### 7. Remover ou implementar métricas não utilizadas
+- Avaliar necessidade de cada métrica não utilizada
+- Remover código morto ou implementar instrumentação
+
+#### 8. Criar dashboards Grafana
+- Dashboard por categoria de métrica
+- Alertas para métricas críticas
+
+#### 9. Documentar métricas no código
+- Adicionar comentários explicando uso de cada métrica
+- Criar exemplos de queries Prometheus
+
+### Prioridade 3 - Longo Prazo
+
+#### 10. Adicionar testes de métricas
+- Verificar que métricas são incrementadas corretamente
+- Testes de integração com Prometheus
+
+#### 11. Implementar métricas de SLI/SLO
+- Latência P99 de processamento
+- Taxa de erro por componente
+- Throughput garantido
+
+---
+
+## Queries Prometheus Úteis
+
+### Throughput de Logs
+
 ```promql
+# Taxa de logs processados por segundo
 rate(log_capturer_logs_processed_total[5m])
+
+# Por source_type
+sum by (source_type) (rate(log_capturer_logs_processed_total[5m]))
+
+# Total acumulado nas últimas 24h
+increase(log_capturer_logs_processed_total[24h])
 ```
 
-### Utilização de Fila
+### Saúde do Dispatcher
+
 ```promql
-log_capturer_dispatcher_queue_utilization * 100
+# Utilização da fila (percentual)
+log_capturer_dispatcher_queue_size / log_capturer_dispatcher_queue_capacity * 100
+
+# Workers ativos
+log_capturer_dispatcher_workers_active
+
+# Eventos de backpressure por minuto
+rate(log_capturer_dispatcher_backpressure_events[1m]) * 60
 ```
 
-### Taxa de Erros
+### Latência
+
 ```promql
-rate(log_capturer_errors_total[5m])
+# P50 de envio para sinks
+histogram_quantile(0.50, sum(rate(log_capturer_sink_send_duration_seconds_bucket[5m])) by (le, sink))
+
+# P95 de envio para sinks
+histogram_quantile(0.95, sum(rate(log_capturer_sink_send_duration_seconds_bucket[5m])) by (le, sink))
+
+# P99 de envio para sinks
+histogram_quantile(0.99, sum(rate(log_capturer_sink_send_duration_seconds_bucket[5m])) by (le, sink))
 ```
 
-### Latência P99
+### Erros
+
 ```promql
-histogram_quantile(0.99, rate(log_capturer_processing_duration_seconds_bucket[5m]))
+# Taxa de erros por componente
+sum by (component) (rate(log_capturer_errors_total[5m]))
+
+# Logs dropados por razão
+sum by (reason) (rate(log_capturer_logs_dropped_total[5m]))
+
+# Percentual de erro
+sum(rate(log_capturer_errors_total[5m])) / sum(rate(log_capturer_logs_processed_total[5m])) * 100
 ```
 
-### Goroutines (Leak Detection)
+### Dead Letter Queue
+
 ```promql
+# Tamanho atual da DLQ
+log_capturer_dlq_size
+
+# Taxa de entrada na DLQ
+rate(log_capturer_dlq_entries_total[5m])
+
+# DLQ crescendo (últimos 10 minutos)
+delta(log_capturer_dlq_size[10m]) > 0
+```
+
+### Sistema
+
+```promql
+# Goroutines (detectar leaks)
+log_capturer_goroutines
+
+# Crescimento de goroutines na última hora
 increase(log_capturer_goroutines[1h])
+
+# Uso de memória heap
+log_capturer_memory_usage_bytes{type="heap_alloc"}
+
+# Pausas do GC P99
+histogram_quantile(0.99, rate(log_capturer_gc_pause_seconds_bucket[5m]))
 ```
 
-### DLQ Growing
-```promql
-delta(log_capturer_dlq_entries_total[1h]) > 0
+---
+
+## Alertas Recomendados
+
+```yaml
+groups:
+  - name: log_capturer_critical
+    rules:
+      - alert: HighQueueUtilization
+        expr: log_capturer_dispatcher_queue_size / log_capturer_dispatcher_queue_capacity > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Fila do dispatcher acima de 80%"
+          description: "A utilização da fila está em {{ $value | humanizePercentage }}"
+
+      - alert: CriticalQueueUtilization
+        expr: log_capturer_dispatcher_queue_size / log_capturer_dispatcher_queue_capacity > 0.95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Fila do dispatcher acima de 95%"
+          description: "Risco iminente de perda de logs"
+
+      - alert: HighErrorRate
+        expr: rate(log_capturer_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Taxa de erros elevada"
+          description: "{{ $value }} erros por segundo"
+
+      - alert: DLQGrowing
+        expr: delta(log_capturer_dlq_size[10m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DLQ crescendo rapidamente"
+          description: "{{ $value }} novas entradas nos últimos 10 minutos"
+
+      - alert: NoLogsProcessed
+        expr: rate(log_capturer_logs_processed_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nenhum log processado nos últimos 5 minutos"
+
+      - alert: GoroutineLeak
+        expr: increase(log_capturer_goroutines[1h]) > 100
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Possível vazamento de goroutines"
+          description: "Aumento de {{ $value }} goroutines na última hora"
+
+      - alert: HighMemoryUsage
+        expr: log_capturer_memory_usage_bytes{type="heap_alloc"} > 1e9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Uso de memória heap acima de 1GB"
+
+      - alert: ComponentUnhealthy
+        expr: log_capturer_health_status == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Componente não saudável"
+          description: "O componente {{ $labels.component }} está unhealthy"
 ```
 
 ---
 
 ## Endpoints de Métricas
 
-- **Prometheus metrics:** `http://localhost:8001/metrics`
-- **Health check:** `http://localhost:8401/health`
-- **pprof:** `http://localhost:6060/debug/pprof/`
+| Endpoint | Porta | Descrição |
+|----------|-------|-----------|
+| `/metrics` | 8001 | Métricas Prometheus |
+| `/health` | 8401 | Health check detalhado |
+| `/debug/pprof/` | 6060 | Profiling pprof |
+| `/debug/pprof/heap` | 6060 | Heap profile |
+| `/debug/pprof/goroutine` | 6060 | Goroutine profile |
+| `/debug/pprof/profile` | 6060 | CPU profile |
 
 ---
 
-*Documento gerado em 2024-11-20*
+## Histórico de Alterações
+
+| Data | Versão | Alteração |
+|------|--------|-----------|
+| 2025-11-20 | 1.0.0 | Documentação inicial com auditoria completa de 98 métricas |
+
+---
+
+**Mantido por**: Equipe de Engenharia
+**Última Revisão**: 2025-11-20

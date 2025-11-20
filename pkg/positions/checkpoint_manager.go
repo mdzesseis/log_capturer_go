@@ -151,11 +151,48 @@ func (cm *CheckpointManager) checkpointLoop() {
 	ticker := time.NewTicker(cm.checkpointInterval)
 	defer ticker.Stop()
 
+	// Track update rate
+	var lastUpdateCount int64
+	lastCheck := time.Now()
+
 	for {
 		select {
 		case <-cm.ctx.Done():
 			return
 		case <-ticker.C:
+			// Calculate and update position update rate
+			cm.stats.mu.RLock()
+			currentCount := cm.stats.totalCheckpoints
+			cm.stats.mu.RUnlock()
+
+			elapsed := time.Since(lastCheck).Seconds()
+			if elapsed > 0 {
+				rate := float64(currentCount-lastUpdateCount) / elapsed
+				metrics.UpdatePositionUpdateRate("checkpoint", rate)
+			}
+			lastUpdateCount = currentCount
+			lastCheck = time.Now()
+
+			// Calculate memory usage estimate (rough estimate based on entry count)
+			cm.mu.RLock()
+			var memoryEstimate int64
+			if cm.containerManager != nil {
+				positions := cm.containerManager.GetAllPositions()
+				memoryEstimate += int64(len(positions) * 256) // ~256 bytes per container position
+			}
+			if cm.fileManager != nil {
+				positions := cm.fileManager.GetAllPositions()
+				memoryEstimate += int64(len(positions) * 128) // ~128 bytes per file position
+			}
+			cm.mu.RUnlock()
+			metrics.UpdatePositionMemoryUsage(memoryEstimate)
+
+			// Record lag distribution
+			cm.mu.RLock()
+			lagSeconds := time.Since(cm.lastCheckpoint).Seconds()
+			cm.mu.RUnlock()
+			metrics.RecordPositionLagDistribution("checkpoint", lagSeconds)
+
 			if err := cm.CreateCheckpoint(); err != nil {
 				cm.logger.Error("Periodic checkpoint failed", map[string]interface{}{
 					"error": err.Error(),
@@ -163,6 +200,12 @@ func (cm *CheckpointManager) checkpointLoop() {
 				cm.stats.mu.Lock()
 				cm.stats.failedCheckpoints++
 				cm.stats.mu.Unlock()
+
+				// Update backpressure on failure (indicate system stress)
+				metrics.UpdatePositionBackpressure("checkpoint", 1.0)
+			} else {
+				// Reset backpressure on success
+				metrics.UpdatePositionBackpressure("checkpoint", 0.0)
 			}
 		}
 	}
@@ -266,6 +309,22 @@ func (cm *CheckpointManager) CreateCheckpoint() error {
 	metrics.PositionCheckpointSizeBytes.Set(float64(fileInfo.Size()))
 	metrics.PositionCheckpointAgeSeconds.Set(0) // Just created
 	metrics.CheckpointHealth.WithLabelValues("checkpoint_creation").Set(1)
+
+	// Update position file size metric for checkpoint
+	metrics.UpdatePositionFileSize("checkpoint", fileInfo.Size())
+
+	// Update position active by status based on entry counts
+	readingCount := 0
+	idleCount := 0
+	for range data.ContainerPositions {
+		readingCount++ // Assume all active positions are "reading"
+	}
+	for range data.FilePositions {
+		readingCount++
+	}
+	metrics.UpdatePositionActiveByStatus("reading", readingCount)
+	metrics.UpdatePositionActiveByStatus("idle", idleCount)
+	metrics.UpdatePositionActiveByStatus("error", 0)
 
 	cm.logger.Info("Checkpoint created successfully", map[string]interface{}{
 		"filename":      filename,

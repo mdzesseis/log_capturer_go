@@ -94,6 +94,9 @@ func (p *workerPool) worker(ctx context.Context, id int) {
 			}).Warn("Erro ao processar linha de log")
 
 			metrics.ErrorsTotal.WithLabelValues("file_monitor", "process_log_line").Inc()
+			// Track failed processing (no retry queue implemented - entry is dropped)
+			metrics.FileMonitorRetryFailed.WithLabelValues("file_monitor").Inc()
+			metrics.FileMonitorDropsTotal.WithLabelValues("file_monitor", "process_error").Inc()
 		}
 	}
 
@@ -142,6 +145,11 @@ func newLogTailer(ctx context.Context, path string, pool *workerPool, config typ
 		Poll:     false,
 	}
 
+	// Track when old logs are being ignored (seeking to end)
+	if config.IgnoreOldTimestamps {
+		metrics.FileMonitorOldLogsIgnored.WithLabelValues("file_monitor", path).Inc()
+	}
+
 	t, err := tail.TailFile(path, tailConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to tail file %s: %w", path, err)
@@ -170,6 +178,7 @@ func newLogTailer(ctx context.Context, path string, pool *workerPool, config typ
 
 func determineSeekPosition(config types.FileMonitorServiceConfig) *tail.SeekInfo {
 	if config.IgnoreOldTimestamps {
+		// Note: FileMonitorOldLogsIgnored will be incremented per file in newLogTailer
 		return &tail.SeekInfo{Offset: 0, Whence: io.SeekEnd}
 	}
 
@@ -236,9 +245,16 @@ func (lt *logTailer) run(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				lt.logger.Debug("Desligamento durante envio ao pool. Descartando última linha")
+				metrics.FileMonitorDropsTotal.WithLabelValues("file_monitor", "shutdown").Inc()
 				return
 			case lt.pool.jobsChannel <- job:
 				// enviado com sucesso
+			default:
+				// Queue is full, drop the log entry
+				lt.logger.WithFields(logrus.Fields{
+					"file_path": lt.sourcePath,
+				}).Warn("Job queue full, dropping log entry")
+				metrics.FileMonitorDropsTotal.WithLabelValues("file_monitor", "queue_full").Inc()
 			}
 		}
 	}

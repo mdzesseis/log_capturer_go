@@ -118,7 +118,7 @@
       "pluginVersion": "8.0.0",
       "targets": [
         {
-          "expr": "go_goroutines{job=\"log-capturer\"}",
+          "expr": "log_capturer_goroutines",
           "refId": "A",
           "legendFormat": "Goroutines"
         }

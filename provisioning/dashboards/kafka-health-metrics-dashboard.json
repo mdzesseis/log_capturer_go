@@ -231,7 +231,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(log_capturer_logs_sent_total{sink=\"kafka\"}[1m])",
+          "expr": "rate(log_capturer_logs_sent_total{sink_type=\"kafka\"}[1m])",
           "legendFormat": "{{status}}",
           "refId": "A"
         }
@@ -576,7 +576,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "log_capturer_kafka_queue_utilization * 100",
+          "expr": "kafka_queue_utilization * 100",
           "legendFormat": "Queue Utilization",
           "refId": "A"
         }
@@ -667,7 +667,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "log_capturer_sink_send_duration_seconds{sink=\"kafka\"} * 1000",
+          "expr": "log_capturer_sink_send_duration_seconds{sink_type=\"kafka\"} * 1000",
           "legendFormat": "Send Duration",
           "refId": "A"
         }

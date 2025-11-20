@@ -12,6 +12,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Package-level metrics (registered once)
+var (
+	connectionPoolMetricsOnce sync.Once
+
+	poolTotalConnections     prometheus.Gauge
+	poolActiveConnections    prometheus.Gauge
+	poolAvailableConnections prometheus.Gauge
+	poolConnectionRequests   prometheus.Counter
+	poolConnectionErrors     prometheus.Counter
+	poolConnectionLatency    prometheus.Histogram
+	poolConnectionLifetime   prometheus.Histogram
+)
+
 // ConnectionPoolConfig configuration for Docker connection pool
 type ConnectionPoolConfig struct {
 	MaxConnections     int           `yaml:"max_connections"`
@@ -495,53 +508,64 @@ func (cp *ConnectionPool) updateMetrics() {
 
 // initMetrics initializes Prometheus metrics
 func (cp *ConnectionPool) initMetrics() {
-	cp.totalConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ssw_logs_capture_docker_pool_total_connections",
-		Help: "Total number of connections in the Docker pool",
+	connectionPoolMetricsOnce.Do(func() {
+		poolTotalConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ssw_logs_capture_docker_pool_total_connections",
+			Help: "Total number of connections in the Docker pool",
+		})
+
+		poolActiveConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ssw_logs_capture_docker_pool_active_connections",
+			Help: "Number of active connections in the Docker pool",
+		})
+
+		poolAvailableConnections = prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ssw_logs_capture_docker_pool_available_connections",
+			Help: "Number of available connections in the Docker pool",
+		})
+
+		poolConnectionRequests = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "ssw_logs_capture_docker_pool_connection_requests_total",
+			Help: "Total number of connection requests to the Docker pool",
+		})
+
+		poolConnectionErrors = prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "ssw_logs_capture_docker_pool_connection_errors_total",
+			Help: "Total number of connection errors in the Docker pool",
+		})
+
+		poolConnectionLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "ssw_logs_capture_docker_pool_connection_duration_seconds",
+			Help:    "Time taken to acquire a connection from the Docker pool",
+			Buckets: prometheus.DefBuckets,
+		})
+
+		poolConnectionLifetime = prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "ssw_logs_capture_docker_pool_connection_lifetime_seconds",
+			Help:    "Lifetime of connections in the Docker pool",
+			Buckets: []float64{60, 300, 600, 1800, 3600, 7200, 14400, 28800},
+		})
+
+		// Register metrics only once
+		prometheus.MustRegister(
+			poolTotalConnections,
+			poolActiveConnections,
+			poolAvailableConnections,
+			poolConnectionRequests,
+			poolConnectionErrors,
+			poolConnectionLatency,
+			poolConnectionLifetime,
+		)
 	})
 
-	cp.activeConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ssw_logs_capture_docker_pool_active_connections",
-		Help: "Number of active connections in the Docker pool",
-	})
-
-	cp.availableConnections = prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "ssw_logs_capture_docker_pool_available_connections",
-		Help: "Number of available connections in the Docker pool",
-	})
-
-	cp.connectionRequests = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "ssw_logs_capture_docker_pool_connection_requests_total",
-		Help: "Total number of connection requests to the Docker pool",
-	})
-
-	cp.connectionErrors = prometheus.NewCounter(prometheus.CounterOpts{
-		Name: "ssw_logs_capture_docker_pool_connection_errors_total",
-		Help: "Total number of connection errors in the Docker pool",
-	})
-
-	cp.connectionLatency = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "ssw_logs_capture_docker_pool_connection_duration_seconds",
-		Help:    "Time taken to acquire a connection from the Docker pool",
-		Buckets: prometheus.DefBuckets,
-	})
-
-	cp.connectionLifetime = prometheus.NewHistogram(prometheus.HistogramOpts{
-		Name:    "ssw_logs_capture_docker_pool_connection_lifetime_seconds",
-		Help:    "Lifetime of connections in the Docker pool",
-		Buckets: []float64{60, 300, 600, 1800, 3600, 7200, 14400, 28800},
-	})
-
-	// Register metrics
-	prometheus.MustRegister(
-		cp.totalConnections,
-		cp.activeConnections,
-		cp.availableConnections,
-		cp.connectionRequests,
-		cp.connectionErrors,
-		cp.connectionLatency,
-		cp.connectionLifetime,
-	)
+	// Assign package-level metrics to instance
+	cp.totalConnections = poolTotalConnections
+	cp.activeConnections = poolActiveConnections
+	cp.availableConnections = poolAvailableConnections
+	cp.connectionRequests = poolConnectionRequests
+	cp.connectionErrors = poolConnectionErrors
+	cp.connectionLatency = poolConnectionLatency
+	cp.connectionLifetime = poolConnectionLifetime
 }
 
 // GetStats returns pool statistics
