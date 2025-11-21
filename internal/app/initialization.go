@@ -313,7 +313,7 @@ func (app *App) initAuxiliaryServices() error {
 		}
 	}
 
-	// Enhanced Metrics
+	// Enhanced Metrics (Start() is called in App.Start())
 	app.enhancedMetrics = metrics.NewEnhancedMetrics(app.logger)
 
 	// Initialize enterprise features
@@ -916,8 +916,7 @@ func (app *App) initMetricsServer() {
 	addr := fmt.Sprintf(":%d", app.config.Metrics.Port)
 	app.metricsServer = metrics.NewMetricsServer(addr, app.logger)
 
-	// Criar EnhancedMetrics para métricas avançadas
-	app.enhancedMetrics = metrics.NewEnhancedMetrics(app.logger)
+	// Note: EnhancedMetrics is created and started in initAuxiliaryServices()
 }
 
 // ensureDirectoryExists creates a directory path if it doesn't already exist.

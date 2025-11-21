@@ -46,6 +46,18 @@ var (
 		Help: "Current utilization of the dispatcher queue (0.0 to 1.0)",
 	})
 
+	// Gauge para tamanho da fila de retry centralizada
+	DispatcherRetryQueueSize = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "log_capturer_dispatcher_retry_queue_size",
+		Help: "Current number of items waiting in the retry queue",
+	})
+
+	// Counter para itens descartados da fila de retry (overflow)
+	DispatcherRetryDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "log_capturer_dispatcher_retry_drops_total",
+		Help: "Total number of items dropped from retry queue due to overflow",
+	})
+
 	// Histograma para duração de steps de processamento
 	ProcessingStepDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -1249,7 +1261,10 @@ func (em *EnhancedMetrics) Stop() error {
 
 // systemMetricsLoop periodically updates system metrics
 func (em *EnhancedMetrics) systemMetricsLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	// Update immediately on start
+	em.UpdateSystemMetrics()
+
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
 	for em.isRunning {

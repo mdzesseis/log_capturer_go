@@ -399,6 +399,9 @@ func (cm *ContainerMonitor) StartCollecting(containerID string) {
 	// METRICS: Atualizar gauge de coletores ativos
 	metrics.UpdateActiveStreams(activeCount)
 
+	// METRICS: Atualizar total de containers monitorados
+	metrics.UpdateTotalContainersMonitored(activeCount)
+
 	// Inicia a goroutine de coleta real.
 	// Captura containerName no closure (já obtido na verificação de exclusão)
 	go func(containerName string) {

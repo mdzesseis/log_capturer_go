@@ -108,6 +108,7 @@ type Dispatcher struct {
 	// PHASE 2 REFACTORING: Modular components for dispatcher functionality
 	batchProcessor *BatchProcessor // Handles batch collection and processing
 	retryManager   *RetryManager   // Manages retry logic and DLQ integration
+	retryManagerV2 *RetryManagerV2 // New retry manager with centralized queue
 	statsCollector *StatsCollector // Collects and reports statistics
 
 	// Core operational components
@@ -330,6 +331,9 @@ func NewDispatcher(config DispatcherConfig, processor *processing.LogProcessor, 
 	d.retryManager = retryManager
 	d.statsCollector = statsCollector
 
+	// Initialize RetryManagerV2 with centralized queue approach
+	d.retryManagerV2 = NewRetryManagerV2(config, logger, deadLetterQueue)
+
 	return d
 }
 
@@ -444,6 +448,12 @@ func (d *Dispatcher) Start(ctx context.Context) error {
 		d.logger.Info("Rate limiter enabled")
 	}
 
+	// Start RetryManagerV2 and connect to dispatcher queue
+	if d.retryManagerV2 != nil {
+		d.retryManagerV2.SetOutputQueue(d.queue)
+		d.retryManagerV2.Start()
+	}
+
 	// Iniciar workers
 	for i := 0; i < d.config.Workers; i++ {
 		d.wg.Add(1)
@@ -512,6 +522,11 @@ func (d *Dispatcher) Stop() error {
 		if err := d.deadLetterQueue.Stop(); err != nil {
 			d.logger.WithError(err).Warn("Failed to stop dead letter queue")
 		}
+	}
+
+	// Stop RetryManagerV2
+	if d.retryManagerV2 != nil {
+		d.retryManagerV2.Stop()
 	}
 
 	// Cancelar contexto para sinalizar todas as goroutines
@@ -1053,6 +1068,33 @@ func (d *Dispatcher) processBatch(batch []dispatchItem, logger *logrus.Entry) {
 
 // handleFailedBatch trata batch que falhou
 func (d *Dispatcher) handleFailedBatch(batch []dispatchItem, err error) {
+	// Use RetryManagerV2 if available (centralized queue approach)
+	if d.retryManagerV2 != nil {
+		// Prepare items for retry with incremented retry count
+		retryItems := make([]dispatchItem, 0, len(batch))
+		for _, item := range batch {
+			if item.Retries < d.config.MaxRetries {
+				item.Retries++
+				retryItems = append(retryItems, item)
+			} else {
+				// Max retries reached, send to DLQ
+				d.logger.WithFields(logrus.Fields{
+					"trace_id":    item.Entry.TraceID,
+					"source_type": item.Entry.SourceType,
+					"source_id":   item.Entry.SourceID,
+					"retries":     item.Retries,
+					"error":       err,
+				}).Error("Max retries reached for log entry, sending to DLQ")
+				d.sendToDLQ(item.Entry, err.Error(), "max_retries_exceeded", "all_sinks", item.Retries)
+			}
+		}
+		if len(retryItems) > 0 {
+			d.retryManagerV2.ScheduleRetryBatch(retryItems)
+		}
+		return
+	}
+
+	// Fallback to old retry logic (goroutine-based)
 	for _, item := range batch {
 		if item.Retries < d.config.MaxRetries {
 			// Reagendar item com retry exponencial

@@ -371,6 +371,9 @@ func (fm *FileMonitor) startTailers() error {
 		return fmt.Errorf("failed to start any tailer")
 	}
 
+	// Update total files monitored metric
+	metrics.UpdateTotalFilesMonitored(len(fm.tailers))
+
 	fm.logger.WithField("active_tailers", len(fm.tailers)).Info("Tailers iniciados com sucesso")
 	return nil
 }

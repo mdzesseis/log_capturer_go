@@ -306,6 +306,7 @@ func (cm *CheckpointManager) CreateCheckpoint() error {
 
 	// Record metrics
 	metrics.PositionCheckpointCreatedTotal.Inc()
+	metrics.PositionSaveSuccess.Inc()
 	metrics.PositionCheckpointSizeBytes.Set(float64(fileInfo.Size()))
 	metrics.PositionCheckpointAgeSeconds.Set(0) // Just created
 	metrics.CheckpointHealth.WithLabelValues("checkpoint_creation").Set(1)
