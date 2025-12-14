@@ -232,7 +232,7 @@ func TestStatsCollector_UpdateQueueSize(t *testing.T) {
 		queue <- dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "test",
-				Labels:  make(map[string]string),
+				Labels:  types.NewLabelsCOW(),
 			},
 		}
 	}

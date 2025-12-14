@@ -54,9 +54,9 @@ func TestDLQ_AddEntry_Success(t *testing.T) {
 		SourceType: "file",
 		SourceID:   "test-file-1",
 		Timestamp:  time.Now(),
-		Labels: map[string]string{
+		Labels: types.NewLabelsCOWFromMap(map[string]string{
 			"level": "error",
-		},
+		}),
 	}
 
 	contextMap := map[string]string{
@@ -123,9 +123,9 @@ func TestDLQ_AddEntry_Concurrent(t *testing.T) {
 					SourceType: "test",
 					SourceID:   fmt.Sprintf("test-%d", id),
 					Timestamp:  time.Now(),
-					Labels: map[string]string{
+					Labels: types.NewLabelsCOWFromMap(map[string]string{
 						"goroutine_id": fmt.Sprintf("%d", id),
-					},
+					}),
 				}
 
 				err := dlq.AddEntry(entry, "concurrent test error", "concurrent_test", "test_sink", 0, nil)

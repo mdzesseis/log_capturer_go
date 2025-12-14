@@ -103,9 +103,9 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "error level routes to high-priority",
 			entry: types.LogEntry{
 				Message: "Error occurred",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "error",
-				},
+				}),
 			},
 			expectedTopic: "logs-high-priority",
 		},
@@ -113,9 +113,9 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "fatal level routes to high-priority",
 			entry: types.LogEntry{
 				Message: "Fatal error",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "fatal",
-				},
+				}),
 			},
 			expectedTopic: "logs-high-priority",
 		},
@@ -123,9 +123,9 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "debug level routes to low-priority",
 			entry: types.LogEntry{
 				Message: "Debug message",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "debug",
-				},
+				}),
 			},
 			expectedTopic: "logs-low-priority",
 		},
@@ -133,9 +133,9 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "trace level routes to low-priority",
 			entry: types.LogEntry{
 				Message: "Trace message",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "trace",
-				},
+				}),
 			},
 			expectedTopic: "logs-low-priority",
 		},
@@ -143,9 +143,9 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "info level routes to default topic",
 			entry: types.LogEntry{
 				Message: "Info message",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "info",
-				},
+				}),
 			},
 			expectedTopic: "logs",
 		},
@@ -153,8 +153,8 @@ func TestKafkaSinkTopicRouting(t *testing.T) {
 			name: "no level label routes to default topic",
 			entry: types.LogEntry{
 				Message: "Plain message",
-				Labels:  map[string]string{},
-			},
+				Labels: types.NewLabelsCOWFromMap(map[string]string{},
+				}),
 			expectedTopic: "logs",
 		},
 	}
@@ -190,9 +190,9 @@ func TestKafkaSinkPartitionKeyGeneration(t *testing.T) {
 			name: "hash strategy with tenant_id",
 			entry: types.LogEntry{
 				Message: "Test message",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"tenant_id": "tenant-123",
-				},
+				}),
 			},
 			strategy:       "hash",
 			keyField:       "tenant_id",
@@ -202,9 +202,9 @@ func TestKafkaSinkPartitionKeyGeneration(t *testing.T) {
 			name: "hash strategy with source_id",
 			entry: types.LogEntry{
 				Message: "Test message",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"source_id": "source-456",
-				},
+				}),
 			},
 			strategy:       "hash",
 			keyField:       "source_id",
@@ -214,8 +214,8 @@ func TestKafkaSinkPartitionKeyGeneration(t *testing.T) {
 			name: "hash strategy with missing key field",
 			entry: types.LogEntry{
 				Message: "Test message",
-				Labels:  map[string]string{},
-			},
+				Labels: types.NewLabelsCOWFromMap(map[string]string{},
+				}),
 			strategy:       "hash",
 			keyField:       "tenant_id",
 			expectNonEmpty: false,
@@ -433,10 +433,10 @@ func BenchmarkKafkaSinkSendSingleEntry(b *testing.B) {
 	entry := types.LogEntry{
 		Message:   "Benchmark test message",
 		Timestamp: time.Now(),
-		Labels: map[string]string{
+		Labels: types.NewLabelsCOWFromMap(map[string]string{
 			"level":     "info",
 			"tenant_id": "bench-tenant",
-		},
+				}),
 	}
 
 	b.ResetTimer()
@@ -463,10 +463,10 @@ func BenchmarkKafkaSinkSendBatch(b *testing.B) {
 				entries[i] = types.LogEntry{
 					Message:   "Benchmark batch message",
 					Timestamp: time.Now(),
-					Labels: map[string]string{
+					Labels: types.NewLabelsCOWFromMap(map[string]string{
 						"level":     "info",
 						"tenant_id": "bench-tenant",
-					},
+				}),
 				}
 			}
 
@@ -499,12 +499,12 @@ func BenchmarkKafkaSinkTopicDetermination(b *testing.B) {
 	}
 
 	entries := []types.LogEntry{
-		{Labels: map[string]string{"level": "error"}},
+		{Labels: types.NewLabelsCOWFromMap(map[string]string{"level": "error"}},
 		{Labels: map[string]string{"level": "info"}},
 		{Labels: map[string]string{"level": "debug"}},
 		{Labels: map[string]string{"kafka_topic": "custom"}},
 		{Labels: map[string]string{}},
-	}
+				}),
 
 	b.ResetTimer()
 	b.ReportAllocs()
@@ -539,9 +539,9 @@ func BenchmarkKafkaSinkPartitionKeyGeneration(b *testing.B) {
 
 	entry := types.LogEntry{
 		SourceID: "test-source",
-		Labels: map[string]string{
+		Labels: types.NewLabelsCOWFromMap(map[string]string{
 			"tenant_id": "tenant-123",
-		},
+				}),
 	}
 
 	b.ResetTimer()

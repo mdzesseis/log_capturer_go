@@ -1,0 +1,150 @@
+---
+startDelaySeconds: 0
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+whitelistObjectNames:
+  - "kafka.server:*"
+  - "kafka.controller:*"
+  - "kafka.network:*"
+  - "kafka.log:*"
+  - "java.lang:*"
+
+rules:
+  # Broker Topic Metrics - Messages and Bytes
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+), topic=(.+)><>(.*)
+    name: kafka_server_brokertopicmetrics_$1_$3
+    type: GAUGE
+    labels:
+      topic: "$2"
+
+  - pattern: kafka.server<type=BrokerTopicMetrics, name=(.+)><>(.*)
+    name: kafka_server_brokertopicmetrics_$1_$2
+    type: GAUGE
+
+  # Replica Manager Metrics
+  - pattern: kafka.server<type=ReplicaManager, name=(.+)><>Value
+    name: kafka_server_replicamanager_$1
+    type: GAUGE
+
+  # Kafka Controller Metrics
+  - pattern: kafka.controller<type=KafkaController, name=(.+)><>Value
+    name: kafka_controller_$1
+    type: GAUGE
+
+  # Controller Stats
+  - pattern: kafka.controller<type=ControllerStats, name=(.+)><>(.*)
+    name: kafka_controller_stats_$1_$2
+    type: GAUGE
+
+  # Request Metrics
+  - pattern: kafka.network<type=RequestMetrics, name=(.+), request=(.+), error=(.+)><>(.*)
+    name: kafka_network_requestmetrics_$1_$4
+    type: GAUGE
+    labels:
+      request: "$2"
+      error: "$3"
+
+  - pattern: kafka.network<type=RequestMetrics, name=(.+), request=(.+)><>(.*)
+    name: kafka_network_requestmetrics_$1_$3
+    type: GAUGE
+    labels:
+      request: "$2"
+
+  # Socket Server Metrics
+  - pattern: kafka.network<type=SocketServer, name=(.+)><>Value
+    name: kafka_network_socketserver_$1
+    type: GAUGE
+
+  # Log Flush Stats
+  - pattern: kafka.log<type=LogFlushStats, name=(.+)><>(.*)
+    name: kafka_log_logflushstats_$1_$2
+    type: GAUGE
+
+  # Log Manager
+  - pattern: kafka.log<type=LogManager, name=(.+)><>Value
+    name: kafka_log_logmanager_$1
+    type: GAUGE
+
+  # Delayed Operation Purgatory
+  - pattern: kafka.server<type=DelayedOperationPurgatory, name=(.+), delayedOperation=(.+)><>Value
+    name: kafka_server_delayedoperationpurgatory_$1
+    type: GAUGE
+    labels:
+      operation: "$2"
+
+  # Request Handler Pool
+  - pattern: kafka.server<type=KafkaRequestHandlerPool, name=(.+)><>(.*)
+    name: kafka_server_requesthandlerpool_$1_$2
+    type: GAUGE
+
+  # Session Expire Listener
+  - pattern: kafka.server<type=SessionExpireListener, name=(.+)><>Value
+    name: kafka_server_sessionexpirelistener_$1
+    type: GAUGE
+
+  # Fetch Session Cache
+  - pattern: kafka.server<type=FetchSessionCache, name=(.+)><>Value
+    name: kafka_server_fetchsessioncache_$1
+    type: GAUGE
+
+  # Group Coordinator Metrics
+  - pattern: kafka.coordinator.group<type=GroupMetadataManager, name=(.+)><>Value
+    name: kafka_coordinator_group_$1
+    type: GAUGE
+
+  # Transaction Coordinator Metrics
+  - pattern: kafka.coordinator.transaction<type=TransactionMarkerChannelManager, name=(.+)><>Value
+    name: kafka_coordinator_transaction_$1
+    type: GAUGE
+
+  # JVM Memory
+  - pattern: java.lang<type=Memory><HeapMemoryUsage>used
+    name: kafka_jvm_heap_memory_used_bytes
+    type: GAUGE
+
+  - pattern: java.lang<type=Memory><HeapMemoryUsage>max
+    name: kafka_jvm_heap_memory_max_bytes
+    type: GAUGE
+
+  - pattern: java.lang<type=Memory><NonHeapMemoryUsage>used
+    name: kafka_jvm_nonheap_memory_used_bytes
+    type: GAUGE
+
+  # JVM Garbage Collection
+  - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionCount
+    name: kafka_jvm_gc_collection_count
+    type: COUNTER
+    labels:
+      gc: "$1"
+
+  - pattern: java.lang<type=GarbageCollector, name=(.+)><>CollectionTime
+    name: kafka_jvm_gc_collection_time_ms
+    type: COUNTER
+    labels:
+      gc: "$1"
+
+  # JVM Threading
+  - pattern: java.lang<type=Threading><>ThreadCount
+    name: kafka_jvm_thread_count
+    type: GAUGE
+
+  - pattern: java.lang<type=Threading><>DaemonThreadCount
+    name: kafka_jvm_daemon_thread_count
+    type: GAUGE
+
+  # JVM Operating System
+  - pattern: java.lang<type=OperatingSystem><>OpenFileDescriptorCount
+    name: kafka_jvm_open_file_descriptor_count
+    type: GAUGE
+
+  - pattern: java.lang<type=OperatingSystem><>MaxFileDescriptorCount
+    name: kafka_jvm_max_file_descriptor_count
+    type: GAUGE
+
+  - pattern: java.lang<type=OperatingSystem><>SystemCpuLoad
+    name: kafka_jvm_system_cpu_load
+    type: GAUGE
+
+  - pattern: java.lang<type=OperatingSystem><>ProcessCpuLoad
+    name: kafka_jvm_process_cpu_load
+    type: GAUGE

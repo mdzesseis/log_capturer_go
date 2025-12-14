@@ -30,8 +30,12 @@ type MonitorStatus struct {
 //
 // These statistics are used for monitoring, alerting, and performance analysis
 // of the core log processing pipeline.
+//
+// Thread-safety note: int64 counter fields (Processed, Failed, etc.) should be
+// accessed using sync/atomic operations for lock-free performance. Complex fields
+// (maps, strings, timestamps) still require mutex protection.
 type DispatcherStats struct {
-	// Processing volume metrics
+	// Processing volume metrics - use atomic operations for these counters
 	Processed           int64            `json:"processed"`           // Total entries processed successfully
 	TotalProcessed      int64            `json:"total_processed"`     // Alias for Processed
 	Failed              int64            `json:"failed"`              // Total entries that failed processing
@@ -39,8 +43,8 @@ type DispatcherStats struct {
 	Retries             int64            `json:"retries"`             // Total retry attempts made
 	Throttled           int64            `json:"throttled"`           // Entries rejected due to rate limiting
 	DuplicatesDetected  int64            `json:"duplicates_detected"` // Number of duplicate entries detected
-	SinkDistribution    map[string]int64 `json:"sink_distribution"`   // Entries sent to each sink by name
-	LastProcessedTime   time.Time        `json:"last_processed_time"` // Timestamp of last processed entry
+	SinkDistribution    map[string]int64 `json:"sink_distribution"`   // Entries sent to each sink by name (requires mutex)
+	LastProcessedTime   time.Time        `json:"last_processed_time"` // Timestamp of last processed entry (requires mutex)
 
 	// Performance metrics
 	ProcessingRate   float64       `json:"processing_rate"`   // Entries processed per second
@@ -49,13 +53,13 @@ type DispatcherStats struct {
 	QueueCapacity    int           `json:"queue_capacity"`    // Maximum queue capacity
 
 	// Error tracking
-	LastError     string    `json:"last_error,omitempty"`      // Most recent error message
-	LastErrorTime time.Time `json:"last_error_time,omitempty"` // Timestamp of most recent error
+	LastError     string    `json:"last_error,omitempty"`      // Most recent error message (requires mutex)
+	LastErrorTime time.Time `json:"last_error_time,omitempty"` // Timestamp of most recent error (requires mutex)
 	ErrorRate     float64   `json:"error_rate"`                // Errors per second over recent window
 
 	// Advanced metrics (enterprise features)
 	DeduplicationRate float64 `json:"deduplication_rate,omitempty"` // Percentage of duplicates filtered
-	BackpressureLevel string  `json:"backpressure_level,omitempty"` // Current backpressure level
+	BackpressureLevel string  `json:"backpressure_level,omitempty"` // Current backpressure level (requires mutex)
 	DLQSize           int64   `json:"dlq_size,omitempty"`           // Dead letter queue size
 }
 

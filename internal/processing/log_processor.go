@@ -342,12 +342,12 @@ func (rep *RegexExtractProcessor) Process(ctx context.Context, entry *types.LogE
 		// FIX: Use DeepCopy to avoid copying mutex
 		newEntry := entry.DeepCopy()
 		if newEntry.Labels == nil {
-			newEntry.Labels = make(map[string]string)
+			newEntry.Labels = types.NewLabelsCOW()
 		}
 
 		for i, field := range rep.Fields {
 			if i+1 < len(matches) {
-				newEntry.Labels[field] = matches[i+1]
+				newEntry.Labels.Set(field, matches[i+1])
 			}
 		}
 
@@ -453,14 +453,14 @@ func (tpp *TimestampParseProcessor) Process(ctx context.Context, entry *types.Lo
 	// FIX: Use DeepCopy to avoid copying mutex
 	newEntry := entry.DeepCopy()
 	if newEntry.Labels == nil {
-		newEntry.Labels = make(map[string]string)
+		newEntry.Labels = types.NewLabelsCOW()
 	}
 
 	// Definir timestamp principal se solicitado
 	if tpp.UseAsLogTime || tpp.TargetField == "timestamp" {
 		newEntry.Timestamp = parsedTime
 	} else {
-		newEntry.Labels[tpp.TargetField] = parsedTime.Format(time.RFC3339)
+		newEntry.Labels.Set(tpp.TargetField, parsedTime.Format(time.RFC3339))
 	}
 
 	return newEntry, nil
@@ -607,11 +607,11 @@ func (fap *FieldAddProcessor) Process(ctx context.Context, entry *types.LogEntry
 	// FIX: Use DeepCopy to avoid copying mutex
 	newEntry := entry.DeepCopy()
 	if newEntry.Labels == nil {
-		newEntry.Labels = make(map[string]string)
+		newEntry.Labels = types.NewLabelsCOW()
 	}
 
 	for key, value := range fap.Fields {
-		newEntry.Labels[key] = value
+		newEntry.Labels.Set(key, value)
 	}
 
 	return newEntry, nil
@@ -647,7 +647,7 @@ func (frp *FieldRemoveProcessor) Process(ctx context.Context, entry *types.LogEn
 	newEntry := entry.DeepCopy()
 	if newEntry.Labels != nil {
 		for _, field := range frp.Fields {
-			delete(newEntry.Labels, field)
+			newEntry.Labels.Delete(field)
 		}
 	}
 
@@ -692,9 +692,9 @@ func (llep *LogLevelExtractProcessor) Process(ctx context.Context, entry *types.
 		// FIX: Use DeepCopy to avoid copying mutex
 		newEntry := entry.DeepCopy()
 		if newEntry.Labels == nil {
-			newEntry.Labels = make(map[string]string)
+			newEntry.Labels = types.NewLabelsCOW()
 		}
-		newEntry.Labels[llep.Field] = strings.ToLower(matches[1])
+		newEntry.Labels.Set(llep.Field, strings.ToLower(matches[1]))
 		return newEntry, nil
 	}
 

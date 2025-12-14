@@ -60,15 +60,13 @@ scrape_configs:
     scrape_timeout: 10s
     metrics_path: /metrics
 
-  # Kafka metrics (via JMX exporter)
-  # NOTE: Requires JMX exporter to be configured on Kafka broker
-  # Uncomment when JMX exporter is enabled
-  # - job_name: 'kafka'
-  #   static_configs:
-  #     - targets: ['kafka:9999']
-  #   scrape_interval: 30s
-  #   scrape_timeout: 10s
-  #   metrics_path: /metrics
+  # Kafka JMX metrics (via JMX Prometheus exporter)
+  - job_name: 'kafka-jmx'
+    static_configs:
+      - targets: ['kafka:7071']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    metrics_path: /metrics
 
   # Zookeeper metrics (via JMX exporter)
   # - job_name: 'zookeeper'
@@ -93,11 +91,18 @@ scrape_configs:
 # =============================================================================
 
 # Node Exporter - system metrics
-# - job_name: 'node'
-#   static_configs:
-#     - targets: ['node_exporter:9100']  # Standard port
-#   scrape_interval: 15s
-#   scrape_timeout: 10s
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node_exporter:9100']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # Kafka Exporter - Kafka cluster metrics
+  - job_name: 'kafka-exporter'
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+    scrape_interval: 30s
+    scrape_timeout: 10s
 
 # MySQL Exporter - database metrics
 # - job_name: 'mysql'

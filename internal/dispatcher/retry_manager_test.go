@@ -78,7 +78,7 @@ func TestRetryManager_HandleFailedBatch_BelowMaxRetries(t *testing.T) {
 		{
 			Entry: &types.LogEntry{
 				Message:    "test message 1",
-				Labels:     make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 				SourceType: "test",
 				SourceID:   "test-1",
 			},
@@ -134,7 +134,7 @@ func TestRetryManager_HandleFailedBatch_ExceedsMaxRetries(t *testing.T) {
 		{
 			Entry: &types.LogEntry{
 				Message:    "test message",
-				Labels:     make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 				SourceType: "test",
 				SourceID:   "test-1",
 				TraceID:    "trace-123",
@@ -191,7 +191,7 @@ func TestRetryManager_ScheduleRetry_WithExponentialBackoff(t *testing.T) {
 			item := &dispatchItem{
 				Entry: &types.LogEntry{
 					Message: "test",
-					Labels:  make(map[string]string),
+					Labels: types.NewLabelsCOW(),
 				},
 				Retries: tt.retries - 1, // Will be incremented
 			}
@@ -250,7 +250,7 @@ func TestRetryManager_SemaphoreLimit(t *testing.T) {
 		batch[i] = dispatchItem{
 			Entry: &types.LogEntry{
 				Message:    "test",
-				Labels:     make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 				SourceType: "test",
 				SourceID:   "test",
 				TraceID:    "trace",
@@ -297,7 +297,7 @@ func TestRetryManager_Stop_GracefulShutdown(t *testing.T) {
 	item := &dispatchItem{
 		Entry: &types.LogEntry{
 			Message: "test",
-			Labels:  make(map[string]string),
+			Labels: types.NewLabelsCOW(),
 		},
 		Retries: 1,
 	}
@@ -349,7 +349,7 @@ func TestRetryManager_HandleCircuitBreaker(t *testing.T) {
 		{
 			Entry: &types.LogEntry{
 				Message:    "test1",
-				Labels:     make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 				SourceType: "test",
 				SourceID:   "test-1",
 				TraceID:    "trace-1",
@@ -359,7 +359,7 @@ func TestRetryManager_HandleCircuitBreaker(t *testing.T) {
 		{
 			Entry: &types.LogEntry{
 				Message:    "test2",
-				Labels:     make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 				SourceType: "test",
 				SourceID:   "test-2",
 				TraceID:    "trace-2",
@@ -409,7 +409,7 @@ func TestRetryManager_GetRetryStats(t *testing.T) {
 		item := &dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "test",
-				Labels:  make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 			},
 			Retries: 1,
 		}
@@ -460,7 +460,7 @@ func TestRetryManager_ConcurrentRetries(t *testing.T) {
 				item := &dispatchItem{
 					Entry: &types.LogEntry{
 						Message: "concurrent test",
-						Labels:  make(map[string]string),
+						Labels: types.NewLabelsCOW(),
 					},
 					Retries: 1,
 				}
@@ -503,7 +503,7 @@ func BenchmarkRetryManager_ScheduleRetry(b *testing.B) {
 	item := &dispatchItem{
 		Entry: &types.LogEntry{
 			Message: "benchmark",
-			Labels:  make(map[string]string),
+			Labels: types.NewLabelsCOW(),
 		},
 		Retries: 1,
 	}
@@ -541,7 +541,7 @@ func BenchmarkRetryManager_HandleFailedBatch(b *testing.B) {
 		batch[i] = dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "benchmark",
-				Labels:  make(map[string]string),
+				Labels: types.NewLabelsCOW(),
 			},
 			Retries: 1,
 		}

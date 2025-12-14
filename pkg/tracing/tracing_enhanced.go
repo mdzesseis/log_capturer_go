@@ -302,10 +302,10 @@ func (tm *EnhancedTracingManager) CreateLogSpan(ctx context.Context, entry *type
 	// Add trace_id and span_id to log labels for correlation
 	if span.SpanContext().HasTraceID() {
 		if entry.Labels == nil {
-			entry.Labels = make(map[string]string)
+			entry.Labels = types.NewLabelsCOW()
 		}
-		entry.Labels["trace_id"] = span.SpanContext().TraceID().String()
-		entry.Labels["span_id"] = span.SpanContext().SpanID().String()
+		entry.Labels.Set("trace_id", span.SpanContext().TraceID().String())
+		entry.Labels.Set("span_id", span.SpanContext().SpanID().String())
 	}
 
 	tm.logsTracedCount++

@@ -298,7 +298,7 @@ func TestDispatcherConcurrency(t *testing.T) {
 		SourceType: "test",
 		SourceID:   "test-source",
 		Timestamp:  time.Now(),
-		Labels:     make(map[string]string),
+		Labels:     types.NewLabelsCOW(),
 		Fields:     make(map[string]interface{}),
 	}
 
@@ -405,7 +405,7 @@ func BenchmarkDispatcherHandle(b *testing.B) {
 		SourceType: "benchmark",
 		SourceID:   "benchmark-source",
 		Timestamp:  time.Now(),
-		Labels:     make(map[string]string),
+		Labels:     types.NewLabelsCOW(),
 		Fields:     make(map[string]interface{}),
 	}
 
@@ -462,7 +462,7 @@ func BenchmarkDispatcherThroughput(b *testing.B) {
 		SourceType: "throughput",
 		SourceID:   "throughput-source",
 		Timestamp:  time.Now(),
-		Labels:     make(map[string]string),
+		Labels:     types.NewLabelsCOW(),
 		Fields:     make(map[string]interface{}),
 	}
 

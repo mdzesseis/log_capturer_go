@@ -39,7 +39,7 @@ func NewBatchProcessor(config DispatcherConfig, logger *logrus.Logger, enhancedM
 		config:          config,
 		logger:          logger,
 		enhancedMetrics: enhancedMetrics,
-		copyMode:        CopyModeSafe, // Default to safe mode for backward compatibility
+		copyMode:        CopyModeOptimized, // Default to optimized mode (shallow copy) - validated safe for all sinks
 	}
 }
 

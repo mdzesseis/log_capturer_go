@@ -315,7 +315,7 @@ func (ad *AnomalyDetector) DetectAnomaly(entry *types.LogEntry) (*AnomalyResult,
 		Message:    entry.Message,
 		Level:      entry.Level,
 		Features:   features,
-		Labels:     entry.Labels,
+		Labels:     entry.Labels.ToMap(),
 	}
 
 	// Add to training buffer

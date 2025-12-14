@@ -279,13 +279,13 @@ func BenchmarkSpanCreation_WithAttributes(b *testing.B) {
 	entry := &types.LogEntry{
 		Message:  "benchmark message with lots of attributes",
 		SourceID: "test-source-12345",
-		Labels: map[string]string{
+		Labels: types.NewLabelsCOWFromMap(map[string]string{
 			"level":       "info",
 			"service":     "test-service",
 			"environment": "production",
 			"version":     "v1.2.3",
 			"host":        "host-123",
-		},
+		}),
 	}
 
 	b.ResetTimer()
@@ -539,10 +539,10 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 			entry := &types.LogEntry{
 				Message:  "benchmark message with some length to simulate real logs",
 				SourceID: "test-source-id-12345",
-				Labels: map[string]string{
+				Labels: types.NewLabelsCOWFromMap(map[string]string{
 					"level": "info",
 					"app":   "test",
-				},
+				}),
 			}
 
 			b.ResetTimer()
@@ -636,11 +636,11 @@ func BenchmarkEndToEndFlow(b *testing.B) {
 	entry := &types.LogEntry{
 		Message:  "Production-like log message with details",
 		SourceID: "production-service-12345",
-		Labels: map[string]string{
+		Labels: types.NewLabelsCOWFromMap(map[string]string{
 			"level":       "info",
 			"service":     "api-gateway",
 			"environment": "production",
-		},
+		}),
 	}
 
 	b.ResetTimer()

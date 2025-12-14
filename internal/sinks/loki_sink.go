@@ -501,7 +501,7 @@ func (ls *LokiSink) validateAndFilterTimestamps(entries []types.LogEntry) []*typ
 		if ls.timestampLearner.ClampTimestamp(entry) {
 			metrics.RecordTimestampClamped(ls.name)
 			ls.logger.WithFields(logrus.Fields{
-				"original_age_hours": entry.Labels["_original_age_hours"],
+				"original_age_hours": func() string { v, _ := entry.Labels.Get("_original_age_hours"); return v }(),
 				"clamped_timestamp":  entry.Timestamp.Format(time.RFC3339),
 			}).Debug("Timestamp clamped to acceptable range")
 		}
@@ -1038,13 +1038,13 @@ func (ls *LokiSink) groupByStream(entries []*types.LogEntry) []LokiStream {
 	for i := range entries {
 		entry := entries[i]
 		// Criar chave do stream baseada nos labels
-		streamKey := ls.createStreamKey(entry.Labels)
+		streamKey := ls.createStreamKey(entry.Labels.ToMap())
 
 		// Obter ou criar stream
 		stream, exists := streamMap[streamKey]
 		if !exists {
 			stream = &LokiStream{
-				Stream: ls.prepareLokiLabels(entry.Labels),
+				Stream: ls.prepareLokiLabels(entry.Labels.ToMap()),
 				Values: make([][]string, 0),
 			}
 			streamMap[streamKey] = stream

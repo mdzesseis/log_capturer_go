@@ -42,7 +42,7 @@ import (
 var logEntryPool = sync.Pool{
 	New: func() interface{} {
 		return &LogEntry{
-			Labels: make(map[string]string, 8),  // Pre-allocate common size
+			Labels: NewLabelsCOW(),  // Use Copy-on-Write for efficiency
 			Fields: make(map[string]interface{}, 8),
 		}
 	},
@@ -109,9 +109,9 @@ type LogEntry struct {
 	SourceID   string `json:"source_id"`   // Unique source identifier (file hash, container ID, etc.)
 
 	// Categorization and routing metadata
-	Tags   []string              `json:"tags,omitempty"` // Classification tags for filtering and routing
-	Labels map[string]string     `json:"labels"`        // Key-value labels for Prometheus-style querying
-	Fields map[string]interface{} `json:"fields"`        // Additional structured fields extracted from log content
+	Tags   []string               `json:"tags,omitempty"` // Classification tags for filtering and routing
+	Labels *LabelsCOW             `json:"labels"`         // Key-value labels using Copy-on-Write for efficiency
+	Fields map[string]interface{} `json:"fields"`         // Additional structured fields extracted from log content
 
 	// Processing pipeline metadata
 	ProcessingSteps []ProcessingStep `json:"processing_steps,omitempty"` // Detailed processing step history for audit
@@ -205,12 +205,11 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 		copy(newEntry.ProcessingSteps, e.ProcessingSteps)
 	}
 
-	// Deep copy maps (protected by RLock above)
+	// Deep copy LabelsCOW
 	if e.Labels != nil {
-		newEntry.Labels = make(map[string]string, len(e.Labels))
-		for k, v := range e.Labels {
-			newEntry.Labels[k] = v
-		}
+		newEntry.Labels = e.Labels.Clone()
+	} else {
+		newEntry.Labels = NewLabelsCOW()
 	}
 
 	if e.Fields != nil {
@@ -253,10 +252,10 @@ func (e *LogEntry) DeepCopy() *LogEntry {
 //
 // Thread-safety: Safe for concurrent reads
 func (e *LogEntry) GetLabel(key string) (string, bool) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-	val, ok := e.Labels[key]
-	return val, ok
+	if e.Labels == nil {
+		return "", false
+	}
+	return e.Labels.Get(key)
 }
 
 // SetLabel sets a label value safely.
@@ -267,12 +266,10 @@ func (e *LogEntry) GetLabel(key string) (string, bool) {
 //
 // Thread-safety: Safe for concurrent writes
 func (e *LogEntry) SetLabel(key, value string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	if e.Labels == nil {
-		e.Labels = make(map[string]string)
+		e.Labels = NewLabelsCOW()
 	}
-	e.Labels[key] = value
+	e.Labels.Set(key, value)
 }
 
 // CopyLabels returns a thread-safe copy of all labels.
@@ -286,23 +283,16 @@ func (e *LogEntry) SetLabel(key, value string) {
 // Thread-safety: Safe for concurrent access
 //
 // Usage:
-//   labelsCopy := entry.CopyLabels()
-//   for k, v := range labelsCopy {
-//       // Safe to iterate over copy
-//   }
+//
+//	labelsCopy := entry.CopyLabels()
+//	for k, v := range labelsCopy {
+//	    // Safe to iterate over copy
+//	}
 func (e *LogEntry) CopyLabels() map[string]string {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
 	if e.Labels == nil {
 		return make(map[string]string)
 	}
-
-	copy := make(map[string]string, len(e.Labels))
-	for k, v := range e.Labels {
-		copy[k] = v
-	}
-	return copy
+	return e.Labels.ToMap()
 }
 
 // Thread-safe methods for Fields access
@@ -393,10 +383,14 @@ func AcquireLogEntry() *LogEntry {
 		entry.ProcessingSteps = entry.ProcessingSteps[:0]
 	}
 
-	// Clear maps but keep allocated memory
-	for k := range entry.Labels {
-		delete(entry.Labels, k)
+	// Clear LabelsCOW
+	if entry.Labels != nil {
+		entry.Labels.Clear()
+	} else {
+		entry.Labels = NewLabelsCOW()
 	}
+
+	// Clear maps but keep allocated memory
 	for k := range entry.Fields {
 		delete(entry.Fields, k)
 	}
@@ -464,11 +458,12 @@ func (e *LogEntry) Release() {
 		e.ProcessingSteps = e.ProcessingSteps[:0]
 	}
 
-	// Clear maps but maintain allocated capacity for reuse
-	// This is more efficient than making new maps
-	for k := range e.Labels {
-		delete(e.Labels, k)
+	// Clear LabelsCOW but maintain allocated capacity for reuse
+	if e.Labels != nil {
+		e.Labels.Clear()
 	}
+
+	// Clear maps but maintain allocated capacity for reuse
 	for k := range e.Fields {
 		delete(e.Fields, k)
 	}

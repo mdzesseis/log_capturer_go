@@ -2,8 +2,26 @@
 package types
 
 import (
+	"encoding/json"
 	"sync"
 )
+
+// MarshalJSON implements json.Marshaler for LabelsCOW.
+func (l *LabelsCOW) MarshalJSON() ([]byte, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return json.Marshal(l.data)
+}
+
+// UnmarshalJSON implements json.Unmarshaler for LabelsCOW.
+func (l *LabelsCOW) UnmarshalJSON(data []byte) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.data == nil {
+		l.data = make(map[string]string)
+	}
+	return json.Unmarshal(data, &l.data)
+}
 
 // LabelsCOW implements a Copy-on-Write labels structure that is thread-safe
 // and allows efficient sharing of label maps between LogEntries.

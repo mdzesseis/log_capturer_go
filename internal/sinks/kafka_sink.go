@@ -589,7 +589,7 @@ func (ks *KafkaSink) handleProducerResponses() {
 // determineTopic determina o tópico Kafka baseado em entry labels
 func (ks *KafkaSink) determineTopic(entry *types.LogEntry) string {
 	// Check for priority-based routing
-	if level, ok := entry.Labels["level"]; ok {
+	if level, ok := entry.Labels.Get("level"); ok {
 		switch strings.ToLower(level) {
 		case "error", "fatal", "critical":
 			return "logs-high-priority"
@@ -599,7 +599,7 @@ func (ks *KafkaSink) determineTopic(entry *types.LogEntry) string {
 	}
 
 	// Check for custom topic label
-	if customTopic, ok := entry.Labels["kafka_topic"]; ok {
+	if customTopic, ok := entry.Labels.Get("kafka_topic"); ok {
 		return customTopic
 	}
 
@@ -620,7 +620,7 @@ func (ks *KafkaSink) determinePartitionKey(entry *types.LogEntry) string {
 	}
 
 	// Try to get partition key from labels
-	if key, ok := entry.Labels[keyField]; ok {
+	if key, ok := entry.Labels.Get(keyField); ok {
 		return key
 	}
 

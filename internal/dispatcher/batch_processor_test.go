@@ -50,7 +50,7 @@ func TestBatchProcessor_CollectBatch_BatchSize(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		entry := &types.LogEntry{
 			Message: "test message",
-			Labels:  make(map[string]string),
+			Labels:  types.NewLabelsCOW(),
 		}
 		queue <- dispatchItem{Entry: entry, Retries: 0}
 	}
@@ -78,7 +78,7 @@ func TestBatchProcessor_CollectBatch_Timeout(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		entry := &types.LogEntry{
 			Message: "test message",
-			Labels:  make(map[string]string),
+			Labels:  types.NewLabelsCOW(),
 		}
 		queue <- dispatchItem{Entry: entry, Retries: 0}
 	}
@@ -147,7 +147,7 @@ func TestBatchProcessor_ProcessBatch_Success(t *testing.T) {
 		batch[i] = dispatchItem{
 			Entry: &types.LogEntry{
 				Message:    "test message",
-				Labels:     map[string]string{"key": "value"},
+				Labels:     types.NewLabelsCOWFromMap(map[string]string{"key": "value"}),
 				SourceType: "test",
 				SourceID:   "test-source",
 			},
@@ -205,7 +205,7 @@ func TestBatchProcessor_ProcessBatch_ErrorHandling(t *testing.T) {
 	batch[0] = dispatchItem{
 		Entry: &types.LogEntry{
 			Message: "test message",
-			Labels:  make(map[string]string),
+			Labels:  types.NewLabelsCOW(),
 		},
 		Retries: 0,
 	}
@@ -240,7 +240,7 @@ func TestBatchProcessor_ProcessBatch_MultiSink(t *testing.T) {
 	batch[0] = dispatchItem{
 		Entry: &types.LogEntry{
 			Message: "test message",
-			Labels:  make(map[string]string),
+			Labels:  types.NewLabelsCOW(),
 		},
 		Retries: 0,
 	}
@@ -285,7 +285,7 @@ func TestBatchProcessor_ProcessBatch_PartialSuccess(t *testing.T) {
 	batch[0] = dispatchItem{
 		Entry: &types.LogEntry{
 			Message: "test message",
-			Labels:  make(map[string]string),
+			Labels:  types.NewLabelsCOW(),
 		},
 		Retries: 0,
 	}
@@ -342,7 +342,7 @@ func TestBatchProcessor_ValidateBatch(t *testing.T) {
 				batch[i] = dispatchItem{
 					Entry: &types.LogEntry{
 						Message: "test",
-						Labels:  make(map[string]string),
+						Labels:  types.NewLabelsCOW(),
 					},
 				}
 			}
@@ -363,7 +363,7 @@ func TestBatchProcessor_DeepCopyBatch(t *testing.T) {
 		{
 			Entry: &types.LogEntry{
 				Message: "original message",
-				Labels:  map[string]string{"key1": "value1"},
+				Labels:  types.NewLabelsCOWFromMap(map[string]string{"key1": "value1"}),
 			},
 			Retries: 1,
 		},
@@ -373,14 +373,17 @@ func TestBatchProcessor_DeepCopyBatch(t *testing.T) {
 
 	require.Len(t, copied, 1)
 	assert.Equal(t, "original message", copied[0].Message)
-	assert.Equal(t, "value1", copied[0].Labels["key1"])
+	value, ok := copied[0].Labels.Get("key1")
+	require.True(t, ok, "key1 should exist in copied labels")
+	assert.Equal(t, "value1", value)
 
 	// Modify original - should not affect copy
 	original[0].Entry.Message = "modified"
-	original[0].Entry.Labels["key1"] = "modified"
+	original[0].Entry.Labels.Set("key1", "modified")
 
 	assert.Equal(t, "original message", copied[0].Message, "Copy should be independent")
-	assert.Equal(t, "value1", copied[0].Labels["key1"], "Copy labels should be independent")
+	copiedValue, _ := copied[0].Labels.Get("key1")
+	assert.Equal(t, "value1", copiedValue, "Copy labels should be independent")
 }
 
 // TestBatchProcessor_DeepCopyEntries tests deep copy of entries
@@ -388,7 +391,7 @@ func TestBatchProcessor_DeepCopyEntries(t *testing.T) {
 	original := []types.LogEntry{
 		{
 			Message: "original",
-			Labels:  map[string]string{"key": "value"},
+			Labels:  types.NewLabelsCOWFromMap(map[string]string{"key": "value"}),
 		},
 	}
 
@@ -399,10 +402,11 @@ func TestBatchProcessor_DeepCopyEntries(t *testing.T) {
 
 	// Modify original
 	original[0].Message = "modified"
-	original[0].Labels["key"] = "modified"
+	original[0].Labels.Set("key", "modified")
 
 	assert.Equal(t, "original", copied[0].Message, "Copy should be independent")
-	assert.Equal(t, "value", copied[0].Labels["key"], "Copy labels should be independent")
+	copiedValue, _ := copied[0].Labels.Get("key")
+	assert.Equal(t, "value", copiedValue, "Copy labels should be independent")
 }
 
 // BenchmarkBatchProcessor_ProcessBatch benchmarks batch processing
@@ -420,7 +424,7 @@ func BenchmarkBatchProcessor_ProcessBatch(b *testing.B) {
 		batch[i] = dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "benchmark message",
-				Labels:  map[string]string{"key": "value"},
+				Labels:  types.NewLabelsCOWFromMap(map[string]string{"key": "value"}),
 			},
 			Retries: 0,
 		}
@@ -453,7 +457,7 @@ func BenchmarkBatchProcessor_CollectBatch(b *testing.B) {
 		queue <- dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "benchmark",
-				Labels:  make(map[string]string),
+				Labels:  types.NewLabelsCOW(),
 			},
 		}
 	}
@@ -470,7 +474,7 @@ func BenchmarkBatchProcessor_CollectBatch(b *testing.B) {
 				queue <- dispatchItem{
 					Entry: &types.LogEntry{
 						Message: "benchmark",
-						Labels:  make(map[string]string),
+						Labels:  types.NewLabelsCOW(),
 					},
 				}
 			}
@@ -485,7 +489,7 @@ func BenchmarkDeepCopyBatch(b *testing.B) {
 		batch[i] = dispatchItem{
 			Entry: &types.LogEntry{
 				Message: "benchmark message",
-				Labels:  map[string]string{"key1": "value1", "key2": "value2"},
+				Labels:  types.NewLabelsCOWFromMap(map[string]string{"key1": "value1", "key2": "value2"}),
 			},
 		}
 	}

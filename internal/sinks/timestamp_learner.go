@@ -229,11 +229,11 @@ func (tl *timestampLearner) ClampTimestamp(entry *types.LogEntry) bool {
 
 		// Add labels to indicate clamping
 		if entry.Labels == nil {
-			entry.Labels = make(map[string]string)
+			entry.Labels = types.NewLabelsCOW()
 		}
-		entry.Labels["_timestamp_clamped"] = "true"
-		entry.Labels["_original_age_hours"] = fmt.Sprintf("%.1f", age.Hours())
-		entry.Labels["_original_timestamp"] = originalTimestamp.Format(time.RFC3339)
+		entry.Labels.Set("_timestamp_clamped", "true")
+		entry.Labels.Set("_original_age_hours", fmt.Sprintf("%.1f", age.Hours()))
+		entry.Labels.Set("_original_timestamp", originalTimestamp.Format(time.RFC3339))
 
 		tl.logger.WithFields(logrus.Fields{
 			"original_timestamp": originalTimestamp.Format(time.RFC3339),
@@ -250,11 +250,11 @@ func (tl *timestampLearner) ClampTimestamp(entry *types.LogEntry) bool {
 		entry.Timestamp = now
 
 		if entry.Labels == nil {
-			entry.Labels = make(map[string]string)
+			entry.Labels = types.NewLabelsCOW()
 		}
-		entry.Labels["_timestamp_clamped"] = "true"
-		entry.Labels["_original_timestamp"] = originalTimestamp.Format(time.RFC3339)
-		entry.Labels["_future_seconds"] = strconv.FormatInt(int64(entry.Timestamp.Sub(now).Seconds()), 10)
+		entry.Labels.Set("_timestamp_clamped", "true")
+		entry.Labels.Set("_original_timestamp", originalTimestamp.Format(time.RFC3339))
+		entry.Labels.Set("_future_seconds", strconv.FormatInt(int64(entry.Timestamp.Sub(now).Seconds()), 10))
 
 		tl.logger.WithFields(logrus.Fields{
 			"original_timestamp": originalTimestamp.Format(time.RFC3339),

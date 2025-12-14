@@ -12,7 +12,7 @@ func TestLogEntryConcurrentLabelAccess(t *testing.T) {
 	entry := &LogEntry{
 		Message:   "test message",
 		Timestamp: time.Now(),
-		Labels:    make(map[string]string),
+		Labels:    NewLabelsCOW(),
 	}
 
 	const goroutines = 50
@@ -150,7 +150,7 @@ func TestLogEntryDeepCopyConcurrent(t *testing.T) {
 	entry := &LogEntry{
 		Message:   "test message",
 		Timestamp: time.Now(),
-		Labels:    make(map[string]string),
+		Labels:    NewLabelsCOW(),
 		Fields:    make(map[string]interface{}),
 		Metrics:   make(map[string]float64),
 	}
@@ -224,7 +224,7 @@ func TestLogEntryMixedConcurrentOperations(t *testing.T) {
 		Timestamp:   time.Now(),
 		SourceType:  "test",
 		SourceID:    "test-123",
-		Labels:      make(map[string]string),
+		Labels:      NewLabelsCOW(),
 		Fields:      make(map[string]interface{}),
 		Metrics:     make(map[string]float64),
 		ProcessedAt: time.Now(),
@@ -303,7 +303,7 @@ func TestLogEntryStressTest(t *testing.T) {
 	entry := &LogEntry{
 		Message:   "stress test",
 		Timestamp: time.Now(),
-		Labels:    make(map[string]string),
+		Labels:    NewLabelsCOW(),
 		Fields:    make(map[string]interface{}),
 		Metrics:   make(map[string]float64),
 	}
